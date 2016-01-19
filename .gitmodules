@@ -1,0 +1,3 @@
+[submodule "Nim"]
+	path = Nim
+	url = https://github.com/nim-lang/Nim.git
