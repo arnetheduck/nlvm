@@ -71,8 +71,8 @@ Optimize with llvm (assuming llvm is in your $PATH):
 Compile with llvm (assuming llvm is in your $PATH):
 
     llc xxx.bc
-    as xxx.s -o xxx.o
-    ld xxx.o -o xxx
+    # gcc or clang needs to be used here to link with (g)libc correctly
+    gcc xxx.s -o xxx
 
 # Random notes
 
