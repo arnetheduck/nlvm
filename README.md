@@ -64,15 +64,22 @@ Run nlvm:
     cd $SRC/nlvm/nlvm
     LD_LIBRARY_PATH=$SRC/llvm-3.6.1.src/build/Debug+Asserts/lib ./nlvm c xxx.nim
 
-Optimize with llvm (assuming llvm is in your $PATH):
+See optimized code (assuming llvm is in your `$PATH`):
 
     opt -O3 nimcache/xxx.bc | llvm-dis
 
-Compile with llvm (assuming llvm is in your $PATH):
+Compile to assymbly (`.s`) (assuming llvm is in your `$PATH`):
 
-    llc xxx.bc
-    # gcc or clang needs to be used here to link with (g)libc correctly
-    gcc xxx.s -o xxx
+    llc nimcache/xxx.bc
+
+Compile and link - can use either of `clang`, `gcc` or `ld`.
+* `ld` requires assembly files (generated with `llc`) and lots of flags
+  to link correctly to the c library: http://stackoverflow.com/q/3577922
+* `gcc` will do the correct linking, but still requires assembly files
+* `clang` will link correctly, and works with `.bc` files directly, yay!
+
+    clang nimcache/*.bc -ldl -o xxx
+
 
 # Random notes
 

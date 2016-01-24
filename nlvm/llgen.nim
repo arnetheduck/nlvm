@@ -53,7 +53,7 @@ var
   llProcPtrType = llVoidPtrType
   llClosureType = llvm.structCreateNamed(llctxt, "llnim.Closure")
   llNimStringDescPtr = llvm.pointerType(llnimStringDesc)
-  llNimMainType = llvm.functionType(llvm.voidType(), [], llvm.False)
+  llInitFuncType = llvm.functionType(llvm.voidType(), [], llvm.False)
   llMainType = llvm.functionType(llCIntType, [llCIntType, llvm.pointerType(llCStringType)], llvm.False)
   llPrintfType = llvm.functionType(llCIntType, [llCStringType], llvm.True)
   llStrlenType = llvm.functionType(llCSizeTType, [llCStringType], llvm.False)
@@ -89,6 +89,8 @@ type LLGenObj = object of TPassContext
   topLevel: bool
 
   scope: seq[LLScope]
+
+  init: llvm.ValueRef
 
 type LLGen = ref LLGenObj
 
@@ -176,7 +178,7 @@ proc llName(typ: PType): string =
 
 
 proc `$`(n: PSym): string =
-  result = n.llName & " " & $n.kind & " " & $n.magic & " " & $n.loc.flags & " " & $n.info.line
+  result = n.llName & " " & $n.kind & " " & $n.magic & " " & $n.flags & " " & $n.loc.flags & " " & $n.info.line
   if n.typ != nil:
     result = result & " type " & $n.typ.kind
     if n.typ.sym != nil:
@@ -499,6 +501,7 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
   result = g.m.addGlobal(ntlt, name)
   result.setGlobalConstant(llvm.True)
   result.setLinkage(llvm.PrivateLinkage)
+  result.setUnnamedAddr(llvm.True)
 
   var baseVar, nodeVar, finalizerVar, markerVar, deepcopyVar: llvm.ValueRef
 
@@ -681,10 +684,31 @@ proc externGlobal(g: LLGen, s: PSym): llvm.ValueRef =
   of "RTLD_NOW": result = llvm.constInt(t, 2, llvm.False)
 
   of "MAP_ANONYMOUS": result = llvm.constInt(t, 0x20, llvm.False)
+
+  of "_IOFBF": result = llvm.constInt(t, 0, llvm.False)
+  of "_IOLBF": result = llvm.constInt(t, 1, llvm.False)
+  of "_IONBF": result = llvm.constInt(t, 2, llvm.False)
+
   else:
     result = g.m.getNamedGlobal(name)
     if result != nil: return
     result = g.m.addGlobal(t, name)
+
+proc genGlobal(g: LLGen, s: PSym): llvm.ValueRef =
+  let name = s.llName
+  result = g.m.getNamedGlobal(name)
+  if result == nil:
+    let t = g.llType(s.typ)
+    result = g.m.addGlobal(t, s.llName)
+
+    if s.owner.id != g.ast.id: return
+
+    result.setInitializer(llvm.constNull(t))
+
+    if sfExported in s.flags:
+      result.setLinkage(llvm.CommonLinkage)
+    else:
+      result.setLinkage(llvm.PrivateLinkage)
 
 proc callCompilerProc(g: LLGen, n: string, args: openarray[llvm.ValueRef]): llvm.ValueRef =
   let sym = magicsys.getCompilerProc(n)
@@ -1781,9 +1805,7 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     if lfHeader in s.loc.flags or lfNoDecl in s.loc.flags:
       v = g.externGlobal(s)
     elif sfGlobal in s.flags:
-      v = g.m.getNamedGlobal(s.llName)
-      if v == nil:
-        v = g.m.addGlobal(g.llType(s.typ), s.llName)
+      v = g.genGlobal(s)
     else:
       v = g.scopeGet(s.llName)
 
@@ -2601,7 +2623,7 @@ proc genIdentDefsStmt(g: LLGen, n: PNode) =
     if lfNoDecl in v.loc.flags: return
 
     if sfGlobal in v.flags:
-      x = g.m.addGlobal(g.llType(v.typ), v.llName)
+      x = g.genGlobal(v)
     else:
       x = g.b.buildAlloca(g.llType(v.typ), v.llName)
   else:
@@ -2631,23 +2653,20 @@ proc genVarTupleStmt(g: LLGen, n: PNode) =
     let s = n[i]
     let v = s.sym
 
-    let name = v.llName
-
     var x: llvm.ValueRef
+
     if sfGlobal in v.flags:
-      x = g.m.getNamedGlobal(name)
-      if x == nil:
-        x = g.m.addGlobal(g.llType(v.typ), name)
+      x = g.genGlobal(v)
     else:
+      let name = v.llName
       x = g.b.buildAlloca(g.llType(v.typ), name)
 
       let tv = g.b.buildExtractValue(t, i.cuint, "")
 
       g.genAssignment(tv, x, s.typ)
 
-    # Put in scope only once init is finished (init might refence
-    # a var with the same name)
-    if not (sfGlobal in v.flags):
+      # Put in scope only once init is finished (init might refence
+      # a var with the same name)
       g.scopePut(name, x)
 
 proc genAsgnStmt(g: LLGen, n: PNode) =
@@ -2675,9 +2694,6 @@ proc genProcStmt(g: LLGen, n: PNode) =
   if lfNoDecl in s.loc.flags or s.magic != mNone or
        {sfImportc, sfInfixCall} * s.flags != {}:
     return
-
-  if n.sons[bodyPos].kind == nkEmpty:
-    return # TODO create forward decaration...
 
   if s.skipGenericOwner.kind != skModule:
     return
@@ -2879,10 +2895,11 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
     g.setInitializer(ss)
     g.setGlobalConstant(llvm.True)
     g.setUnnamedAddr(llvm.True)
+    g.setLinkage(llvm.PrivateLinkage)
   else:
     var x: llvm.ValueRef
     if sfGlobal in v.flags:
-      x = g.m.addGlobal(g.llType(v.typ), v.llName)
+      x = g.genGlobal(v)
     else:
       x = g.b.buildAlloca(g.llType(v.typ), v.llName)
 
@@ -3127,20 +3144,35 @@ proc genStmt(g: LLGen, n: PNode) =
 
 proc newLLGen(s: PSym): LLGen =
   new(result)
+  let name = s.llName
+
   result.ast = s
-  result.m = llvm.moduleCreateWithName(s.llName)
+  result.m = llvm.moduleCreateWithName(name)
   result.b = llvm.createBuilder()
   result.scope = @[]
 
-proc genMain(g: LLGen, nimMain: ValueRef) =
+proc genMain(g: LLGen) =
   let f = g.m.addFunction("main", llMainType)
 
   let b = llvm.appendBasicBlock(f, "entry")
   g.b.positionBuilderAtEnd(b)
 
-  discard g.b.buildCall(nimMain, [], "")
+  discard g.b.buildCall(g.init, [], "")
 
   discard g.b.buildRet(constInt(llCIntType, 0, False))
+
+proc genExtras(g: LLGen) =
+  # defined as macro in nimbase.h
+  let f = g.m.getNamedFunction("zeroMem")
+  if f == nil: return
+
+  f.setLinkage(llvm.PrivateLinkage)
+  let b = llvm.appendBasicBlock(f, "entry")
+  g.b.positionBuilderAtEnd(b)
+
+  g.callMemset(f.getParam(0), constInt8(0), f.getParam(1))
+
+  discard g.b.buildRetVoid()
 
 proc myClose(b: PPassContext, n: PNode): PNode =
   if passes.skipCodegen(n): return n
@@ -3157,7 +3189,10 @@ proc myClose(b: PPassContext, n: PNode): PNode =
   if fn.getLastBasicBlock() != g.returnBlock:
     g.returnBlock.moveBasicBlockAfter(fn.getLastBasicBlock())
 
-  g.genMain(g.m.getNamedFunction("NimMain"))
+  if sfMainModule in g.ast.flags:
+    g.genMain()
+
+  g.genExtras()
 
   let outfile =
     if options.outFile.len > 0:
@@ -3181,19 +3216,21 @@ proc myOpenCached(s: PSym, rd: PRodReader): PPassContext =
   result = nil
 
 proc myOpen(s: PSym): PPassContext =
-  echo "Opening ", s.kind, " ", s.llName
+  p("Opening", s, 0)
 
   let g = newLLGen(s)
 
-  let f = g.m.addFunction("NimMain", llNimMainType)
+  let init = g.m.addFunction(s.llName & "_Init000", llInitFuncType)
   g.topLevel = true
 
-  let b = llvm.appendBasicBlock(f, "entry")
+  let b = llvm.appendBasicBlock(init, "entry")
   g.b.positionBuilderAtEnd(b)
 
-  g.returnBlock = llvm.appendBasicBlock(f, "return")
+  g.returnBlock = llvm.appendBasicBlock(init, "return")
 
   g.scopePush(nil, g.returnBlock)
+
+  g.init = init
 
   result = g
 

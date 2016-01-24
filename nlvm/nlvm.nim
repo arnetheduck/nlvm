@@ -73,6 +73,10 @@ proc handleCmdLine() =
     nimconf.loadConfigs(DefaultConfig)
     service.processCmdLine(passCmd2, "")
 
+    # Not supported yet
+    defineSymbol("nogc")
+    options.gSelectedGC = gcNone
+
     mainCommand()
 
 # Beautiful...
