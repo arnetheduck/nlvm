@@ -2,7 +2,7 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-const LLVMLib = "libLLVM-3.6.so"
+const LLVMLib = "libLLVM-3.7.so"
 
 # Includes and helpers for generated code
 type

@@ -41,13 +41,13 @@ Start with a clone:
 Compile llvm shared library:
 
     cd $SRC
-    wget http://llvm.org/releases/3.6.1/llvm-3.6.1.src.tar.xz
-    tar xvf llvm-3.6.1.src.tar.xz
-    cd llvm-3.6.1.src
+    wget http://llvm.org/releases/3.7.1/llvm-3.7.1.src.tar.xz
+    tar xvf llvm-3.7.1.src.tar.xz
+    cd llvm-3.7.1.src
     mkdir build
     cd build
     ../configure --disable-optimized --enable-debug-runtime --enable-targets=x86_64 --enable-shared 
-    make
+    nice make -j$(nproc)
 
 Compile nim:
 
@@ -62,7 +62,7 @@ Compile nlvm:
 Run nlvm:
 
     cd $SRC/nlvm/nlvm
-    LD_LIBRARY_PATH=$SRC/llvm-3.6.1.src/build/Debug+Asserts/lib ./nlvm c xxx.nim
+    LD_LIBRARY_PATH=$SRC/llvm-3.7.1.src/build/Debug+Asserts/lib ./nlvm c xxx.nim
 
 See optimized code (assuming llvm is in your `$PATH`):
 
@@ -77,6 +77,8 @@ Compile and link - can use either of `clang`, `gcc` or `ld`.
   to link correctly to the c library: http://stackoverflow.com/q/3577922
 * `gcc` will do the correct linking, but still requires assembly files
 * `clang` will link correctly, and works with `.bc` files directly, yay!
+
+With the winner:
 
     clang nimcache/*.bc -ldl -o xxx
 

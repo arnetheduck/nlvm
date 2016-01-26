@@ -930,6 +930,14 @@ proc countStructElementTypes*(structTy: TypeRef): cuint {.
 proc getStructElementTypes*(structTy: TypeRef; dest: ptr TypeRef) {.
     importc: "LLVMGetStructElementTypes", dynlib: LLVMLib.}
 #*
+#  Get the type of the element at a given index in the structure.
+# 
+#  @see llvm::StructType::getTypeAtIndex()
+# 
+
+proc structGetTypeAtIndex*(structTy: TypeRef; i: cuint): TypeRef {.
+    importc: "LLVMStructGetTypeAtIndex", dynlib: LLVMLib.}
+#*
 #  Determine whether a structure is packed.
 # 
 #  @see llvm::StructType::isPacked()
@@ -1090,7 +1098,6 @@ proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 # 
 #  @{
 # 
-#
 ##define LLVM_FOR_EACH_VALUE_SUBCLASS(macro) \
 #  macro(Argument)                           \
 #  macro(BasicBlock)                         \
@@ -1909,6 +1916,22 @@ proc addAlias*(m: ModuleRef; ty: TypeRef; aliasee: ValueRef; name: cstring): Val
 
 proc deleteFunction*(fn: ValueRef) {.importc: "LLVMDeleteFunction", 
                                      dynlib: LLVMLib.}
+#*
+#  Obtain the personality function attached to the function.
+# 
+#  @see llvm::Function::getPersonalityFn()
+# 
+
+proc getPersonalityFn*(fn: ValueRef): ValueRef {.
+    importc: "LLVMGetPersonalityFn", dynlib: LLVMLib.}
+#*
+#  Set the personality function attached to the function.
+# 
+#  @see llvm::Function::setPersonalityFn()
+# 
+
+proc setPersonalityFn*(fn: ValueRef; personalityFn: ValueRef) {.
+    importc: "LLVMSetPersonalityFn", dynlib: LLVMLib.}
 #*
 #  Obtain the ID number from a function instance.
 # 

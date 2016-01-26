@@ -1,5 +1,5 @@
-LLVM_HOME=../../llvm-3.6.1.src/build/Debug+Asserts/
-LLVM_INC=../../llvm-3.6.1.src/include
+LLVM_HOME=../../llvm-3.7.1.src/build/Debug+Asserts/
+LLVM_INC=../../llvm-3.7.1.src/include
 
 C2NIM="../../c2nim/c2nim"
 C2NIMFLAGS="--nep1 --skipinclude --prefix:LLVM --dynlib:LLVMLib"
