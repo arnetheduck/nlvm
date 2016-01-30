@@ -1726,8 +1726,10 @@ proc genMagicExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of mBitandI: result = g.genBinOpExpr(n, llvm.And)
   of mBitorI: result = g.genBinOpExpr(n, llvm.Or)
   of mBitxorI: result = g.genBinOpExpr(n, llvm.Xor)
-  of mMinI, mMaxI: result = g.genMinMaxIExpr(n, llvm.IntSLE) # sign
-  of mMinF64, mMaxF64: result = g.genMinMaxFExpr(n, llvm.RealOLE) # ordered?
+  of mMinI: result = g.genMinMaxIExpr(n, llvm.IntSLE) # sign
+  of mMaxI: result = g.genMinMaxIExpr(n, llvm.IntSGE) # sign
+  of mMinF64: result = g.genMinMaxFExpr(n, llvm.RealOLE) # ordered?
+  of mMaxF64: result = g.genMinMaxFExpr(n, llvm.RealOGE) # ordered?
   of mAddU: result = g.genBinOpExpr(n, llvm.Add, true)
   of mSubU: result = g.genBinOpExpr(n, llvm.Sub, true)
   of mMulU: result = g.genBinOpExpr(n, llvm.Mul, true)
@@ -2149,7 +2151,7 @@ proc genConvExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if vt == nt:
     result = v
   elif vtk == llvm.IntegerTypeKind and ntk == llvm.IntegerTypeKind:
-    result = g.b.buildTruncOrExt(v, nt, n.typ.kind)
+    result = g.b.buildTruncOrExt(v, nt, n[1].typ.kind)
   elif vtk in {llvm.HalfTypeKind..llvm.PPC_FP128TypeKind} and ntk == llvm.IntegerTypeKind:
     if ntyp.kind in {tyUInt..tyUInt64}:
       result = g.b.buildFPToUI(v, nt, "")
@@ -2382,7 +2384,7 @@ proc genEchoStmt(g: LLGen, n: PNode) =
     filterIt(it != nil).
     mapIt(llvm.ValueRef, g.b.buildNimSeqDataGEP(it))
 
-  let arg0 = "%s".repeat(args.len)
+  let arg0 = "%s".repeat(args.len) & "\n"
   let v = g.b.buildGlobalStringPtr(arg0, "")
   let f = g.m.getOrInsertFunction("printf", llPrintfType)
 
@@ -2696,6 +2698,9 @@ proc genProcStmt(g: LLGen, n: PNode) =
     return
 
   if s.skipGenericOwner.kind != skModule:
+    return
+
+  if sfForward in s.flags:
     return
 
   g.topLevel = false
