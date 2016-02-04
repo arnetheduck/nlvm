@@ -74,6 +74,7 @@ type LLScope = ref object
   vars: seq[NamedVal]
   n: PNode
   exit: llvm.BasicBlockRef
+  alloc: llvm.BasicBlockRef
 
 proc `$`(s: LLScope): string =
   $s.vars
@@ -113,7 +114,10 @@ proc genProcStmt(g: LLGen, n: PNode)
 proc genStmt(g: LLGen, n: PNode)
 
 proc scopePush(g: LLGen, n: PNode, exit: llvm.BasicBlockRef) =
-  g.scope.add(LLScope(vars: @[], n: n, exit: exit))
+  let alloc = g.b.getInsertBlock()
+
+  g.scope.add(
+    LLScope(vars: @[], n: n, exit: exit, alloc: alloc))
 
 proc scopeFind(g: LLGen, sym: PSym): LLScope =
   for i in 0..g.scope.len - 1:
@@ -142,6 +146,26 @@ proc scopePut(g: LLGen, name: string, value: llvm.ValueRef) =
       return
 
   g.scope[g.scope.len - 1].vars.add((name, value))
+
+proc scopeAlloca(g: LLGen, typ: llvm.TypeRef, name: string): llvm.ValueRef =
+  # in a moment of truimph, code like `if a and (let m = 1; m != 1): ...` was
+  # allowed, creating a problematic scope for m - it should ideally only exist
+  # when a is true, but this is tricky to generate, so we generate allocations
+  # early in some random block before the actual scope - the optimizer will then
+  # move it elsewhere if possible
+  var s = g.scope[g.scope.len - 1]
+  let tmp = g.b.getInsertBlock()
+  var first = s.alloc.getFirstInstruction()
+  # Skip instructions that must be first in a block
+  while first != nil and
+    first.getInstructionOpcode() in {llvm.PHI, llvm.LandingPad, llvm.Alloca}:
+    first = first.getNextInstruction()
+  if first != nil:
+    g.b.positionBuilder(s.alloc, first)
+  else:
+    g.b.positionBuilderAtEnd(s.alloc)
+  result = g.b.buildAlloca(typ, name)
+  g.b.positionBuilderAtEnd(tmp)
 
 proc llName(s: PSym): string =
   if sfImportc in s.flags or sfExportc in s.flags:
@@ -839,6 +863,9 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
         i += 1
 
   g.b.positionBuilderAtEnd(entry)
+
+  # Scope for local variables
+  g.scopePush(s.ast, g.returnBlock)
 
   let rt = ft.getReturnType()
   if rt.getTypeKind() != llvm.VoidTypeKind:
@@ -2287,12 +2314,20 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
   for i in 1..n.sonsLen - 1:
     let s = n[i]
-    let isLast = i == n.sonsLen - 1
     p("genCaseExpr", s, g.depth)
 
-    let next = g.b.getInsertBlock()
+    let isLast = i == n.sonsLen - 1
 
-    let casedo = f.appendBasicBlock("case.do")
+    let cur = g.b.getInsertBlock()
+
+    let lbl = if s.kind == nkElse: "case.else" else: "case.of." & $i
+    let casedo = f.appendBasicBlock(lbl & ".do")
+
+    let next =
+      if isLast: caseend
+      elif n[i+1].kind == nkElse: f.appendBasicBlock("case.else")
+      else: f.appendBasicBlock("case.of." & $(i+1))
+
     g.scopePush(n, caseend)
     g.b.positionBuilderAtEnd(casedo)
     let res = g.genExpr(s.lastSon, true)
@@ -2300,13 +2335,15 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
     g.b.buildBrFallthrough(caseend)
 
-    g.b.positionBuilderAtEnd(next)
+    g.b.positionBuilderAtEnd(cur)
 
     case s.kind
     of nkOfBranch:
       # sons here is a list of candidates to match against, which may
       # be values or ranges, except the last one which is the action
-      for cond in s.sons[0..s.sonsLen - 2]:
+      for j in 0..s.sonsLen - 2:
+        let isLast2 = j == s.sonsLen - 2
+        let cond = s[j]
         if cond.kind == nkRange:
           let bx = g.genExpr(cond.sons[0], true)
           let cx = g.genExpr(cond.sons[1], true)
@@ -2320,7 +2357,9 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
           let cmpc = g.b.buildICmp(llvm.IntSLE, ax, cx, "")
           let cmp = g.b.buildAnd(cmpb, cmpc, "")
 
-          let casenext = if isLast: caseend else: f.appendBasicBlock("case.next")
+          let casenext =
+            if isLast2: next
+            else: f.appendBasicBlock(lbl & ".or." & $j)
           discard g.b.buildCondBr(cmp, casedo, casenext)
 
           g.b.positionBuilderAtEnd(casenext)
@@ -2338,14 +2377,18 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
             cmp = g.b.buildICmp(llvm.IntEQ, tmp, constNimInt(0), "")
           else:
             cmp = g.b.buildICmp(llvm.IntEQ, ax, bx, "")
-          let casenext = if isLast: caseend else: f.appendBasicBlock("case.next")
+          let casenext =
+            if isLast2: next
+            else: f.appendBasicBlock(lbl & ".or." & $j)
           discard g.b.buildCondBr(cmp, casedo, casenext)
-          casedo.moveBasicBlockBefore(casenext)
+
           g.b.positionBuilderAtEnd(casenext)
 
-      # Moving block is not necessary but makes generated code easier
-      # to follow, placing action just after conditions
-      casedo.moveBasicBlockBefore(g.b.getInsertBlock())
+        # Moving block is not necessary but makes generated code easier
+        # to follow, placing action just after conditions
+        if not isLast2:
+          g.b.getInsertBlock().moveBasicBlockBefore(casedo)
+
     of nkElse:
       discard g.b.buildBr(casedo)
     else:
@@ -2627,7 +2670,7 @@ proc genIdentDefsStmt(g: LLGen, n: PNode) =
     if sfGlobal in v.flags:
       x = g.genGlobal(v)
     else:
-      x = g.b.buildAlloca(g.llType(v.typ), v.llName)
+      x = g.scopeAlloca(g.llType(v.typ), v.llName)
   else:
     # Closure...
     x = g.genExpr(n[0], false)
@@ -2661,7 +2704,7 @@ proc genVarTupleStmt(g: LLGen, n: PNode) =
       x = g.genGlobal(v)
     else:
       let name = v.llName
-      x = g.b.buildAlloca(g.llType(v.typ), name)
+      x = g.scopeAlloca(g.llType(v.typ), name)
 
       let tv = g.b.buildExtractValue(t, i.cuint, "")
 
@@ -2810,25 +2853,35 @@ proc genCaseStmt(g: LLGen, n: PNode) =
 
   for i in 1..n.sonsLen - 1:
     let s = n[i]
-    let isLast = i == n.sonsLen - 1
     p("genCaseStmt", s, g.depth)
 
-    let next = g.b.getInsertBlock()
+    let isLast = i == n.sonsLen - 1
 
-    let casedo = f.appendBasicBlock("case.do")
+    let cur = g.b.getInsertBlock()
+
+    let lbl = if s.kind == nkElse: "case.else" else: "case.of." & $i
+    let casedo = f.appendBasicBlock(lbl & ".do")
+
+    let next =
+      if isLast: caseend
+      elif n[i+1].kind == nkElse: f.appendBasicBlock("case.else")
+      else: f.appendBasicBlock("case.of." & $(i+1))
+
     g.scopePush(n, caseend)
     g.b.positionBuilderAtEnd(casedo)
     g.genStmt(s.lastSon)
 
     g.b.buildBrFallthrough(caseend)
 
-    g.b.positionBuilderAtEnd(next)
+    g.b.positionBuilderAtEnd(cur)
 
     case s.kind
     of nkOfBranch:
       # sons here is a list of candidates to match against, which may
       # be values or ranges, except the last one which is the action
-      for cond in s.sons[0..s.sonsLen - 2]:
+      for j in 0..s.sonsLen - 2:
+        let isLast2 = j == s.sonsLen - 2
+        let cond = s[j]
         if cond.kind == nkRange:
           let bx = g.genExpr(cond.sons[0], true)
           let cx = g.genExpr(cond.sons[1], true)
@@ -2842,7 +2895,9 @@ proc genCaseStmt(g: LLGen, n: PNode) =
           let cmpc = g.b.buildICmp(llvm.IntSLE, ax, cx, "")
           let cmp = g.b.buildAnd(cmpb, cmpc, "")
 
-          let casenext = if isLast: caseend else: f.appendBasicBlock("case.next")
+          let casenext =
+            if isLast2: next
+            else: f.appendBasicBlock(lbl & ".or." & $j)
           discard g.b.buildCondBr(cmp, casedo, casenext)
 
           g.b.positionBuilderAtEnd(casenext)
@@ -2860,14 +2915,18 @@ proc genCaseStmt(g: LLGen, n: PNode) =
             cmp = g.b.buildICmp(llvm.IntEQ, tmp, constNimInt(0), "")
           else:
             cmp = g.b.buildICmp(llvm.IntEQ, ax, bx, "")
-          let casenext = if isLast: caseend else: f.appendBasicBlock("case.next")
+          let casenext =
+            if isLast2: next
+            else: f.appendBasicBlock(lbl & ".or." & $j)
           discard g.b.buildCondBr(cmp, casedo, casenext)
-          casedo.moveBasicBlockBefore(casenext)
+
           g.b.positionBuilderAtEnd(casenext)
 
-      # Moving block is not necessary but makes generated code easier
-      # to follow, placing action just after conditions
-      casedo.moveBasicBlockBefore(g.b.getInsertBlock())
+        # Moving block is not necessary but makes generated code easier
+        # to follow, placing action just after conditions
+        if not isLast2:
+          g.b.getInsertBlock().moveBasicBlockBefore(casedo)
+
     of nkElse:
       discard g.b.buildBr(casedo)
     else:
@@ -2906,7 +2965,7 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
     if sfGlobal in v.flags:
       x = g.genGlobal(v)
     else:
-      x = g.b.buildAlloca(g.llType(v.typ), v.llName)
+      x = g.scopeAlloca(g.llType(v.typ), v.llName)
 
     if init.kind != nkEmpty:
       let i = g.genExpr(init, true)
@@ -3042,6 +3101,14 @@ proc genReturnStmt(g: LLGen, n: PNode) =
     g.genStmt(n.sons[0])
   discard g.b.buildBr(g.returnBlock)
 
+  # Sometimes, there might be dead code after the return statement.. as a hack
+  # we add a block that will have no predecessors, to avoid dealing with it
+  # elsewhere
+  let pre = g.b.getInsertBlock()
+  let f = pre.getBasicBlockParent()
+  let cont = f.appendBasicBlock("")
+  g.b.positionBuilderAtEnd(cont)
+
 proc genBreakStmt(g: LLGen, n: PNode) =
   p("b", n[0], g.depth)
 
@@ -3050,11 +3117,18 @@ proc genBreakStmt(g: LLGen, n: PNode) =
     if s == nil:
       p("TODO NOT FOUND", n[0], 0)
     else:
+      # similar to return, there might be more stuff after a break that messes
+      # things up - we add an extra block just in case
+      # TODO: one case when this happens is with finally blocks, which are
+      # currently broken anyway, but this way at least the generated bytecode is
+      # valid
+      let pre = g.b.getInsertBlock()
+      let f = pre.getBasicBlockParent()
+      let cont = f.appendBasicBlock("block.cont." & $s.n.sym.id)
       if s.exit == nil:
-        let pre = g.b.getInsertBlock()
-        let f = pre.getBasicBlockParent()
-        s.exit = f.appendBasicBlock("block." & $s.n.sym.id)
+        s.exit = f.appendBasicBlock("block.exit." & $s.n.sym.id)
       discard g.b.buildBr(s.exit)
+      g.b.positionBuilderAtEnd(cont)
   else:
     p("TODO genBreakStmt", n, 0)
 
