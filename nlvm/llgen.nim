@@ -63,6 +63,7 @@ var
   llFabsType = llvm.functionType(llvm.doubleType(), [llvm.doubleType()], llvm.False)
   llMemsetType = llvm.functionType(llvm.voidType(), [llVoidPtrType, llvm.int8Type(), llvm.int64Type(), llvm.int32Type(), llvm.int1Type()])
   llMemCpyType = llvm.functionType(llvm.voidType(), [llVoidPtrType, llVoidPtrType, llvm.int64Type(), llvm.int32Type(), llvm.int1Type()])
+  llErrnoType = llvm.functionType(llvm.pointerType(llCIntType), [])
 
 llvm.structSetBody(llGenericSeqType, [llIntType, llIntType])
 llvm.structSetBody(llNimStringDesc, [llGenericSeqType, llvm.arrayType(llvm.int8Type(), 0)])
@@ -87,7 +88,6 @@ type LLGenObj = object of TPassContext
   returnBlock: llvm.BasicBlockRef
 
   depth: int
-  topLevel: bool
 
   scope: seq[LLScope]
 
@@ -96,6 +96,7 @@ type LLGenObj = object of TPassContext
 type LLGen = ref LLGenObj
 
 # Helpers
+proc callErrno(g: LLGen): llvm.ValueRef
 proc genFunction(g: LLGen, s: PSym): llvm.ValueRef
 
 # Magic expressions
@@ -173,8 +174,6 @@ proc llName(s: PSym): string =
   elif sfCompilerProc in s.flags:
     result = s.name.s
   elif s.kind in {skParam, skType, skModule, skResult}:
-    result = s.name.s
-  elif s.magic != mNone:
     result = s.name.s
   else:
     result = mangle(s.name.s)
@@ -698,21 +697,7 @@ proc externGlobal(g: LLGen, s: PSym): llvm.ValueRef =
     t = g.llType(s.typ)
 
   case name
-  of "SIGINT": result = llvm.constInt(t, 2, llvm.False)
-  of "SIGILL": result = llvm.constInt(t, 4, llvm.False)
-  of "SIGABRT": result = llvm.constInt(t, 6, llvm.False)
-  of "SIGFPE": result = llvm.constInt(t, 8, llvm.False)
-  of "SIGSEGV": result = llvm.constInt(t, 11, llvm.False)
-  of "SIGPIPE": result = llvm.constInt(t, 13, llvm.False)
-
-  of "RTLD_NOW": result = llvm.constInt(t, 2, llvm.False)
-
-  of "MAP_ANONYMOUS": result = llvm.constInt(t, 0x20, llvm.False)
-
-  of "_IOFBF": result = llvm.constInt(t, 0, llvm.False)
-  of "_IOLBF": result = llvm.constInt(t, 1, llvm.False)
-  of "_IONBF": result = llvm.constInt(t, 2, llvm.False)
-
+  of "errno": result = g.callErrno()
   else:
     result = g.m.getNamedGlobal(name)
     if result != nil: return
@@ -732,7 +717,11 @@ proc genGlobal(g: LLGen, s: PSym): llvm.ValueRef =
     if sfExported in s.flags:
       result.setLinkage(llvm.CommonLinkage)
     else:
-      result.setLinkage(llvm.PrivateLinkage)
+      # this is where you think you'd be able to use PrivateLinkage, but globals
+      # can get accessed outside the current module, even when they're not
+      # sfExported, for example with an iterator (see envPairs)
+      # TODO investigate language manual and see what the intention is here
+      result.setLinkage(llvm.CommonLinkage)
 
 proc callCompilerProc(g: LLGen, n: string, args: openarray[llvm.ValueRef]): llvm.ValueRef =
   let sym = magicsys.getCompilerProc(n)
@@ -764,6 +753,12 @@ proc callMemcpy(g: LLGen, tgt, src, len: llvm.ValueRef) =
   let f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i64", llMemcpyType)
 
   discard g.b.buildCall(f, [tgt, src, len, constInt32(0), constInt1(false)])
+
+proc callErrno(g: LLGen): llvm.ValueRef =
+  # on linux errno is a function, so we call it here. not at all portable.
+  let f = g.m.getOrInsertFunction("__errno_location", llErrnoType)
+
+  result = g.b.buildCall(f, [])
 
 template withRangeItems(il: expr, n: PNode, body: stmt) {.immediate.} =
   let
@@ -1671,6 +1666,14 @@ proc genConStrStrExpr(g: LLGen, n: PNode): llvm.ValueRef =
 
   result = tgt
 
+proc genDotDotExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+  # a compiler magic with implementation in system.nim.. hm.
+  var s = n.sons[namePos].sym
+  let f = g.genFunctionWithBody(s)
+  # will be generated in multiple modules, so hide it..
+  f.setLinkage(llvm.PrivateLinkage)
+
+  result = g.genCall(n, load)
 proc genInSetExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let size = getSize(skipTypes(n[1].typ, abstractVar))
 
@@ -1818,7 +1821,7 @@ proc genMagicExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of mMinusSet: result = g.genSetBinOpExpr(llvm.And, true, n)
   of mSymDiffSet: result = g.genSetBinOpExpr(llvm.Xor, false, n)
   of mConStrStr: result = g.genConStrStrExpr(n)
-  of mDotDot: result = g.genCall(n, load)
+  of mDotDot: result = g.genDotDotExpr(n, load)
   of mInSet: result = g.genInSetExpr(n)
   of mIsNil: result = g.genIsNilExpr(n)
   of mArrToSeq: result = g.genArrToSeq(n)
@@ -2746,11 +2749,7 @@ proc genProcStmt(g: LLGen, n: PNode) =
   if sfForward in s.flags:
     return
 
-  g.topLevel = false
-
   discard g.genFunctionWithBody(s)
-
-  g.topLevel = true
 
 proc genIfStmt(g: LLGen, n: PNode) =
   let pre = g.b.getInsertBlock()
@@ -3240,19 +3239,6 @@ proc genMain(g: LLGen) =
 
   discard g.b.buildRet(constInt(llCIntType, 0, False))
 
-proc genExtras(g: LLGen) =
-  # defined as macro in nimbase.h
-  let f = g.m.getNamedFunction("zeroMem")
-  if f == nil: return
-
-  f.setLinkage(llvm.PrivateLinkage)
-  let b = llvm.appendBasicBlock(f, "entry")
-  g.b.positionBuilderAtEnd(b)
-
-  g.callMemset(f.getParam(0), constInt8(0), f.getParam(1))
-
-  discard g.b.buildRetVoid()
-
 proc myClose(b: PPassContext, n: PNode): PNode =
   if passes.skipCodegen(n): return n
   let g = LLGen(b)
@@ -3270,8 +3256,6 @@ proc myClose(b: PPassContext, n: PNode): PNode =
 
   if sfMainModule in g.ast.flags:
     g.genMain()
-
-  g.genExtras()
 
   let outfile =
     if options.outFile.len > 0:
@@ -3300,7 +3284,6 @@ proc myOpen(s: PSym): PPassContext =
   let g = newLLGen(s)
 
   let init = g.m.addFunction(s.llName & "_Init000", llInitFuncType)
-  g.topLevel = true
 
   let b = llvm.appendBasicBlock(init, "entry")
   g.b.positionBuilderAtEnd(b)
