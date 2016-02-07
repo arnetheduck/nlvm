@@ -91,6 +91,9 @@ proc constString*(s: string, dontNullTerminate = False): ValueRef =
 proc constStruct*(constantVals: openarray[ValueRef]; packed = False): ValueRef =
   asRaw(constantVals, constStruct(p, n, packed))
 
+proc constArray*(t: TypeRef, constantVals: openarray[ValueRef]): ValueRef =
+  asRaw(constantVals, constArray(t, p, n))
+
 proc constNamedStruct*(structTy: TypeRef;
                        constantVals: openarray[ValueRef]): ValueRef =
   asRaw(constantVals, constNamedStruct(structTy, p, n))

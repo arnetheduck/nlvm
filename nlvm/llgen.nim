@@ -176,7 +176,7 @@ proc llName(s: PSym): string =
   elif s.kind in {skParam, skType, skModule, skResult}:
     result = s.name.s
   else:
-    result = mangle(s.name.s)
+    result = s.name.s.toLower
     result &= "_"
     result &= $s.id
 
@@ -445,7 +445,7 @@ proc llStructType(g: LLGen, typ: PType): llvm.TypeRef =
     if (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags:
       discard
     else:
-      elements.add(g.llStructType(magicsys.getCompilerProc("TNimType").typ))
+      elements.add(llvm.pointerType(g.llStructType(magicsys.getCompilerProc("TNimType").typ)))
   else:
     elements.add(g.llStructType(super))
 
@@ -1036,14 +1036,18 @@ proc genAssignment(g: LLGen, v, t: llvm.ValueRef, typ: PType) =
     let
       tp = g.b.buildBitCast(g.b.buildGEP(t, [constGEPIdx(0), constGEPIdx(0)]), llVoidPtrType, "")
       vp = g.b.buildBitCast(g.b.buildGEP(v, [constGEPIdx(0), constGEPIdx(0)]), llVoidPtrType, "")
-    g.callMemcpy(tp, vp, constNimInt(typ.lengthOrd().int))
+      so = tet.getElementType().sizeOfX()
+      n = g.b.buildMul(so, constNimInt(tet.getArrayLength().int), "")
+    g.callMemcpy(tp, vp, n)
   elif tet.getTypeKind() == llvm.ArrayTypeKind and
       vt.getTypeKind() == llvm.PointerTypeKind and
       vt.getElementType() == tet.getElementType():
     let
       tp = g.b.buildBitCast(g.b.buildGEP(t, [constGEPIdx(0), constGEPIdx(0)]), llVoidPtrType, "")
       vp = g.b.buildBitCast(v, llVoidPtrType, "")
-    g.callMemcpy(tp, vp, constNimInt(typ.lengthOrd().int))
+      so = tet.getElementType().sizeOfX()
+      n = g.b.buildMul(so, constNimInt(tet.getArrayLength().int), "")
+    g.callMemcpy(tp, vp, n)
   elif typ.kind == tyProc:
     discard g.b.buildStore(g.b.buildBitcast(v, tet, ""), t)
   else:
@@ -1078,7 +1082,7 @@ proc genSizeOfExpr(g: LLGen, n: PNode): llvm.ValueRef =
 proc genOfExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let ax = g.genExpr(n[1], false)
   if ax == nil: return
-  let m_type = g.b.buildGEP(ax, mtypeIndex(n[1].typ))
+  let m_type = g.b.buildLoad(g.b.buildGEP(ax, mtypeIndex(n[1].typ)), "")
   let typ = n[2].typ
   # TODO nil check if n is a pointer
   result = g.callCompilerProc("isObj", [m_type, g.genTypeInfo(typ)])
@@ -1093,7 +1097,7 @@ proc genOrdExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let ax = g.genExpr(n[1], true)
   if ax == nil: return
 
-  result = g.b.buildTruncOrExt(ax, g.llType(n.typ), n.typ.kind)
+  result = g.b.buildTruncOrExt(ax, g.llType(n.typ), true)
 
 proc genLengthOpenArrayExpr(g: LLGen, n: PNode): llvm.ValueRef =
   # openarray must be a parameter so we should find it in the scope
@@ -1711,8 +1715,8 @@ proc genArrToSeq(g: LLGen, n: PNode): llvm.ValueRef =
   let
     t = skipTypes(n.typ, abstractInst)
     l = int(lengthOrd(skipTypes(n[1].typ, abstractInst)))
-    eti = g.genTypeInfo(t.elemType)
-    tmp = g.callCompilerProc("newSeq", [eti, constNimInt(l)])
+    ti = g.genTypeInfo(t)
+    tmp = g.callCompilerProc("newSeq", [ti, constNimInt(l)])
 
   result = g.b.buildBitcast(tmp, g.llType(t), "")
 
@@ -2006,7 +2010,7 @@ proc genBracketExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     if load:
       result = g.b.buildLoadValue(result)
   elif n.typ.kind == tySequence:
-    let ti = g.genTypeInfo(n.typ.elemType)
+    let ti = g.genTypeInfo(n.typ)
 
     result = g.callCompilerProc("newSeq", [ti, constNimInt(n.sonsLen())])
     result = g.b.buildBitcast(result, t, "")
@@ -3037,7 +3041,7 @@ proc genTryStmt(g: LLGen, n: PNode) =
         assert(b[j].kind == nkType)
 
         let exc = g.callCompilerProc("getCurrentException", [])
-        let m_type = g.b.buildGEP(exc, [constGEPIdx(0), constGEPIdx(0), constGEPIdx(0)])
+        let m_type = g.b.buildLoad(g.b.buildGEP(exc, [constGEPIdx(0), constGEPIdx(0), constGEPIdx(0)]), "")
         let ti = g.genTypeInfo(b[j].typ)
         let found = g.callCompilerProc("isObj", [m_type, ti])
 
@@ -3239,6 +3243,14 @@ proc genMain(g: LLGen) =
 
   discard g.b.buildRet(constInt(llCIntType, 0, False))
 
+proc genGlobalCtors(g: LLGen) =
+  let st = llvm.structType([llvm.int32Type(), llvm.pointerType(llvm.functionType(llvm.voidType(), []))])
+  let t = llvm.arrayType(st, 1)
+  let ctors = g.m.addGlobal(t, "llvm.global_ctors")
+
+  ctors.setLinkage(llvm.AppendingLinkage)
+  ctors.setInitializer(llvm.constArray(st, [llvm.constStruct([constInt32(1), g.init])]))
+
 proc myClose(b: PPassContext, n: PNode): PNode =
   if passes.skipCodegen(n): return n
   let g = LLGen(b)
@@ -3256,6 +3268,8 @@ proc myClose(b: PPassContext, n: PNode): PNode =
 
   if sfMainModule in g.ast.flags:
     g.genMain()
+  else:
+    g.genGlobalCtors()
 
   let outfile =
     if options.outFile.len > 0:
