@@ -80,7 +80,7 @@ proc handleCmdLine() =
     mainCommand()
 
 # Beautiful...
-options.gPrefixDir = "../Nim/"
+options.gPrefixDir = splitPath(getAppDir()).head & "/Nim/"
 
 condsyms.initDefines()
 handleCmdLine()

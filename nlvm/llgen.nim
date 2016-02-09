@@ -194,10 +194,17 @@ proc llName(typ: PType): string =
       result &= "_"
       result &= $typ.id
   else:
-    if typ.kind == tySequence:
-      result = "seq." & typ.elemType.llName
+    case typ.kind
+    of tyEmpty: result = "empty_" & $typ.id
+    of tySequence: result = "seq." & typ.elemType.llName
+    of tyPtr: result = "ptr." & typ.elemType.llName
+    of tyRef: result = "ref." & typ.elemType.llName
+    of tyGenericInst: result = "gen." & typ.lastSon.llName & "_" & $typ.id
+    of tyTypeDesc: result = "td." & typ.lastSon.llName & "_" & $typ.id
+    of tyTuple: result = "tuple_" & $typ.id
+    of tyObject: result = "object_" & $typ.id
     else:
-      result = "TY" & $typ.id
+      result = "TY_" & $typ.id
 
 
 proc `$`(n: PSym): string =
@@ -505,7 +512,7 @@ proc genTypeInfoBase(g: LLGen, t: PType): llvm.ValueRef =
     result = g.genTypeInfo(t.sons[0])
 
 proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  let name = "NTI" & $t.id
+  let name = ".typeinfo." & t.llName
   result = g.m.getNamedGlobal(name)
   if result != nil:
     return
@@ -2473,7 +2480,7 @@ proc genNewSeqStmt(g: LLGen, n: PNode) =
   if at.getTypeKind() != llvm.PointerTypeKind:
     internalError("expected pointer, not " & $at)
 
-  let ti = g.genTypeInfo(n[1].typ)
+  let ti = g.genTypeInfo(n[1].typ.skipTypes(abstractVarRange))
 
   let x = g.callCompilerProc("newSeq", [ti, bx])
   discard g.b.buildStore(g.b.buildBitcast(x, at.getElementType(), ""), ax)
@@ -2574,19 +2581,23 @@ proc genAppendStrStrStmt(g: LLGen, n: PNode) =
 
 proc genAppendSeqElemStmt(g: LLGen, n: PNode) =
   let
-    ax = g.genExpr(n[1], true)
+    ax = g.genExpr(n[1], false)
     bx = g.genExpr(n[2], true)
   if ax == nil or bx == nil: return
 
-  let ap = g.b.buildGEP(ax, [constGEPIdx(0), constGEPIdx(0)])
-  let newseq = g.callCompilerProc("incrSeqV2", [ap, bx.typeOf().sizeOfX()])
-  let tgt = g.b.buildBitcast(newseq, ax.typeOf(), "")
-  let lenp = g.b.buildNimSeqLenGEP(tgt)
-  let len = g.b.buildLoad(lenp, "")
+  let
+    a = g.b.buildLoad(ax, "")
+    ap = g.b.buildGEP(a, [constGEPIdx(0), constGEPIdx(0)])
+    newseq = g.callCompilerProc("incrSeqV2", [ap, bx.typeOf().sizeOfX()])
+    tgt = g.b.buildBitcast(newseq, a.typeOf(), "")
+    lenp = g.b.buildNimSeqLenGEP(tgt)
+    len = g.b.buildLoad(lenp, "")
+
   g.genAssignment(bx, g.b.buildNimSeqDataGEP(tgt, len), n[2].typ)
 
   let newlen = g.b.buildAdd(len, llvm.constInt(len.typeOf(), 1, llvm.False), "")
   discard g.b.buildStore(newlen, lenp)
+  discard g.b.buildStore(tgt, ax)
 
 proc genSetLengthStrStmt(g: LLGen, n: PNode) =
   let
@@ -2603,12 +2614,15 @@ proc genSetLengthSeqStmt(g: LLGen, n: PNode) =
     bx = g.genExpr(n[2], true)
   if ax == nil or bx == nil: return
 
-  let at = ax.typeOf()
-  let so = at.getElementType().getElementType().sizeOfX()
+  let
+    a = g.b.buildLoad(ax, "")
+    ap = g.b.buildGEP(a, [constGEPIdx(0), constGEPIdx(0)])
+    at = a.typeOf()
+    so = at.getElementType().structGetTypeAtIndex(1).getElementType().sizeOfX()
 
-  let x = g.callCompilerProc("setLengthSeq", [ax, so, bx])
+  let x = g.callCompilerProc("setLengthSeq", [ap, so, bx])
   # TODO fix assignment
-  discard g.b.buildStore(g.b.buildBitCast(x, ax.typeOf().getElementType(), ""), ax)
+  discard g.b.buildStore(g.b.buildBitCast(x, at, ""), ax)
 
 proc genSwapStmt(g: LLGen, n: PNode) =
   let
