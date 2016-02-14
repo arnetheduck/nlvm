@@ -96,6 +96,8 @@ type LLGenObj = object of TPassContext
 type LLGen = ref LLGenObj
 
 # Helpers
+proc llType(g: LLGen, typ: PType): llvm.TypeRef
+proc fieldIndex(typ: PType, name: string): seq[int]
 proc callErrno(g: LLGen): llvm.ValueRef
 proc genFunction(g: LLGen, s: PSym): llvm.ValueRef
 
@@ -168,6 +170,12 @@ proc scopeAlloca(g: LLGen, typ: llvm.TypeRef, name: string): llvm.ValueRef =
   result = g.b.buildAlloca(typ, name)
   g.b.positionBuilderAtEnd(tmp)
 
+proc addPrivateConstant*(m: ModuleRef, ty: llvm.TypeRef, name: cstring): llvm.ValueRef =
+  result = m.addGlobal(ty, name)
+  result.setGlobalConstant(llvm.True)
+  result.setUnnamedAddr(llvm.True)
+  result.setLinkage(llvm.PrivateLinkage)
+
 proc llName(s: PSym): string =
   if sfImportc in s.flags or sfExportc in s.flags:
     result = $s.loc.r
@@ -205,7 +213,6 @@ proc llName(typ: PType): string =
     of tyObject: result = "object_" & $typ.id
     else:
       result = "TY_" & $typ.id
-
 
 proc `$`(n: PSym): string =
   result = n.llName & " " & $n.kind & " " & $n.magic & " " & $n.flags & " " & $n.loc.flags & " " & $n.info.line
@@ -279,6 +286,20 @@ proc isArrayPtr(t: llvm.TypeRef): bool =
 # Has to be i32 per LLVM docs
 proc constGEPIdx(val: int): llvm.ValueRef =
   constInt32(val.int32)
+
+proc constCString(m: llvm.ModuleRef, val: string): llvm.ValueRef =
+  let ss = llvm.constString(val)
+  let tmp = m.addPrivateConstant(ss.typeOf(), "")
+  tmp.setInitializer(ss)
+  result = constGEP(tmp, [constGEPIdx(0), constGEPIdx(0)])
+
+proc constOffsetOf(g: LLGen, t: PType, name: string): llvm.ValueRef =
+  let
+    typ = t.skipTypes(abstractPtrs)
+    llt = g.llType(typ)
+    ind = fieldIndex(t, name)
+    gep = constGEP(constNull(llt.pointerType()), (ind).map(constGEPIdx))
+  result = constPtrToInt(gep, llIntType)
 
 proc buildNimSeqLenGEP(b: BuilderRef, s: llvm.ValueRef): llvm.ValueRef =
   b.buildGEP(s, [constGEPIdx(0), constGEPIdx(0), constGEPIdx(0)], "")
@@ -505,7 +526,221 @@ proc genTypeInfoInit(g: LLGen, t: PType, ntlt, lt: llvm.TypeRef,
   ]
   result = llvm.constNamedStruct(ntlt, values)
 
+proc genNodeInfo(g: LLGen, t: PType): llvm.ValueRef
+proc genObjectNodeInfo(g: LLGen, t: PType, n: PNode, suffix: string): llvm.ValueRef
 proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef
+
+proc constNimNodeNone(g: LLGen, length: int): llvm.ValueRef =
+  let
+    tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+    els = tnn.getStructElementTypes()
+
+  result = llvm.constNamedStruct(tnn,
+    [constInt8(0), constNull(els[1]), constNull(els[2]), constNull(els[3]),
+    constInt64(length), constNull(els[5])])
+
+proc constNimNodeSlot(g: LLGen, offset, typeInfo: llvm.ValueRef, name: string): llvm.ValueRef =
+  let
+    tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+    els = tnn.getStructElementTypes()
+
+  result = llvm.constNamedStruct(tnn,
+    [constInt8(1), offset, typeInfo, g.m.constCString(name),
+    constNull(els[4]), constNull(els[5])])
+
+proc constNimNodeList(g: LLGen, nodes: openarray[llvm.ValueRef]): llvm.ValueRef =
+  let
+    tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+    tnnp = tnn.pointerType()
+    els = tnn.getStructElementTypes()
+
+  var nodesVal: llvm.ValueRef
+
+  if nodes.len == 0:
+    nodesVal = constNull(els[5])
+  else:
+    let nodesType = llvm.arrayType(tnnp, nodes.len.cuint)
+    let tmp = g.m.addPrivateConstant(nodesType, "")
+    tmp.setInitializer(constArray(tnnp, nodes))
+    nodesVal = constBitCast(tmp, els[5])
+
+  result = llvm.constNamedStruct(tnn,
+    [constInt8(2), constNull(els[1]), constNull(els[2]), constNull(els[3]),
+    constInt64(nodes.len), nodesVal])
+
+proc constNimNodeCase(g: LLGen, offset, typeInfo: llvm.ValueRef, name: string, nodes: openarray[llvm.ValueRef]): llvm.ValueRef =
+  let
+    tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+    tnnp = tnn.pointerType()
+    els = tnn.getStructElementTypes()
+
+  var nodesVal: llvm.ValueRef
+
+  if nodes.len == 0:
+    nodesVal = constNull(els[5])
+  else:
+    let nodesType = llvm.arrayType(tnnp, nodes.len.cuint)
+    let tmp = g.m.addPrivateConstant(nodesType, "")
+    tmp.setInitializer(constArray(tnnp, nodes))
+    nodesVal = constBitCast(tmp, els[5])
+
+  result = llvm.constNamedStruct(tnn,
+    [constInt8(3), offset, typeInfo, g.m.constCString(name),
+    constInt64(nodes.len), nodesVal])
+
+proc genObjectNodeInfoInit(g: LLGen, t: PType, n: PNode, suffix: string): llvm.ValueRef =
+  let
+    tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+    tnnp = tnn.pointerType()
+
+  case n.kind
+  of nkRecList:
+    let l = n.sonsLen
+    if l == 1:
+      result = g.genObjectNodeInfoInit(t, n[0], suffix)
+    else:
+      var fields: seq[ValueRef] = @[]
+      for i in 0..l-1:
+        fields.add(g.genObjectNodeInfo(t, n[i], suffix & "." & $i))
+      result = g.constNimNodeList(fields)
+
+  of nkRecCase:
+    let field = n[0].sym
+    let l = lengthOrd(field.typ).int
+
+    var fields: seq[ValueRef]
+    newSeq(fields, l + 1)
+
+    for i in 1..l-1:
+      let b = n[i]
+      let bi = g.genObjectNodeInfo(t, b.lastSon, suffix & "." & $i)
+      case b.kind
+      of nkOfBranch:
+        for j in 0..b.sonsLen() - 2:
+          if b[j].kind == nkRange:
+            for a in getOrdValue(b[j][0])..getOrdValue(b[j][1]):
+              fields[a.int] = bi
+          else:
+            fields[getOrdValue(b[j]).int] = bi
+      else:
+        fields[l] = bi
+
+    if fields[l].isNil:  # nkElse, which may not be there..
+      fields[l] = constNull(tnnp)
+
+    result = g.constNimNodeCase(
+      g.constOffsetOf(t, field.llName), g.genTypeInfo(field.typ),
+      field.name.s, fields)
+
+  of nkSym:
+    let field = n.sym
+    result = g.constNimNodeSlot(
+      g.constOffsetOf(t, field.llName), g.genTypeInfo(field.typ), field.name.s)
+
+  else: internalError(n.info, "genObjectNodeInfoInit")
+
+proc genObjectNodeInfo(g: LLGen, t: PType, n: PNode, suffix: string): llvm.ValueRef =
+  let name = ".nodeinfo." & t.llName & suffix
+  result = g.m.getNamedGlobal(name)
+  if result != nil:
+    return
+
+  let tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+
+  result = g.m.addPrivateConstant(tnn, name)
+  result.setInitializer(g.genObjectNodeInfoInit(t, n, suffix))
+
+proc genTupleNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
+  let tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+
+  var fields: seq[ValueRef] = @[]
+
+  let l = t.sonsLen
+  for i in 0..l-1:
+    let
+      name = ".nodeinfo." & t.llName & "." & $i
+      field = g.m.addPrivateConstant(tnn, name)
+      offset = constPtrToInt(constGEP(constNull(g.llType(t).pointerType()),
+        [constGEPIdx(0), constGEPIdx(i)]), int64Type())
+      fieldInit = g.constNimNodeSlot(offset, g.genTypeInfo(t.sons[i]),
+        "Field" & $i)
+
+    field.setInitializer(fieldInit)
+    fields.add(field)
+
+  result = g.constNimNodeList(fields)
+
+proc genTupleNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
+  let name = ".nodeinfo." & t.llName
+  result = g.m.getNamedGlobal(name)
+  if result != nil:
+    return
+
+  let tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+
+  result = g.m.addPrivateConstant(tnn, name)
+  result.setInitializer(g.genTupleNodeInfoInit(t))
+
+proc genEnumNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
+  let
+    tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+    els = tnn.getStructElementTypes()
+
+  let l = t.n.sonsLen
+
+  var fields: seq[ValueRef] = @[]
+  for i in 0..l-1:
+    let
+      name = ".nodeinfo." & t.llName & "." & $i
+      n = t.n[i].sym
+      fieldName = if n.ast == nil: n.name.s else: n.ast.strVal
+
+    # type info not needed for enum members
+    let fieldInit = g.constNimNodeSlot(
+      constInt64(i), constNull(els[2]), fieldName)
+
+    let field = g.m.addPrivateConstant(tnn, name)
+    field.setInitializer(fieldInit)
+    fields.add(field)
+
+  result = g.constNimNodeList(fields)
+
+  # TODO c gen sets ntfEnumHole as well on TNimType after generating TNimNode.. odd.
+
+proc genEnumNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
+  let name = ".nodeinfo." & t.llName
+  result = g.m.getNamedGlobal(name)
+  if result != nil:
+    return
+
+  let tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+
+  result = g.m.addPrivateConstant(tnn, name)
+  result.setInitializer(g.genEnumNodeInfoInit(t))
+
+proc genSetNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
+  result = g.constNimNodeNone(firstOrd(t).int)
+
+proc genSetNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
+  let name = ".nodeinfo." & t.llName
+  result = g.m.getNamedGlobal(name)
+  if result != nil:
+    return
+
+  let tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+
+  result = g.m.addPrivateConstant(tnn, name)
+  result.setInitializer(g.genSetNodeInfoInit(t))
+
+proc genNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
+  let tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
+
+  case t.kind
+  of tyObject: result = g.genObjectNodeInfo(t, t.n, "")
+  of tyTuple: result = g.genTupleNodeInfo(t)
+  of tyEnum: result = g.genEnumNodeInfo(t)
+  of tySet: result = g.genSetNodeInfo(t)
+  else: result = constNull(tnn.pointerType())
 
 proc genTypeInfoBase(g: LLGen, t: PType): llvm.ValueRef =
   if t.sons.len > 0 and t.sons[0] != nil:
@@ -528,12 +763,10 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
   # TODO should use externally initialized global for types from other
   # modules, or?
   # TODO unnamed_addr?
-  result = g.m.addGlobal(ntlt, name)
-  result.setGlobalConstant(llvm.True)
-  result.setLinkage(llvm.PrivateLinkage)
-  result.setUnnamedAddr(llvm.True)
+  result = g.m.addPrivateConstant(ntlt, name)
 
-  var baseVar, nodeVar, finalizerVar, markerVar, deepcopyVar: llvm.ValueRef
+  var baseVar, finalizerVar, markerVar, deepcopyVar: llvm.ValueRef
+  let nodeVar = g.genNodeInfo(t)
 
   case t.kind
   of tySequence, tyRef: baseVar = g.genTypeInfoBase(t)
@@ -544,7 +777,6 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
   else: discard
 
   if baseVar == nil: baseVar = llvm.constNull(els[3])
-  if nodeVar == nil: nodeVar = llvm.constNull(els[4])
   if finalizerVar == nil: finalizerVar = llvm.constNull(els[5])
   if markerVar == nil: markerVar = llvm.constNull(els[6])
   if deepcopyVar == nil: deepcopyVar = llvm.constNull(els[7])
@@ -1090,7 +1322,7 @@ proc genOfExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let ax = g.genExpr(n[1], false)
   if ax == nil: return
   let m_type = g.b.buildLoad(g.b.buildGEP(ax, mtypeIndex(n[1].typ)), "")
-  let typ = n[2].typ
+  let typ = n[2].typ.skipTypes(typedescPtrs)
   # TODO nil check if n is a pointer
   result = g.callCompilerProc("isObj", [m_type, g.genTypeInfo(typ)])
 
@@ -1888,21 +2120,15 @@ proc genStrLitExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let ll = constNimInt(n.strVal.len)
   let x = llvm.constNamedStruct(llGenericSeqType, [ll, ll])
   let ss = llvm.constStruct([x, s])
-  result = g.m.addGlobal(ss.typeOf(), "")
+  result = g.m.addPrivateConstant(ss.typeOf(), "")
   result.setInitializer(ss)
-  result.setGlobalConstant(llvm.True)
-  result.setUnnamedAddr(llvm.True)
-  result.setLinkage(llvm.PrivateLinkage)
 
 proc genNilLitExpr(g: LLGen, n: PNode): llvm.ValueRef =
   if n.typ.kind == tyProc:
     if n.typ.callConv == ccClosure:
       let t = g.llType(n.typ)
-      result = g.m.addGlobal(t, "")
+      result = g.m.addPrivateConstant(t, "")
       result.setInitializer(llvm.constNull(t))
-      result.setGlobalConstant(llvm.True)
-      result.setUnnamedAddr(llvm.True)
-      result.setLinkage(llvm.PrivateLinkage)
       return
 
   result = llvm.constNull(g.llType(n.typ))
@@ -2972,11 +3198,8 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
     let ll = constNimInt(init.strVal.len)
     let x = llvm.constNamedStruct(llGenericSeqType, [ll, ll])
     let ss = llvm.constStruct([x, s])
-    let g = g.m.addGlobal(ss.typeOf(), v.llName)
+    let g = g.m.addPrivateConstant(ss.typeOf(), v.llName)
     g.setInitializer(ss)
-    g.setGlobalConstant(llvm.True)
-    g.setUnnamedAddr(llvm.True)
-    g.setLinkage(llvm.PrivateLinkage)
   else:
     var x: llvm.ValueRef
     if sfGlobal in v.flags:
