@@ -252,13 +252,16 @@ proc `$`(n: PNode): string =
   else: result &= $n.flags & " " & $n.sonslen
 
 proc p(t: string, n: PNode, depth: int) =
-  echo(spaces(depth * 2), t, " ", n)
+  if gVerbosity == 2:
+    echo(spaces(depth * 2), t, " ", n)
 
 proc p(t: string, n: PType, depth: int) =
-  echo(spaces(depth * 2), t, " ", n)
+  if gVerbosity == 2:
+    echo(spaces(depth * 2), t, " ", n)
 
 proc p(t: string, n: PSym, depth: int) =
-  echo(spaces(depth * 2), t, " ", n)
+  if gVerbosity == 2:
+    echo(spaces(depth * 2), t, " ", n)
 
 proc constInt1(v: bool): llvm.ValueRef =
   llvm.constInt(llvm.int1Type(), v.culonglong, llvm.False)
@@ -338,7 +341,7 @@ proc buildTruncOrExt(b: llvm.BuilderRef, v: llvm.ValueRef, nt: llvm.TypeRef,
 
 proc buildTruncOrExt(b: llvm.BuilderRef, v: llvm.ValueRef, nt: llvm.TypeRef,
                      tk: TTypeKind): llvm.ValueRef =
-  let unsigned = tk in {tyUInt..tyUInt64}
+  let unsigned = tk in {tyUInt..tyUInt64} or tk == tyChar
   result = b.buildTruncOrExt(v, nt, unsigned)
 
 proc needsBr(b: llvm.BuilderRef): bool =
@@ -1289,6 +1292,9 @@ proc genAssignment(g: LLGen, v, t: llvm.ValueRef, typ: PType) =
     g.callMemcpy(tp, vp, n)
   elif typ.kind == tyProc:
     discard g.b.buildStore(g.b.buildBitcast(v, tet, ""), t)
+  elif tet == llCStringType and vt.isNimSeqLike:
+    # nim string to cstring
+    discard g.b.buildStore(g.b.buildNimSeqDataGEP(v), t)
   else:
     p("TODO genAssignment " & $v & " " & $t & " " & $vt & " " & $tt, typ, 0)
 
@@ -1877,17 +1883,19 @@ proc genConStrStrExpr(g: LLGen, n: PNode): llvm.ValueRef =
 
   var constlen = 0
   var exprs: seq[llvm.ValueRef] = @[]
+
   for s in n.sons[1..n.sonsLen - 1]:
+    let sx = g.genExpr(s, true)
+    exprs.add(sx)
+    if sx == nil: continue
+
     if skipTypes(s.typ, abstractVarRange).kind == tyChar:
       inc(constlen)
     elif s.kind in {nkStrLit..nkTripleStrLit}:
       inc(constlen, len(s.strVal))
     else:
-      let a = g.genExpr(s, true)  # TODO Is it safe to generate the expressions twice?
-      if a == nil: continue
-      let slen = g.b.buildLoad(g.b.buildNimSeqLenGEP(a), "")
+      let slen = g.b.buildLoad(g.b.buildNimSeqLenGEP(sx), "")
       tgtlen = g.b.buildAdd(tgtlen, slen, "")
-      exprs.add(a)
 
   if constlen > 0:
     tgtlen = g.b.buildAdd(tgtlen, constNimInt(constlen), "")
@@ -1896,16 +1904,17 @@ proc genConStrStrExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let tgt = g.callCompilerProc("rawNewString", [tgtlen])
 
   # Copy data
-  for s in n.sons[2..n.sonsLen - 1]:
-    if skipTypes(s.typ, abstractVarRange).kind == tyChar:
-      let cx = g.genExpr(s, true)
-      discard g.callCompilerProc("appendChar", [tgt, cx])
-    elif s.kind in {nkStrLit..nkTripleStrLit}:
-      let cx = g.genExpr(s, true)
-      discard g.callCompilerProc("appendString", [tgt, cx])
+  for i in 1..n.sonsLen - 1:
+    let sx = exprs[i - 1]
+    if sx == nil: continue
 
-  for e in exprs:
-    discard g.callCompilerProc("appendString", [tgt, e])
+    let s = n[i]
+
+    if skipTypes(s.typ, abstractVarRange).kind == tyChar:
+      sx.dumpValue()
+      discard g.callCompilerProc("appendChar", [tgt, sx])
+    else:
+      discard g.callCompilerProc("appendString", [tgt, sx])
 
   result = tgt
 
@@ -1917,6 +1926,7 @@ proc genDotDotExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   f.setLinkage(llvm.PrivateLinkage)
 
   result = g.genCall(n, load)
+
 proc genInSetExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let size = getSize(skipTypes(n[1].typ, abstractVar))
 
@@ -2157,13 +2167,32 @@ proc genParExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if load:
     result = g.b.buildLoad(result, "")
 
-proc genObjConstr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  let
-    typ = n.typ.skipTypes(abstractPtrs)
+proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
+  case analyseObjectWithTypeField(t)
+  of frNone:
+    discard
+  of frHeader:
+    let tgt = g.b.buildGEP(v, mtypeIndex(t))
+    discard g.b.buildStore(g.genTypeInfo(t), tgt)
+  of frEmbedded:
+    discard g.callCompilerProc("objectInit", [v, g.genTypeInfo(t)])
+
+proc genObjConstrExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+  var
+    typ = n.typ.skipTypes(abstractInst)
     t = g.llType(typ)
 
-  # TODO sometimes allocate on heap
-  result = g.b.buildAlloca(t, "")
+  if typ.kind == tyRef:
+    typ = typ.lastSon.skipTypes(abstractInst)
+
+    let ti = g.genTypeInfo(typ)
+    let so = t.getElementType().sizeOfX()
+    result = g.callCompilerProc("newObj", [ti, so])
+    result = g.b.buildBitCast(result, t, "")
+  else:
+    result = g.b.buildAlloca(t, "")
+    g.callMemset(g.b.buildBitcast(result, llVoidPtrType, ""), constInt8(0), t.sizeOfX())
+    g.genObjectInit(typ, result)
 
   for i in 1 .. <n.len:
     let s = n[i]
@@ -2262,10 +2291,15 @@ proc genBracketArrayExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     bx = g.genExpr(n[1], true)
   if ax == nil or bx == nil: return
 
+  assert bx.typeOf().getTypeKind() == llvm.IntegerTypeKind
+
+  # GEP indices are signed, so if a char appears here we want to make sure
+  # it's zero-extended
+  let b = g.b.buildTruncOrExt(bx, llIntType, n[1].typ.kind)
   if ax.typeOf().isArrayPtr():
-    result = g.b.buildGEP(ax, [constGEPIdx(0), bx])
+    result = g.b.buildGEP(ax, [constGEPIdx(0), b])
   else:
-    result = g.b.buildGEP(ax, [bx])
+    result = g.b.buildGEP(ax, [b])
 
   if load:
     result = g.b.buildLoad(result, "")
@@ -2775,16 +2809,17 @@ proc genAppendStrStrStmt(g: LLGen, n: PNode) =
   var constlen = 0
   var exprs: seq[llvm.ValueRef] = @[]
   for s in n.sons[2..n.sonsLen - 1]:
+    let sx = g.genExpr(s, true)
+    exprs.add(sx)
+    if sx == nil: continue
+
     if skipTypes(s.typ, abstractVarRange).kind == tyChar:
       inc(constlen)
     elif s.kind in {nkStrLit..nkTripleStrLit}:
       inc(constlen, len(s.strVal))
     else:
-      let a = g.genExpr(s, true)
-      if a == nil: continue
-      let slen = g.b.buildLoad(g.b.buildNimSeqLenGEP(a), "")
+      let slen = g.b.buildLoad(g.b.buildNimSeqLenGEP(sx), "")
       tgtlen = g.b.buildAdd(tgtlen, slen, "")
-      exprs.add(a)
 
   if constlen > 0:
     tgtlen = g.b.buildAdd(tgtlen, constNimInt(constlen), "")
@@ -2794,16 +2829,15 @@ proc genAppendStrStrStmt(g: LLGen, n: PNode) =
   discard g.b.buildStore(tgt, tgtp)
 
   # Copy data
-  for s in n.sons[2..n.sonsLen - 1]:
-    if skipTypes(s.typ, abstractVarRange).kind == tyChar:
-      let cx = g.genExpr(s, true)
-      discard g.callCompilerProc("appendChar", [tgt, cx])
-    elif s.kind in {nkStrLit..nkTripleStrLit}:
-      let cx = g.genExpr(s, true)
-      discard g.callCompilerProc("appendString", [tgt, cx])
+  for i in 2..n.sonsLen - 1:
+    let sx = exprs[i - 2]
+    if sx == nil: continue
 
-  for e in exprs:
-    discard g.callCompilerProc("appendString", [tgt, e])
+    let s = n[i]
+    if skipTypes(s.typ, abstractVarRange).kind == tyChar:
+      discard g.callCompilerProc("appendChar", [tgt, sx])
+    else:
+      discard g.callCompilerProc("appendString", [tgt, sx])
 
 proc genAppendSeqElemStmt(g: LLGen, n: PNode) =
   let
@@ -3398,7 +3432,7 @@ proc genExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of nkNilLit: result = g.genNilLitExpr(n)
   of nkCallKinds: result = g.genCallExpr(n, load)
   of nkPar: result = g.genParExpr(n, load)
-  of nkObjConstr: result = g.genObjConstr(n, load)
+  of nkObjConstr: result = g.genObjConstrExpr(n, load)
   of nkCurly: result = g.genCurlyExpr(n, load)
   of nkBracket: result = g.genBracketExpr(n, load)
   of nkBracketExpr: result = g.genBracketExprExpr(n, load)

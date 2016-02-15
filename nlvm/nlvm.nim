@@ -41,6 +41,10 @@ proc mainCommand() =
 
   else: msgs.rawMessage(errInvalidCommandX, options.command)
 
+  if msgs.gErrorCounter == 0 and
+     gCmd notin {cmdInterpret, cmdRun, cmdDump}:
+    rawMessage(hintSuccess, [])
+
 proc handleCmdLine() =
   # For now, we reuse the nim command line options parser, mainly because
   # the options are used all over the compiler, but also because we want to
@@ -73,8 +77,9 @@ proc handleCmdLine() =
     nimconf.loadConfigs(DefaultConfig)
     service.processCmdLine(passCmd2, "")
 
-    # Not supported yet
+    # GC not supported yet
     defineSymbol("nogc")
+    defineSymbol("useMalloc")
     options.gSelectedGC = gcNone
 
     mainCommand()
