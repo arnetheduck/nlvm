@@ -67,8 +67,8 @@ template asRaw(arr: expr, body: expr): expr =
   body
 
 proc functionType*(returnType: TypeRef, paramTypes: openarray[TypeRef],
-                   isVarArg = False): TypeRef =
-  asRaw(paramTypes, functionType(returnType, p, n, isVarArg))
+                   isVarArg = false): TypeRef =
+  asRaw(paramTypes, functionType(returnType, p, n, if isVarArg: llvm.True else: llvm.False))
 
 proc structType*(elementTypes: openarray[TypeRef],
                  packed = False): TypeRef =

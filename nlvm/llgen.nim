@@ -53,14 +53,14 @@ var
   llProcPtrType = llVoidPtrType
   llClosureType = llvm.structCreateNamed(llctxt, "llnim.Closure")
   llNimStringDescPtr = llvm.pointerType(llnimStringDesc)
-  llInitFuncType = llvm.functionType(llvm.voidType(), [], llvm.False)
-  llMainType = llvm.functionType(llCIntType, [llCIntType, llvm.pointerType(llCStringType)], llvm.False)
-  llPrintfType = llvm.functionType(llCIntType, [llCStringType], llvm.True)
-  llStrlenType = llvm.functionType(llCSizeTType, [llCStringType], llvm.False)
+  llInitFuncType = llvm.functionType(llvm.voidType(), [])
+  llMainType = llvm.functionType(llCIntType, [llCIntType, llvm.pointerType(llCStringType)])
+  llPrintfType = llvm.functionType(llCIntType, [llCStringType], true)
+  llStrlenType = llvm.functionType(llCSizeTType, [llCStringType])
   llJmpbufp = llvm.pointerType(llvm.arrayType(llvm.int64Type(), 8))
-  llSetjmpType = llvm.functionType(llCIntType, [llJmpbufp], llvm.False)
-  llLongjmpType = llvm.functionType(llvm.voidType(), [llJmpbufp, llCIntType], llvm.False)
-  llFabsType = llvm.functionType(llvm.doubleType(), [llvm.doubleType()], llvm.False)
+  llSetjmpType = llvm.functionType(llCIntType, [llJmpbufp])
+  llLongjmpType = llvm.functionType(llvm.voidType(), [llJmpbufp, llCIntType])
+  llFabsType = llvm.functionType(llvm.doubleType(), [llvm.doubleType()])
   llMemsetType = llvm.functionType(llvm.voidType(), [llVoidPtrType, llvm.int8Type(), llvm.int64Type(), llvm.int32Type(), llvm.int1Type()])
   llMemCpyType = llvm.functionType(llvm.voidType(), [llVoidPtrType, llVoidPtrType, llvm.int64Type(), llvm.int32Type(), llvm.int1Type()])
   llErrnoType = llvm.functionType(llvm.pointerType(llCIntType), [])
@@ -829,7 +829,7 @@ proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
     if skipTypes(t, {tyVar}).kind in {tyOpenArray, tyVarargs}:
       argTypes.add(llIntType)  # Extra length parameter
 
-  result = llvm.functionType(retType, argTypes)
+  result = llvm.functionType(retType, argTypes, tfVarArgs in typ.flags)
 
 proc fieldIndexRecs(n: PNode, name: string, start: var int): seq[int] =
   case n.kind
@@ -1136,9 +1136,16 @@ proc genCallArgs(g: LLGen, n: PNode, ftyp: PType): seq[llvm.ValueRef] =
   let pars = ftyp.procParams()
 
   var i = 0
-  for param in pars:
-    let p = n[i+1]
+  for i in 1..n.sonsLen - 1:
+    let p = n[i]
     let pr = if p.kind == nkHiddenAddr: p[0] else: p
+    if i >= ftyp.n.len: # varargs like printf, for example
+      let v = g.genExpr(pr, true)
+      args.add(v)
+      continue
+
+    let param = ftyp.n[i]
+    if param.typ.isCompileTimeOnly(): continue
 
     var v: llvm.ValueRef
     if skipTypes(param.typ, {tyVar}).kind in {tyOpenArray, tyVarargs}:
@@ -1176,7 +1183,6 @@ proc genCallArgs(g: LLGen, n: PNode, ftyp: PType): seq[llvm.ValueRef] =
       v = g.preCast(v, param.typ, true)
       args.add(v)
 
-    i += 1
   result = args
 
 proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
@@ -1911,7 +1917,6 @@ proc genConStrStrExpr(g: LLGen, n: PNode): llvm.ValueRef =
     let s = n[i]
 
     if skipTypes(s.typ, abstractVarRange).kind == tyChar:
-      sx.dumpValue()
       discard g.callCompilerProc("appendChar", [tgt, sx])
     else:
       discard g.callCompilerProc("appendString", [tgt, sx])
