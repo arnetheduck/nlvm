@@ -207,9 +207,13 @@ proc llName(typ: PType): string =
     of tySequence: result = "seq." & typ.elemType.llName
     of tyPtr: result = "ptr." & typ.elemType.llName
     of tyRef: result = "ref." & typ.elemType.llName
-    of tyGenericInst: result = "gen." & typ.lastSon.llName & "_" & $typ.id
+    of tyGenericInst: result = "geni." & typ.lastSon.llName & "_" & $typ.id
+    of tyGenericBody: result = "genb." & typ.lastSon.llName & "_" & $typ.id
     of tyTypeDesc: result = "td." & typ.lastSon.llName & "_" & $typ.id
     of tyTuple: result = "tuple_" & $typ.id
+    of tyArray: result = "arr." & typ.elemType.llName
+    of tyRange: result = "rng." & typ.elemType.llName
+    of tyArrayConstr: result = "arr." & typ.elemType.llName
     of tyObject: result = "object_" & $typ.id
     else:
       result = "TY_" & $typ.id
@@ -746,17 +750,22 @@ proc genNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
   else: result = constNull(tnn.pointerType())
 
 proc genTypeInfoBase(g: LLGen, t: PType): llvm.ValueRef =
-  if t.sons.len > 0 and t.sons[0] != nil:
+  if t.kind in {tySequence, tyRef, tyPtr, tyRange, tyArray, tyArrayConstr, tySet, tyObject} and
+    t.sons.len > 0 and t.sons[0] != nil:
     result = g.genTypeInfo(t.sons[0])
 
+  if result == nil:
+    let ntlt = g.llStructType(magicsys.getCompilerProc("TNimType").typ)
+    result = llvm.constNull(ntlt.pointerType())
+
+
 proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
+  var t = t.skipTypes({tyDistinct, tyGenericBody, tyGenericParam})
+
   let name = ".typeinfo." & t.llName
   result = g.m.getNamedGlobal(name)
   if result != nil:
     return
-
-  var t = t
-  while t.kind == tyDistinct: t = t.lastSon
 
   let
     ntlt = g.llStructType(magicsys.getCompilerProc("TNimType").typ)
@@ -768,18 +777,10 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
   # TODO unnamed_addr?
   result = g.m.addPrivateConstant(ntlt, name)
 
-  var baseVar, finalizerVar, markerVar, deepcopyVar: llvm.ValueRef
+  var finalizerVar, markerVar, deepcopyVar: llvm.ValueRef
+  let baseVar = g.genTypeInfoBase(t)
   let nodeVar = g.genNodeInfo(t)
 
-  case t.kind
-  of tySequence, tyRef: baseVar = g.genTypeInfoBase(t)
-  of tyPtr, tyRange: baseVar = g.genTypeInfoBase(t)
-  of tyObject: baseVar = g.genTypeInfoBase(t)
-  of tyEnum: baseVar = g.genTypeInfoBase(t)
-  of tySet: baseVar = g.genTypeInfoBase(t)
-  else: discard
-
-  if baseVar == nil: baseVar = llvm.constNull(els[3])
   if finalizerVar == nil: finalizerVar = llvm.constNull(els[5])
   if markerVar == nil: markerVar = llvm.constNull(els[6])
   if deepcopyVar == nil: deepcopyVar = llvm.constNull(els[7])
@@ -1955,6 +1956,45 @@ proc genInSetExpr(g: LLGen, n: PNode): llvm.ValueRef =
     let res = g.b.buildAnd(a, mask, "")
     result = g.b.buildICmp(llvm.IntNE, res, llvm.constInt(a.typeOf(), 0, llvm.False), "")
 
+proc genReprExpr(g: LLGen, n: PNode): llvm.ValueRef =
+  let t = skipTypes(n[1].typ, abstractVarRange)
+  case t.kind
+  of tyInt..tyInt64, tyUInt..tyUInt64:
+    let ax = g.genExpr(n[1], true)
+    result = g.callCompilerProc("reprInt", [g.b.buildTruncOrExt(ax, llIntType, t.kind)])
+  of tyFloat..tyFloat128:
+    let ax = g.genExpr(n[1], true)
+    result = g.callCompilerProc("reprFloat", [ax])
+  of tyBool:
+    let ax = g.genExpr(n[1], true)
+    result = g.callCompilerProc("reprBool", [ax])
+  of tyChar:
+    let ax = g.genExpr(n[1], true)
+    result = g.callCompilerProc("reprChar", [ax])
+  of tyEnum, tyOrdinal:
+    let ax = g.genExpr(n[1], true)
+    result = g.callCompilerProc("reprEnum", [ax, g.genTypeInfo(t)])
+  of tyString:
+    let ax = g.genExpr(n[1], true)
+    result = g.callCompilerProc("reprString", [ax])
+  of tySet:
+    let ax = g.genExpr(n[1], false)
+    result = g.callCompilerProc("reprSet", [ax, g.genTypeInfo(t)])
+  of tyOpenArray, tyVarargs:
+    let s = if n[1].kind == nkHiddenDeref: n[1][0] else: n[1]
+    let l = g.scopeGet(s.sym.llName & "len")
+    let ax = g.genExpr(n[1], false)
+    result = g.callCompilerProc("reprOpenArray", [ax, l, g.genTypeInfo(t.elemType)])
+  of tyCString, tyArray, tyArrayConstr, tyRef, tyPtr, tyPointer, tyNil,
+     tySequence:
+    let ax = g.genExpr(n[1], false)
+    result = g.callCompilerProc("reprAny", [ax, g.genTypeInfo(t)])
+  of tyEmpty:
+    localError(n.info, "'repr' doesn't support 'void' type")
+  else:
+    let ax = g.genExpr(n[1], false)
+    result = g.callCompilerProc("reprAny", [ax, g.genTypeInfo(t)])
+
 proc genIsNilExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let ax = g.genExpr(n[1], true)
   if ax == nil: return
@@ -2081,6 +2121,7 @@ proc genMagicExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of mConStrStr: result = g.genConStrStrExpr(n)
   of mDotDot: result = g.genDotDotExpr(n, load)
   of mInSet: result = g.genInSetExpr(n)
+  of mRepr: result = g.genReprExpr(n)
   of mIsNil: result = g.genIsNilExpr(n)
   of mArrToSeq: result = g.genArrToSeq(n)
   of mCopyStr, mCopyStrLast, mNewString, mNewStringOfCap, mParseBiggestFloat: result = g.genCall(n, load)
@@ -2655,7 +2696,8 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
             let tmp = g.callCompilerProc("cmpStrings", [ax, bx])
             cmp = g.b.buildICmp(llvm.IntEQ, tmp, constNimInt(0), "")
           else:
-            cmp = g.b.buildICmp(llvm.IntEQ, ax, bx, "")
+            let b = g.b.buildTruncOrExt(bx, ax.typeOf(), cond.typ.kind)
+            cmp = g.b.buildICmp(llvm.IntEQ, ax, b, "")
           let casenext =
             if isLast2: next
             else: f.appendBasicBlock(lbl & ".or." & $j)
@@ -3196,7 +3238,8 @@ proc genCaseStmt(g: LLGen, n: PNode) =
             let tmp = g.callCompilerProc("cmpStrings", [ax, bx])
             cmp = g.b.buildICmp(llvm.IntEQ, tmp, constNimInt(0), "")
           else:
-            cmp = g.b.buildICmp(llvm.IntEQ, ax, bx, "")
+            let b = g.b.buildTruncOrExt(bx, ax.typeOf(), cond.typ.kind)
+            cmp = g.b.buildICmp(llvm.IntEQ, ax, b, "")
           let casenext =
             if isLast2: next
             else: f.appendBasicBlock(lbl & ".or." & $j)
