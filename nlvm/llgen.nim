@@ -2465,7 +2465,11 @@ proc genIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
 
-  let tmp = g.b.buildAlloca(if load: g.llType(n.typ) else: llvm.pointerType(g.llType(n.typ)), "")
+  # Sometimes an nkIfStmt appears in the ast even though it looks more like
+  # an expression (see tcasestmt with an if in a case else).. it won't have
+  # a type of its own so we'll have to cheat..
+  let typ = if n.typ == nil: n[0][1].typ else: n.typ
+  let tmp = g.b.buildAlloca(if load: g.llType(typ) else: llvm.pointerType(g.llType(typ)), "")
 
   let iend = f.appendBasicBlock("ifx.end")
 
@@ -2477,7 +2481,7 @@ proc genIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       g.scopePush(n, nil)
       let ax = g.genExpr(s[0], load)
       if ax != nil:
-        discard g.b.buildStore(g.preCast(ax, n.typ), tmp)
+        discard g.b.buildStore(g.preCast(ax, typ), tmp)
       g.scopePop()
 
       discard g.b.buildBr(iend)
@@ -2496,7 +2500,7 @@ proc genIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       g.scopePush(n, nil)
       let ax = g.genExpr(s[1], load)
       if ax != nil:
-        discard g.b.buildStore(g.preCast(ax, n.typ), tmp)
+        discard g.b.buildStore(g.preCast(ax, typ), tmp)
       g.scopePop()
 
       discard g.b.buildBr(iend)
@@ -2683,7 +2687,7 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     g.scopePush(n, caseend)
     g.b.positionBuilderAtEnd(casedo)
     let res = g.genExpr(s.lastSon, true)
-    g.genAssignment(res, result, s.lastSon.typ)
+    g.genAssignment(res, result, n.typ)
 
     g.b.buildBrFallthrough(caseend)
 
@@ -3521,6 +3525,7 @@ proc genExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of nkChckRange, nkChckRange64: result = g.genChckRangeExpr(n)
   of nkStringToCString: result = g.genStringToCStringExpr(n)
   of nkCStringToString: result = g.genToStrExpr(n, "cstrToNimstr")
+  of nkIfStmt: result = g.genIfExpr(n, load) # if in case! see tcaststm.nim
   of nkCaseStmt: result = g.genCaseExpr(n, load)  # Sometimes seen as expression!
   of nkStmtListExpr: result = g.genStmtListExpr(n, load)
   of nkClosure: result = g.genClosureExpr(n, load)
