@@ -81,7 +81,6 @@ proc `$`(s: LLScope): string =
   $s.vars
 
 type LLGenObj = object of TPassContext
-  ast: PSym
   m: llvm.ModuleRef
   b: llvm.BuilderRef
 
@@ -93,13 +92,20 @@ type LLGenObj = object of TPassContext
 
   init: llvm.ValueRef
 
+  syms: seq[PSym]
+
 type LLGen = ref LLGenObj
+
+# Using an ugly global - haven't found a way to keep per-project data other than
+# this...
+var uglyGen: LLGen
 
 # Helpers
 proc llType(g: LLGen, typ: PType): llvm.TypeRef
 proc fieldIndex(typ: PType, name: string): seq[int]
 proc callErrno(g: LLGen): llvm.ValueRef
 proc genFunction(g: LLGen, s: PSym): llvm.ValueRef
+proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef
 
 # Magic expressions
 proc genLengthOpenArrayExpr(g: LLGen, n: PNode): llvm.ValueRef
@@ -525,6 +531,17 @@ proc genTypeInfoInit(g: LLGen, t: PType, ntlt, lt: llvm.TypeRef,
   var flags = 0
   if not containsGarbageCollectedRef(t): flags = flags or 1
   if not canFormAcycle(t): flags = flags or 2
+  if t.kind == tyEnum:
+    var hasHoles = false
+    for i in 0..t.sonsLen-1:
+      let n = t.n.sons[i].sym
+      # why isn't tfEnumHasHoles always set? is it ever set at all?
+      if n.position != i or tfEnumHasHoles in t.flags:
+        hasHoles = true
+    if hasHoles:
+      # C gen overwrites flags in this case!
+      flags = 1 shl 2
+
   let flagsVar = llvm.constInt(llvm.int8Type(), flags.culonglong, llvm.False)
 
   let values = [
@@ -704,7 +721,7 @@ proc genEnumNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
 
     # type info not needed for enum members
     let fieldInit = g.constNimNodeSlot(
-      constInt64(i), constNull(els[2]), fieldName)
+      constInt64(n.position), constNull(els[2]), fieldName)
 
     let field = g.m.addPrivateConstant(tnn, name)
     field.setInitializer(fieldInit)
@@ -766,6 +783,8 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
   result = g.m.getNamedGlobal(name)
   if result != nil:
     return
+
+  p("genTypeInfo", t, g.depth + 1)
 
   let
     ntlt = g.llStructType(magicsys.getCompilerProc("TNimType").typ)
@@ -953,24 +972,18 @@ proc genGlobal(g: LLGen, s: PSym): llvm.ValueRef =
     let t = g.llType(s.typ)
     result = g.m.addGlobal(t, s.llName)
 
-    if s.owner.id != g.ast.id: return
-
     result.setInitializer(llvm.constNull(t))
 
-    if sfExported in s.flags:
+    if sfExportc in s.flags:
       result.setLinkage(llvm.CommonLinkage)
     else:
-      # this is where you think you'd be able to use PrivateLinkage, but globals
-      # can get accessed outside the current module, even when they're not
-      # sfExported, for example with an iterator (see envPairs)
-      # TODO investigate language manual and see what the intention is here
-      result.setLinkage(llvm.CommonLinkage)
+      result.setLinkage(llvm.PrivateLinkage)
 
 proc callCompilerProc(g: LLGen, n: string, args: openarray[llvm.ValueRef]): llvm.ValueRef =
   let sym = magicsys.getCompilerProc(n)
   if sym == nil: internalError("compiler proc not found: " & n)
 
-  let f = g.genFunction(sym)
+  let f = g.genFunctionWithBody(sym)
   let pars = sym.typ.procParams()
 
   var i = 0
@@ -1052,13 +1065,20 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
 
   let ft = g.llProcType(s.typ)
   let f = g.m.addFunction(name, ft)
+
   result = f
 
 proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
   result = g.genFunction(s)
 
   if result.countBasicBlocks() != 0:
+    return  # already has body
+
+  if sfForward in s.flags:
     return
+
+  # Because we generate only one module, we can tag all functions internal
+  result.setLinkage(llvm.InternalLinkage)
 
   let ft = result.typeOf().getElementType()
 
@@ -1160,7 +1180,7 @@ proc genCallArgs(g: LLGen, n: PNode, ftyp: PType): seq[llvm.ValueRef] =
         len = g.b.buildZExt(len, llIntType, "")
         v = g.b.buildNimSeqDataGEP(v)
       of tyOpenArray, tyVarargs:
-        v = g.genExpr(p, false)
+        v = g.genExpr(p, param.typ.kind == tyVar)
         if v == nil: return
         len = g.scopeGet(pr.sym.llName & "len")
       of tyArray, tyArrayConstr:
@@ -1252,6 +1272,13 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     discard g.b.buildStore(callres, result)
   else:
     result = callres
+
+proc genMagicCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+  let s = n[namePos].sym
+  if lfNoDecl notin s.loc.flags:
+    discard g.genFunctionWithBody(magicsys.getCompilerProc($s.loc.r))
+
+  result = g.genCall(n, load)
 
 proc genAssignment(g: LLGen, v, t: llvm.ValueRef, typ: PType) =
   let
@@ -2124,7 +2151,8 @@ proc genMagicExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of mRepr: result = g.genReprExpr(n)
   of mIsNil: result = g.genIsNilExpr(n)
   of mArrToSeq: result = g.genArrToSeq(n)
-  of mCopyStr, mCopyStrLast, mNewString, mNewStringOfCap, mParseBiggestFloat: result = g.genCall(n, load)
+  of mCopyStr, mCopyStrLast, mNewString, mNewStringOfCap, mParseBiggestFloat:
+    result = g.genMagicCall(n, load)
   else: p("TODO genMagicExpr " & $op, n, 0)
 
 # Expressions
@@ -2155,8 +2183,12 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       result = v
   of skType:
     result = g.genTypeInfo(s.typ)
-  of skProc:
-    result = g.genFunction(s)
+  of skProc, skConverter, skIterators:
+    if lfNoDecl in s.loc.flags or s.magic != mNone or
+         {sfImportc, sfInfixCall} * s.flags != {}:
+      result = g.genFunction(s)
+    else:
+      result = g.genFunctionWithBody(s)
   else:
     p("TODO genSymExpr " % $s.kind, n, 0)
 
@@ -3008,6 +3040,8 @@ proc genIdentDefsStmt(g: LLGen, n: PNode) =
     let i = g.genExpr(init, true)
     if i != nil:
       g.genAssignment(i, x, n[2].typ)
+  elif local:
+    g.callMemset(g.b.buildBitCast(x, llVoidPtrType, ""), constInt8(0), x.typeOf().getElementType().sizeOfX())
 
   # Put in scope only once init is finished (init might refence
   # a var with the same name)
@@ -3063,17 +3097,7 @@ proc genProcStmt(g: LLGen, n: PNode) =
   if n.sons[genericParamsPos].kind != nkEmpty:
     return
 
-  var s = n.sons[namePos].sym
-  if lfNoDecl in s.loc.flags or s.magic != mNone or
-       {sfImportc, sfInfixCall} * s.flags != {}:
-    return
-
-  if s.skipGenericOwner.kind != skModule:
-    return
-
-  if sfForward in s.flags:
-    return
-
+  let s = n.sons[namePos].sym
   discard g.genFunctionWithBody(s)
 
 proc genIfStmt(g: LLGen, n: PNode) =
@@ -3518,11 +3542,9 @@ proc genStmt(g: LLGen, n: PNode) =
   of nkAsgn: g.genAsgnStmt(n)
   of nkFastAsgn: g.genFastAsgnStmt(n)
   of nkProcDef, nkMethodDef, nkConverterDef:
-    #var s = n.sons[namePos].sym
-    #if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
-    g.genProcStmt(n)
-    #else:
-    #  echo "SKIP ", s.llName
+    var s = n[namePos].sym
+    if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
+      g.genProcStmt(n)
   of nkIfStmt: g.genIfStmt(n)
   of nkWhenStmt: g.genWhenStmt(n)
   of nkWhileStmt: g.genWhileStmt(n)
@@ -3547,10 +3569,10 @@ proc newLLGen(s: PSym): LLGen =
   new(result)
   let name = s.llName
 
-  result.ast = s
   result.m = llvm.moduleCreateWithName(name)
   result.b = llvm.createBuilder()
   result.scope = @[]
+  result.syms = @[]
 
 proc genMain(g: LLGen) =
   let f = g.m.addFunction("main", llMainType)
@@ -3562,19 +3584,18 @@ proc genMain(g: LLGen) =
 
   discard g.b.buildRet(constInt(llCIntType, 0, False))
 
-proc genGlobalCtors(g: LLGen) =
-  let st = llvm.structType([llvm.int32Type(), llvm.pointerType(llvm.functionType(llvm.voidType(), []))])
-  let t = llvm.arrayType(st, 1)
-  let ctors = g.m.addGlobal(t, "llvm.global_ctors")
-
-  ctors.setLinkage(llvm.AppendingLinkage)
-  ctors.setInitializer(llvm.constArray(st, [llvm.constStruct([constInt32(1), g.init])]))
-
 proc myClose(b: PPassContext, n: PNode): PNode =
   if passes.skipCodegen(n): return n
+  p("Close", n, 0)
+
   let g = LLGen(b)
 
-  # return from NimMain
+  g.genStmt(n)
+
+  let s = g.syms.pop()
+  if sfMainModule notin s.flags: return n
+
+  # return from nlvmInit
 
   g.b.buildBrFallthrough(g.returnBlock)
   g.b.positionBuilderAtEnd(g.returnBlock)
@@ -3585,25 +3606,30 @@ proc myClose(b: PPassContext, n: PNode): PNode =
   if fn.getLastBasicBlock() != g.returnBlock:
     g.returnBlock.moveBasicBlockAfter(fn.getLastBasicBlock())
 
-  if sfMainModule in g.ast.flags:
-    g.genMain()
-  else:
-    g.genGlobalCtors()
+  g.genMain()
 
   let outfile =
     if options.outFile.len > 0:
       if options.outFile.isAbsolute: options.outFile
       else: getCurrentDir() / options.outFile
-    else: changeFileExt(completeCFilePath(g.ast.filename), "bc")
-  echo "Writing to ", outfile
+    else: changeFileExt(completeCFilePath(s.filename), "bc")
   discard g.m.writeBitcodeToFile(outfile)
+
+  if gVerbosity == 2:
+    # When we've generated some broken code, llvm-dis fails whereas
+    # writing the module like this works
+    discard g.m.printModuleToFile(outfile.changeFileExt(".ll"), nil)
 
   result = n
 
+  g.m.disposeModule()
+  uglyGen = nil
+
 proc myProcess(b: PPassContext, n: PNode): PNode =
   if passes.skipCodegen(n): return n
-  let g = LLGen(b)
   p("Process", n, 0)
+
+  let g = LLGen(b)
   g.genStmt(n)
 
   result = n
@@ -3612,21 +3638,36 @@ proc myOpenCached(s: PSym, rd: PRodReader): PPassContext =
   result = nil
 
 proc myOpen(s: PSym): PPassContext =
+  # In the C generator, a separate C file is generated for every module,
+  # but the rules governing what goes into which module are shrouded by a
+  # layer of globals and conditionals.
+  # Rather than deciphering all that, we simply generate a single module
+  # with all the code in it, like the JS generator does.
+
   p("Opening", s, 0)
+  if uglyGen == nil:
+    let g = newLLGen(s)
 
-  let g = newLLGen(s)
+    let init = g.m.addFunction(s.llName & ".nlvmInit", llInitFuncType)
 
-  let init = g.m.addFunction(s.llName & "_Init000", llInitFuncType)
+    let b = llvm.appendBasicBlock(init, "entry." & s.llName)
+    g.b.positionBuilderAtEnd(b)
 
-  let b = llvm.appendBasicBlock(init, "entry")
-  g.b.positionBuilderAtEnd(b)
+    g.returnBlock = llvm.appendBasicBlock(init, "return")
 
-  g.returnBlock = llvm.appendBasicBlock(init, "return")
+    g.scopePush(nil, g.returnBlock)
 
-  g.scopePush(nil, g.returnBlock)
+    g.init = init
 
-  g.init = init
+    uglyGen = g
+  else:
+    let g = uglyGen
+    let entry = llvm.appendBasicBlock(g.init, "entry." & s.llName)
+    g.b.buildBrFallthrough(entry)
+    g.b.positionBuilderAtEnd(entry)
 
-  result = g
+  uglyGen.syms.add(s)
+
+  result = uglyGen
 
 const llgenPass* = makePass(myOpen, myOpenCached, myProcess, myClose)

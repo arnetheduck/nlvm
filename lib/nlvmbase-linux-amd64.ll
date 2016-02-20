@@ -10,7 +10,9 @@
 @RTLD_NOW = global i32 2
 
 ; errno.h
+@EBADF = global i32 9
 @EEXIST = global i32 17
+@EINTR = global i32 4
 @ENOENT = global i32 2
 
 ; limits.h
@@ -87,6 +89,10 @@ define void @FD_SET(i32, %fd_set*) {
 define i32 @FD_ISSET(i32, %fd_set*) {
   ret i32 0
 }
+
+; sys/socket.h
+@AF_INET = global i32 2
+@AF_INET6 = global i32 10
 
 ; sys/wait.h
 @WNOHANG = global i32 1
