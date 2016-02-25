@@ -76,6 +76,7 @@ type LLScope = ref object
   n: PNode
   exit: llvm.BasicBlockRef
   alloc: llvm.BasicBlockRef
+  goto: llvm.ValueRef
 
 proc `$`(s: LLScope): string =
   $s.vars
@@ -187,7 +188,7 @@ proc llName(s: PSym): string =
     result = $s.loc.r
   elif sfCompilerProc in s.flags:
     result = s.name.s
-  elif s.kind in {skParam, skType, skModule, skResult}:
+  elif s.kind in {skType, skModule, skResult}:
     result = s.name.s
   else:
     result = s.name.s.toLower
@@ -635,7 +636,7 @@ proc genObjectNodeInfoInit(g: LLGen, t: PType, n: PNode, suffix: string): llvm.V
     var fields: seq[ValueRef]
     newSeq(fields, l + 1)
 
-    for i in 1..l-1:
+    for i in 1..n.sonsLen-1:
       let b = n[i]
       let bi = g.genObjectNodeInfo(t, b.lastSon, suffix & "." & $i)
       case b.kind
@@ -838,9 +839,6 @@ proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
                 else: g.llType(typ.sons[0])
   var argTypes = newSeq[llvm.TypeRef]()
 
-  if closure:
-    argTypes.add(llVoidPtrType)
-
   for param in typ.procParams():
     let t = param.sym.typ.skipTypes({tyGenericInst})
     let at = g.llProcParamType(t)
@@ -848,6 +846,9 @@ proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
 
     if skipTypes(t, {tyVar}).kind in {tyOpenArray, tyVarargs}:
       argTypes.add(llIntType)  # Extra length parameter
+
+  if closure:
+    argTypes.add(llVoidPtrType)
 
   result = llvm.functionType(retType, argTypes, tfVarArgs in typ.flags)
 
@@ -1016,6 +1017,30 @@ proc callErrno(g: LLGen): llvm.ValueRef =
 
   result = g.b.buildCall(f, [])
 
+proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
+  case analyseObjectWithTypeField(t)
+  of frNone:
+    discard
+  of frHeader:
+    let tgt = g.b.buildGEP(v, mtypeIndex(t))
+    discard g.b.buildStore(g.genTypeInfo(t), tgt)
+  of frEmbedded:
+    discard g.callCompilerProc("objectInit", [v, g.genTypeInfo(t)])
+
+proc cpNewObj(g: LLGen, typ: PType): llvm.ValueRef =
+  let
+    refType = typ.skipTypes(abstractVarRange)
+    objType = refType.sons[0].skipTypes(abstractRange)
+    ti = g.genTypeInfo(refType)
+    t = g.llType(objType)
+    so = t.sizeOfX()
+
+  let x = g.callCompilerProc("newObj", [ti, so])
+  g.callMemset(x, constInt8(0), so)
+
+  result = g.b.buildBitcast(x, t.pointerType(), "")
+  g.genObjectInit(objType, result)
+
 template withRangeItems(il: expr, n: PNode, body: stmt) {.immediate.} =
   let
     ax = g.genExpr(s[0], true)
@@ -1063,7 +1088,7 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
   if result != nil:
     return
 
-  let ft = g.llProcType(s.typ)
+  let ft = g.llProcType(s.typ, s.typ.callConv == ccClosure)
   let f = g.m.addFunction(name, ft)
 
   result = f
@@ -1100,8 +1125,14 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
     while i < s.typ.n.len and isCompileTimeOnly(s.typ.n[i].sym.typ):
       i += 1
     if i >= s.typ.len:
-      p("TODO params missing", s, 0)
-      return
+      if s.typ.callConv == ccClosure:
+        arg.setValueName("ClEnv")
+        g.scopePut("ClEnv", arg)
+
+        continue
+      else:
+        p("TODO params missing", s, 0)
+        return
     let param = s.typ.n[i]
 
     p("a", param, g.depth + 1)
@@ -1124,6 +1155,12 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
 
   # Scope for local variables
   g.scopePush(s.ast, g.returnBlock)
+
+  if tfCapturesEnv in s.typ.flags:
+    let ls = lastSon(s.ast[paramsPos])
+    let lx = g.b.buildBitCast(g.scopeGet("ClEnv"), g.llType(ls.sym.typ), ls.sym.llName)
+
+    g.scopePut(ls.sym.llName, lx)
 
   let rt = ft.getReturnType()
   if rt.getTypeKind() != llvm.VoidTypeKind:
@@ -1208,14 +1245,15 @@ proc genCallArgs(g: LLGen, n: PNode, ftyp: PType): seq[llvm.ValueRef] =
 
 proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let nf = n[namePos]
+  let typ = nf.typ.skipTypes(abstractInst)
 
   var fx = g.genExpr(nf, true)
   if fx == nil: return
 
-  let args = g.genCallArgs(n, nf.typ)
+  let args = g.genCallArgs(n, typ)
   if args == nil: return
 
-  let nfpt = g.llProcType(nf.typ)
+  let nfpt = g.llProcType(typ)
   let nft = llvm.pointerType(nfpt)
   let retty = nfpt.getReturnType()
 
@@ -1248,7 +1286,7 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     let cft = llvm.pointerType(g.llProcType(nf.typ, true))
     let cfx = g.b.buildBitcast(prc, cft, "")
 
-    let clargs = @[env] & args
+    let clargs = args & @[env]
     let cres = g.b.buildCall(cfx, clargs)
 
     discard g.b.buildBr(cloend)
@@ -2003,7 +2041,7 @@ proc genReprExpr(g: LLGen, n: PNode): llvm.ValueRef =
     result = g.callCompilerProc("reprEnum", [ax, g.genTypeInfo(t)])
   of tyString:
     let ax = g.genExpr(n[1], true)
-    result = g.callCompilerProc("reprString", [ax])
+    result = g.callCompilerProc("reprStr", [ax])
   of tySet:
     let ax = g.genExpr(n[1], false)
     result = g.callCompilerProc("reprSet", [ax, g.genTypeInfo(t)])
@@ -2175,7 +2213,7 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     var toload = s.kind != skParam or g.llPassAsPtr(n.typ)
     if toload and load and v.typeOf().getTypeKind() == llvm.PointerTypeKind:
       result = g.b.buildLoadValue(v)
-    elif not load and s.kind == skParam and not g.llPassAsPtr(n.typ):
+    elif not load and s.kind == skParam and not g.llPassAsPtr(n.typ) and s.typ.kind != tyRef:
       # Someone wants an address, but all we have is a value...
       result = g.b.buildAlloca(v.typeOf(), "")
       discard g.b.buildStore(v, result)
@@ -2245,43 +2283,30 @@ proc genParExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if load:
     result = g.b.buildLoad(result, "")
 
-proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
-  case analyseObjectWithTypeField(t)
-  of frNone:
-    discard
-  of frHeader:
-    let tgt = g.b.buildGEP(v, mtypeIndex(t))
-    discard g.b.buildStore(g.genTypeInfo(t), tgt)
-  of frEmbedded:
-    discard g.callCompilerProc("objectInit", [v, g.genTypeInfo(t)])
-
 proc genObjConstrExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   var
     typ = n.typ.skipTypes(abstractInst)
     t = g.llType(typ)
+    isRef = typ.kind == tyRef
 
-  if typ.kind == tyRef:
+  if isRef:
+    result = g.cpNewObj(typ)
     typ = typ.lastSon.skipTypes(abstractInst)
-
-    let ti = g.genTypeInfo(typ)
-    let so = t.getElementType().sizeOfX()
-    result = g.callCompilerProc("newObj", [ti, so])
-    result = g.b.buildBitCast(result, t, "")
   else:
     result = g.b.buildAlloca(t, "")
-    g.callMemset(g.b.buildBitcast(result, llVoidPtrType, ""), constInt8(0), t.sizeOfX())
+
+    g.callMemset(g.b.buildBitCast(result, llVoidPtrType, ""), constInt8(0), t.sizeOfX())
     g.genObjectInit(typ, result)
 
   for i in 1 .. <n.len:
     let s = n[i]
     let ind = fieldIndex(typ, s[0].sym.llName)
     let gep = g.b.buildGEP(result, (@[0] & ind).map(constGEPIdx))
-
     let init = g.genExpr(s[1], true)
     if init != nil:
       g.genAssignment(init, gep, s[1].typ)
 
-  if load and skipTypes(n.typ, abstractInst).kind != tyRef:
+  if load and not isRef:
     result = g.b.buildLoad(result, "")
 
 proc genCurlyExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
@@ -2807,11 +2832,8 @@ proc genNewStmt(g: LLGen, n: PNode) =
     ax = g.genExpr(n[1], false)
   if ax == nil: return
 
-  let at = ax.typeOf()
-  let ti = g.genTypeInfo(n[1].typ)
-  let so = at.getElementType().getElementType().sizeOfX()
-  let x = g.callCompilerProc("newObj", [ti, so])
-  discard g.b.buildStore(g.b.buildBitcast(x, at.getElementType(), ""), ax)
+  let a = g.cpNewObj(n[1].typ)
+  discard g.b.buildStore(a, ax)
 
 proc genNewSeqStmt(g: LLGen, n: PNode) =
   let
@@ -3034,7 +3056,10 @@ proc genIdentDefsStmt(g: LLGen, n: PNode) =
     if sfGlobal in v.flags:
       x = g.genGlobal(v)
     else:
-      x = g.scopeAlloca(g.llType(v.typ), v.llName)
+      let t = g.llType(v.typ)
+      x = g.scopeAlloca(t, v.llName)
+      g.callMemset(g.b.buildBitCast(x, llVoidPtrType, ""), constInt8(0), t.sizeOfX())
+      g.genObjectInit(v.typ, x)
   else:
     # Closure...
     x = g.genExpr(n[0], false)
@@ -3044,8 +3069,6 @@ proc genIdentDefsStmt(g: LLGen, n: PNode) =
     let i = g.genExpr(init, true)
     if i != nil:
       g.genAssignment(i, x, n[2].typ)
-  elif local:
-    g.callMemset(g.b.buildBitCast(x, llVoidPtrType, ""), constInt8(0), x.typeOf().getElementType().sizeOfX())
 
   # Put in scope only once init is finished (init might refence
   # a var with the same name)
@@ -3495,6 +3518,56 @@ proc genBlockStmt(g: LLGen, n: PNode) =
 proc genDiscardStmt(g: LLGen, n: PNode) =
   discard g.genExpr(n[0], true)
 
+proc genGotoStateStmt(g: LLGen, n: PNode) =
+  let ax = g.genExpr(n[0], true)
+  if ax == nil: return
+
+  let l = n[0].typ.lastOrd()
+
+  g.scope[g.scope.len - 1].goto = g.b.buildSwitch(ax, g.returnBlock, (l + 1).cuint)
+
+proc genStateStmt(g: LLGen, n: PNode) =
+  let pre = g.b.getInsertBlock()
+  let f = pre.getBasicBlockParent()
+  let state = f.appendBasicBlock("state." & $n[0].intVal)
+  g.b.buildBrFallthrough(state)
+  g.b.positionBuilderAtEnd(state)
+  for i in 0..g.scope.len-1:
+    if g.scope[g.scope.len - i - 1].goto != nil:
+      g.scope[g.scope.len - i - 1].goto.addCase(constNimInt(n[0].intVal.int), state)
+      break
+
+proc genBreakStateStmt(g: LLGen, n: PNode) =
+  # TODO C code casts to int* and reads first value.. uh, I guess we should be
+  # able to do better
+  var ax: llvm.ValueRef
+  if n[0].kind == nkClosure:
+    ax = g.scopeGet(n[0][1].sym.llName)
+  else:
+    ax = g.genExpr(n[0], false)
+    ax = g.b.buildGEP(ax, [constGEPIdx(0), constGEPIdx(1)])
+
+  ax = g.b.buildLoad(ax, "")
+  ax = g.b.buildBitCast(ax, llIntType.pointerType(), "")
+  let s = g.b.buildLoad(ax, "")
+  let cmp = g.b.buildICmp(llvm.IntSLT, s, constNimInt(0), "")
+  let pre = g.b.getInsertBlock()
+  let f = pre.getBasicBlockParent()
+  let state = f.appendBasicBlock("state.break.cont")
+
+  # nkBreakState happens in a loop, so we need to find the end of that loop...
+  var whileExit: llvm.BasicBlockRef
+  for i in 0..g.scope.len-1:
+    if g.scope[g.scope.len - i - 1].exit != nil:
+      whileExit = g.scope[g.scope.len - i - 1].exit
+      break
+
+  if whileExit == nil:
+    internalError(n.info, "no enclosing while loop in nkBreakState")
+
+  discard g.b.buildCondBr(cmp, whileExit, state)
+  g.b.positionBuilderAtEnd(state)
+
 proc genExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   p(if load: "xl" else: "xp", n, g.depth)
 
@@ -3563,6 +3636,9 @@ proc genStmt(g: LLGen, n: PNode) =
   of nkBlockStmt: g.genBlockStmt(n)
   of nkDiscardStmt: g.genDiscardStmt(n)
   of nkStmtList: g.genSons(n)
+  of nkGotoState: g.genGotoStateStmt(n)
+  of nkState: g.genStateStmt(n)
+  of nkBreakState: g.genBreakStateStmt(n)
 
   of nkTypeSection, nkCommentStmt, nkIteratorDef, nkIncludeStmt,
      nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
