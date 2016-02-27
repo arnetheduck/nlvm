@@ -6,7 +6,7 @@ NLVMC=$(NLVM)/nlvm
 
 all: $(NLVMC)
 
-$(NLVMC): $(NIMC) $(NLVM)/*.nim
+$(NLVMC): $(NIMC) $(NLVM)/*.nim llvm/*.nim
 	cd $(NLVM) && ../$(NIMC) c nlvm
 
 $(NIMC): $(NIM)/compiler/*.nim
