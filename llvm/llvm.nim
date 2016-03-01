@@ -70,6 +70,11 @@ proc functionType*(returnType: TypeRef, paramTypes: openarray[TypeRef],
                    isVarArg = false): TypeRef =
   asRaw(paramTypes, functionType(returnType, p, n, if isVarArg: llvm.True else: llvm.False))
 
+proc getParamTypes*(functionTy: TypeRef): seq[TypeRef] =
+  result = newSeq[TypeRef](functionTy.countParamTypes())
+  if result.len > 0:
+    functionTy.getParamTypes(addr(result[0]))
+
 proc structType*(elementTypes: openarray[TypeRef],
                  packed = False): TypeRef =
   asRaw(elementTypes, structType(p, n, packed))
@@ -80,7 +85,8 @@ proc structSetBody*(structTy: TypeRef; elementTypes: openarray[TypeRef];
 
 proc getStructElementTypes*(structTy: TypeRef): seq[TypeRef] =
   result = newSeq[TypeRef](structTy.countStructElementTypes())
-  structTy.getStructElementTypes(addr(result[0]))
+  if result.len > 0:
+    structTy.getStructElementTypes(addr(result[0]))
 
 proc pointerType*(elementType: TypeRef): TypeRef =
   pointerType(elementType, 0)

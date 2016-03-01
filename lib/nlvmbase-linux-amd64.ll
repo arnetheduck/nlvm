@@ -15,6 +15,15 @@
 @EINTR = global i32 4
 @ENOENT = global i32 2
 
+; fcntl.h
+@O_RDONLY = global i32 0
+@O_RDWR = global i32 2
+
+@O_CREAT = global i32 64
+@O_TRUNC = global i32 512
+
+@FD_CLOEXEC = global i32 1
+
 ; limits.h
 @PATH_MAX = global i32 4096
 
@@ -44,6 +53,13 @@
 
 ; sys/mman.h
 @MAP_ANONYMOUS = global i32 32
+@MAP_PRIVATE = global i32 2
+@MAP_POPULATE = global i32 32768
+@MAP_SHARED = global i32 1
+@MAP_FAILED = global i32 -1
+
+@PROT_READ = global i32 1
+@PROT_WRITE = global i32 2
 
 ; sys/stat.h
 @S_IRWXU = global i32 448

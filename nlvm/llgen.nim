@@ -10,6 +10,7 @@ import
 import
   compiler/ast,
   compiler/astalgo,
+  compiler/cgmeth,
   compiler/ccgutils,
   compiler/extccomp,
   compiler/magicsys,
@@ -146,7 +147,7 @@ proc scopeGet(g: LLGen, s: string): llvm.ValueRef =
     for y in scope.vars:
       if y[0] == s:
         return y[1]
-  echo "TODO Not found:", s, " ", g.scope
+  internalError("Symbol missing from scope: " & $s & ", " & $g.scope)
 
 proc scopePut(g: LLGen, name: string, value: llvm.ValueRef) =
   var s = g.scope[g.scope.len - 1]
@@ -529,12 +530,16 @@ proc genTypeInfoInit(g: LLGen, t: PType, ntlt, lt: llvm.TypeRef,
                      deepcopyVar: llvm.ValueRef): llvm.ValueRef =
   let sizeVar = if lt == nil: constNimInt(0) else: llvm.sizeOfX(lt)
 
-  let kind = if t.kind == tyObject and not t.hasTypeField(): tyPureObject else: t.kind
+  let kind =
+    if t.kind == tyObject and not t.hasTypeField(): tyPureObject
+    elif t.kind == tyProc and t.callConv == ccClosure: tyTuple
+    else: t.kind
   let kindVar = llvm.constInt(llvm.int8Type(), kind.culonglong, llvm.False)
 
   var flags = 0
   if not containsGarbageCollectedRef(t): flags = flags or 1
-  if not canFormAcycle(t): flags = flags or 2
+  if not canFormAcycle(t) or (t.kind == tyProc and t.callConv == ccClosure):
+    flags = flags or 2
   if t.kind == tyEnum:
     var hasHoles = false
     for i in 0..t.sonsLen-1:
@@ -762,6 +767,14 @@ proc genSetNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
   result = g.m.addPrivateConstant(tnn, name)
   result.setInitializer(g.genSetNodeInfoInit(t))
 
+proc fakeClosureType(owner: PSym): PType =
+  # generate same rtti as c generator - why does it generate it this way??
+  result = newType(tyTuple, owner)
+  result.rawAddSon(newType(tyPointer, owner))
+  var r = newType(tyRef, owner)
+  r.rawAddSon(newType(tyTuple, owner))
+  result.rawAddSon(r)
+
 proc genNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
   let tnn = g.llStructType(magicsys.getCompilerProc("TNimNode").typ)
 
@@ -770,6 +783,11 @@ proc genNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
   of tyTuple: result = g.genTupleNodeInfo(t)
   of tyEnum: result = g.genEnumNodeInfo(t)
   of tySet: result = g.genSetNodeInfo(t)
+  of tyProc:
+    if t.callConv == ccClosure:
+      result = g.genTupleNodeInfo(fakeClosureType(t.owner))
+    else:
+      result = constNull(tnn.pointerType())
   else: result = constNull(tnn.pointerType())
 
 proc genTypeInfoBase(g: LLGen, t: PType): llvm.ValueRef =
@@ -782,7 +800,6 @@ proc genTypeInfoBase(g: LLGen, t: PType): llvm.ValueRef =
   if result == nil:
     let ntlt = g.llStructType(magicsys.getCompilerProc("TNimType").typ)
     result = llvm.constNull(ntlt.pointerType())
-
 
 proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
   var t = t.skipTypes({tyDistinct, tyGenericBody, tyGenericParam})
@@ -878,7 +895,7 @@ proc fieldIndexRecs(n: PNode, name: string, start: var int): seq[int] =
     if n.sym.llName == name: return @[start]
     inc(start)
   else:
-    p("TODO fieldIndex", n, 0)
+    internalError(n.info, "Unhandled field index")
   return @[]
 
 proc fieldIndex(typ: PType, name: string): seq[int] =
@@ -911,7 +928,6 @@ proc mtypeIndex(typ: PType): seq[llvm.ValueRef] =
     t = skipTypes(t.sons[0], typedescInst)
 
   if not t.hasTypeField():
-    p("TODO mtype fail", t, 0)
     # TODO why is this check in the generator???
     internalError("no 'of' operator available for pure objects")
   result = result & @[zero]
@@ -932,11 +948,11 @@ proc isNimSeqLike(t: llvm.TypeRef): bool =
 
   result = true
 
-proc preCast(g: LLGen, ax: llvm.ValueRef, t: PType, param = false): llvm.ValueRef =
+proc preCast(g: LLGen, ax: llvm.ValueRef, t: PType, lt: llvm.TypeRef = nil): llvm.ValueRef =
   let
     at = ax.typeOf()
     atk = at.getTypeKind()
-    lt = if param: g.llProcParamType(t) else: g.llType(t)
+    lt = if lt != nil: lt else: g.llType(t)
     ltk = lt.getTypeKind()
 
   if t.kind == tyCString and at != llCStringType and at.isNimSeqLike:
@@ -1003,7 +1019,7 @@ proc callCompilerProc(g: LLGen, n: string, args: openarray[llvm.ValueRef]): llvm
   for param in pars:
     let v = args[i]
 
-    let a = g.preCast(v, param.typ, true)
+    let a = g.preCast(v, param.typ, g.llProcParamType(param.typ))
     args[i] = a
 
     if skipTypes(param.typ, {tyVar}).kind in {tyOpenArray, tyVarargs}:
@@ -1145,7 +1161,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
 
         continue
       else:
-        p("TODO params missing", s, 0)
+        internalError("Params missing in function call: " & $s)
         return
     let param = s.typ.n[i]
 
@@ -1204,11 +1220,12 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
   g.scope = oldScope
   g.b.positionBuilderAtEnd(oldBlock)
 
-proc genCallArgs(g: LLGen, n: PNode, ftyp: PType): seq[llvm.ValueRef] =
+proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.ValueRef] =
   var args: seq[ValueRef] = @[]
-  let pars = ftyp.procParams()
 
   var i = 0
+
+  let parTypes = fxt.getParamTypes()
   for i in 1..n.sonsLen - 1:
     let p = n[i]
     let pr = if p.kind == nkHiddenAddr: p[0] else: p
@@ -1219,6 +1236,8 @@ proc genCallArgs(g: LLGen, n: PNode, ftyp: PType): seq[llvm.ValueRef] =
 
     let param = ftyp.n[i]
     if param.typ.isCompileTimeOnly(): continue
+
+    let pt = parTypes[args.len]
 
     var v: llvm.ValueRef
     if skipTypes(param.typ, {tyVar}).kind in {tyOpenArray, tyVarargs}:
@@ -1242,8 +1261,7 @@ proc genCallArgs(g: LLGen, n: PNode, ftyp: PType): seq[llvm.ValueRef] =
       else:
         v = g.genExpr(p, not g.llPassAsPtr(param.typ))
         if v == nil: return
-        p("TODO call len " & $p.typ, n, 0)
-        len = constNimInt(0)
+        internalError(n.info, "Unhandled length: " & $pr.typ)
 
       if v.typeOf() != g.llProcParamType(param.typ):
         v = g.b.buildBitCast(v, g.llProcParamType(param.typ), "")
@@ -1253,7 +1271,11 @@ proc genCallArgs(g: LLGen, n: PNode, ftyp: PType): seq[llvm.ValueRef] =
     else:
       v = g.genExpr(p, not g.llPassAsPtr(param.typ))
       if v == nil: return
-      v = g.preCast(v, param.typ, true)
+
+      # We need to use the type from the function, because with multimethods,
+      # it looks like the type in param.typ changes during compilation!
+      # seen with tmultim1.nim
+      v = g.preCast(v, param.typ, pt)
       args.add(v)
 
   result = args
@@ -1264,9 +1286,6 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
   var fx = g.genExpr(nf, true)
   if fx == nil: return
-
-  let args = g.genCallArgs(n, typ)
-  if args == nil: return
 
   let nfpt = g.llProcType(typ)
   let nft = llvm.pointerType(nfpt)
@@ -1293,6 +1312,7 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     if prc.typeOf().getElementType().getTypeKind() != llvm.FunctionTypeKind:
       fx = g.b.buildBitcast(prc, nft, "")
 
+    let args = g.genCallArgs(n, fx.typeOf().getElementType(), typ)
     let res = g.b.buildCall(fx, args)
     discard g.b.buildBr(cloend)
 
@@ -1301,7 +1321,8 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     let cft = llvm.pointerType(g.llProcType(nf.typ, true))
     let cfx = g.b.buildBitcast(prc, cft, "")
 
-    let clargs = args & @[env]
+    let args2 = g.genCallArgs(n, cfx.typeOf().getElementType(), typ)
+    let clargs = args2 & @[env]
     let cres = g.b.buildCall(cfx, clargs)
 
     discard g.b.buildBr(cloend)
@@ -1314,6 +1335,8 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   else:
     if fx.typeOf().getElementType().getTypeKind() != llvm.FunctionTypeKind:
       fx = g.b.buildBitcast(fx, nft, "")
+
+    let args = g.genCallArgs(n, fx.typeOf().getElementType(), typ)
     callres = g.b.buildCall(fx, args)
 
   if retty.getTypeKind() != llvm.VoidTypeKind and not load and
@@ -1339,8 +1362,7 @@ proc genAssignment(g: LLGen, v, t: llvm.ValueRef, typ: PType) =
     tt = t.typeOf()
 
   if tt.getTypeKind() != llvm.PointerTypeKind:
-    p("TODO genAssignment not ptr " & $t & " " & $tt, typ, 0)
-    return
+    internalError("Ptr required in genAssignment: " & $t)
 
   let tet = tt.getElementType()
 
@@ -1348,8 +1370,8 @@ proc genAssignment(g: LLGen, v, t: llvm.ValueRef, typ: PType) =
     # TODO always copying string is not necessary
     let sx = g.callCompilerProc("copyString", [v])
     if tet != sx.typeOf():
-      p("TODO genAssignment not string" & $v & " " & $t & " " & $sx, typ, 0)
-      return
+      internalError("string required in genAssignment: " & $t)
+
     discard g.b.buildStore(sx, t)
   elif typ.kind == tyTuple:
     for i in 0..<typ.sonsLen:
@@ -1378,12 +1400,19 @@ proc genAssignment(g: LLGen, v, t: llvm.ValueRef, typ: PType) =
       n = g.b.buildMul(so, constNimInt(tet.getArrayLength().int), "")
     g.callMemcpy(tp, vp, n)
   elif typ.kind == tyProc:
-    discard g.b.buildStore(g.b.buildBitcast(v, tet, ""), t)
+    if typ.callConv == ccClosure:
+      let clprc = g.b.buildGEP(t, [constGEPIdx(0), constGEPIdx(0)])
+      let clv = g.b.buildBitcast(v, clprc.typeOf().getElementType(), "")
+      discard g.b.buildStore(clv, clprc)
+    else:
+      discard g.b.buildStore(g.b.buildBitcast(v, tet, ""), t)
   elif tet == llCStringType and vt.isNimSeqLike:
     # nim string to cstring
     discard g.b.buildStore(g.b.buildNimSeqDataGEP(v), t)
   else:
-    p("TODO genAssignment " & $v & " " & $t & " " & $vt & " " & $tt, typ, 0)
+    # TODO this is almost certainly wrong but handles cases like type aliases
+    # which currently are broken in nlvm
+    discard g.b.buildStore(v, g.b.buildBitCast(t, vt.pointerType(), ""))
 
 # Magic expressions
 proc genLowExpr(g: LLGen, n: PNode): llvm.ValueRef =
@@ -1391,7 +1420,7 @@ proc genLowExpr(g: LLGen, n: PNode): llvm.ValueRef =
   of tyOpenArray, tyVarargs: result = constNimInt(0)
   of tyCString, tyString: result = constNimInt(0)
   of tySequence: result = constNimInt(0)
-  of tyArray, tyArrayConstr: p("TODO genLowExpr", n[1], 0)
+  of tyArray, tyArrayConstr: internalError(n.info, "genLowExpr array not implemented")
   else: internalError(n.info, "genLowExpr " & $n[1])
 
 proc genHighExpr(g: LLGen, n: PNode): llvm.ValueRef =
@@ -1399,7 +1428,7 @@ proc genHighExpr(g: LLGen, n: PNode): llvm.ValueRef =
   of tyOpenArray, tyVarargs: result = g.genLengthOpenArrayExpr(n)
   of tyCString, tyString: result = g.genLengthStrExpr(n)
   of tySequence: result = g.genLengthSeqExpr(n)
-  of tyArray, tyArrayConstr: p("TODO genHighExpr", n[1], 0)
+  of tyArray, tyArrayConstr: internalError(n.info, "genHighExpr array not implemented")
   else: internalError(n.info, "genHighExpr " & $n[1].typ)
 
   if result == nil: return
@@ -1414,7 +1443,10 @@ proc genSizeOfExpr(g: LLGen, n: PNode): llvm.ValueRef =
 proc genOfExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let ax = g.genExpr(n[1], false)
   if ax == nil: return
-  let m_type = g.b.buildLoad(g.b.buildGEP(ax, mtypeIndex(n[1].typ)), "")
+
+  let objType = n[1].typ.skipTypes(abstractPtrs)
+
+  let m_type = g.b.buildLoad(g.b.buildGEP(ax, mtypeIndex(objType)), "")
   let typ = n[2].typ.skipTypes(typedescPtrs)
   # TODO nil check if n is a pointer
   result = g.callCompilerProc("isObj", [m_type, g.genTypeInfo(typ)])
@@ -1471,7 +1503,7 @@ proc genLengthStrExpr(g: LLGen, n: PNode): llvm.ValueRef =
   elif n[1].typ.kind == tyString:
     result = genLengthSeqExpr(g, n)
   else:
-    internalError(n.info, "unexpected kind " & $n[1].typ)
+    internalError(n.info, "Unhandled kind " & $n[1].typ)
 
 proc genLengthArrayExpr(g: LLGen, n: PNode): llvm.ValueRef =
   result = constNimInt(lengthOrd(n.typ).int)
@@ -2235,8 +2267,7 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       v = g.scopeGet(s.llName)
 
     if v == nil:
-      p("TODO NOT FOUND genSymExpr", n, 0)
-      return
+      internalError(n.info, "Symbol not found: " & s.llName)
 
     var toload = s.kind != skParam or g.llPassAsPtr(n.typ)
     if toload and load and v.typeOf().getTypeKind() == llvm.PointerTypeKind:
@@ -2249,6 +2280,11 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       result = v
   of skType:
     result = g.genTypeInfo(s.typ)
+  of skMethod:
+    if {sfDispatcher, sfForward} * s.flags != {}:
+      result = g.genFunction(s)
+    else:
+      result = g.genFunctionWithBody(s)
   of skProc, skConverter, skIterators:
     if lfNoDecl in s.loc.flags or s.magic != mNone or
          {sfImportc, sfInfixCall} * s.flags != {}:
@@ -2256,7 +2292,7 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     else:
       result = g.genFunctionWithBody(s)
   else:
-    p("TODO genSymExpr " % $s.kind, n, 0)
+    internalError(n.info, "Unhandled kind: " & $s.kind)
 
 proc genIntLitExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let nt = g.llType(n.typ)
@@ -2416,7 +2452,7 @@ proc genBracketExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
         let gep = g.b.buildNimSeqDataGEP(result, constGEPIdx(i))
         g.genAssignment(ax, gep, n[i].typ)
   else:
-    internalError(n.info, "genBracketExpr: unexpected kind " & $typ.kind)
+    internalError(n.info, "Unhandled kind: " & $typ.kind)
 
 proc genBracketArrayExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let
@@ -2492,8 +2528,7 @@ proc genBracketExprExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of tySequence, tyString: result = g.genBracketSeqExpr(n, load)
   of tyCString: result = g.genBracketCStringExpr(n, load)
   of tyTuple: result = g.genBracketTupleExpr(n, load)
-  else:
-    p("TODO genBracketExprExpr " & $typ.kind, n, 0)
+  else: internalError(n.info, "Unhandled kind: " & $typ.kind)
 
 proc genDotExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   p("genDotExpr", n[1].sym, g.depth + 1)
@@ -2614,7 +2649,8 @@ proc genConvExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     result = v
 
   if result == nil:
-    p("TODO genConvExpr " & $vt & " " & $nt & " " & $n[1].typ.kind & " " & $n.typ.kind, n, 0)
+    internalError(n.info, "Unhandled conversion: " & $vt & " " & $nt & " " &
+      $n[1].typ.kind & " " & $n.typ.kind)
 
 proc genCastExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let v = g.genExpr(n[1], load)
@@ -2635,8 +2671,7 @@ proc genCastExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       elif n.typ.kind in {tyInt..tyInt64}:
         result = g.b.buildFPToSI(v, nt, "")
     else:
-      p("TODO genCastExpr " & $vtk & " " & $ntk, n, 0)
-      return
+      internalError(n.info, "Unhandled cast: " & $vtk & " " & $ntk)
   elif vtk == llvm.IntegerTypeKind:
     result = g.b.buildTruncOrExt(v, nt, n.typ.kind)
   else:
@@ -2660,8 +2695,7 @@ proc genObjDownConvExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   elif at.getTypeKind() == PointerTypeKind and nt.getTypeKind() == PointerTypeKind:
     result = g.b.buildBitcast(ax, nt, "")
   else:
-    p("TODO genObjDownConvExpr " & $at & " " & $nt, n, 0)
-    return
+    internalError(n.info, "Unhandled nkObjDownConv")
 
 proc genObjUpConvExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let ax = g.genExpr(n[0], n.typ.kind == tyRef)
@@ -2678,8 +2712,7 @@ proc genObjUpConvExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   elif at.getTypeKind() == PointerTypeKind and nt.getTypeKind() == PointerTypeKind:
     result = g.b.buildBitcast(ax, nt, "")
   else:
-    p("TODO genObjUpConvExpr " & $at & " " & $nt, n, 0)
-    return
+    internalError(n.info, "Unhandled nkUpDownConv")
 
   if load and n.typ.kind != tyRef:
     result = g.b.buildLoad(result, "")
@@ -2694,8 +2727,6 @@ proc genChckRangeExpr(g: LLGen, n: PNode): llvm.ValueRef =
     nt = g.llType(n.typ)
 
   result = g.b.buildTruncOrExt(v, nt, n.typ.kind)
-  if result == nil:
-    p("TODO genChckRangeExpr " & $vt & " " & $nt, n, 0)
 
 proc genStringToCStringExpr(g: LLGen, n: PNode): llvm.ValueRef =
   let ax = g.genExpr(n[0], true)
@@ -3031,15 +3062,15 @@ proc genSwapStmt(g: LLGen, n: PNode) =
     bx = g.genExpr(n[2], false)
   if ax == nil or bx == nil: return
 
-  if ax.typeOf().getTypeKind() != llvm.PointerTypeKind or
-    not (ax.typeOf().getElementType().getTypeKind() in {
-    llvm.IntegerTypeKind, llvm.PointerTypeKind}):
-      p("TODO genSwapStmt " & $n[1] & " " & $n[2], n, 0)
-      return
+  let t = g.llType(n[1].typ)
+  let tmpx = g.scopeAlloca(t, "")
 
-  let tmp = g.b.buildLoad(ax, "")
-  discard g.b.buildStore(g.b.buildLoad(bx, ""), ax)
-  discard g.b.buildStore(tmp, bx)
+  let a = g.b.buildLoad(ax, "")
+  g.genAssignment(a, tmpx, n[1].typ)
+  let b = g.b.buildLoad(bx, "")
+  g.genAssignment(b, ax, n[1].typ)
+  let tmp = g.b.buildLoad(tmpx, "")
+  g.genAssignment(tmp, bx, n[1].typ)
 
 proc genResetStmt(g: LLGen, n: PNode) =
   let ax = g.genExpr(n[1], false)
@@ -3055,6 +3086,7 @@ proc genMagicStmt(g: LLGen, n: PNode) =
   of mInc: g.genIncDecStmt(n, llvm.Add)
   of mDec: g.genIncDecStmt(n, llvm.Sub)
   of mNew: g.genNewStmt(n)
+  of mNewFinalize: g.genNewStmt(n)  # TODO
   of mNewSeq: g.genNewSeqStmt(n)
   of mIncl: g.genInclStmt(n)
   of mExcl: g.genExclStmt(n)
@@ -3066,7 +3098,7 @@ proc genMagicStmt(g: LLGen, n: PNode) =
   of mSetLengthSeq: g.genSetLengthSeqStmt(n)
   of mSwap: g.genSwapStmt(n)
   of mReset: g.genResetStmt(n)
-  else: p("TODO genMagicStmt " & $op, n, 0)
+  else: internalError(n.info, "Unhandled magic: " & $op)
 
 # Statements
 proc genCallStmt(g: LLGen, n: PNode) =
@@ -3114,8 +3146,7 @@ proc genIdentDefsStmt(g: LLGen, n: PNode) =
 proc genVarTupleStmt(g: LLGen, n: PNode) =
   for s in n.sons[0..n.sonsLen - 3]:
     if s.kind != nkSym:
-      p("TODO genVarTupleStmt " & $s, n, 0)
-      return
+      internalError("Expected nkSym: " & $s)
 
   let t = g.genExpr(n.lastSon, true)
 
@@ -3149,7 +3180,7 @@ proc genAsgnStmt(g: LLGen, n: PNode) =
 
   if ax == nil or bx == nil: return
 
-  g.genAssignment(bx, ax, n[1].typ)
+  g.genAssignment(bx, ax, n[0].typ)
 
 proc genFastAsgnStmt(g: LLGen, n: PNode) =
   let
@@ -3157,7 +3188,7 @@ proc genFastAsgnStmt(g: LLGen, n: PNode) =
     bx = g.genExpr(n[1], true)
   if ax == nil or bx == nil: return
 
-  g.genAssignment(bx, ax, n[1].typ)
+  g.genAssignment(bx, ax, n[0].typ)
 
 proc genProcStmt(g: LLGen, n: PNode) =
   if n.sons[genericParamsPos].kind != nkEmpty:
@@ -3392,7 +3423,7 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
 proc genTryStmt(g: LLGen, n: PNode) =
   # create safe point
   let tsp = magicsys.getCompilerProc("TSafePoint").typ
-  let spt =  g.llStructType(magicsys.getCompilerProc("TSafePoint").typ)
+  let spt =  g.llStructType(tsp)
 
   let sp = g.b.buildAlloca(spt, "sp")
   discard g.callCompilerProc("pushSafePoint", [sp])
@@ -3641,7 +3672,7 @@ proc genExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of nkCaseStmt: result = g.genCaseExpr(n, load)  # Sometimes seen as expression!
   of nkStmtListExpr: result = g.genStmtListExpr(n, load)
   of nkClosure: result = g.genClosureExpr(n, load)
-  else: p("TODO genExpr", n, 0)
+  else: internalError(n.info, "Unhandled expression: " & $n.kind)
   g.depth -= 1
 
 proc genSons(g: LLGen, n: PNode) =
@@ -3660,7 +3691,8 @@ proc genStmt(g: LLGen, n: PNode) =
   of nkFastAsgn: g.genFastAsgnStmt(n)
   of nkProcDef, nkMethodDef, nkConverterDef:
     var s = n[namePos].sym
-    if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
+    if {sfExportc, sfCompilerProc} * s.flags == {sfExportc} or
+        s.kind == skMethod:
       g.genProcStmt(n)
   of nkIfStmt: g.genIfStmt(n)
   of nkWhenStmt: g.genWhenStmt(n)
@@ -3682,7 +3714,9 @@ proc genStmt(g: LLGen, n: PNode) =
   of nkTypeSection, nkCommentStmt, nkIteratorDef, nkIncludeStmt,
      nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
      nkFromStmt, nkTemplateDef, nkMacroDef, nkPragma: discard
-  else: p("TODO genStmt", n, 0)
+  of nkNilLit: discard  # expresssion?
+  of nkStmtListExpr: discard g.genStmtListExpr(n, false)
+  else: internalError(n.info, "Unhandled statement: " & $n.kind)
   g.depth -= 1
 
 proc newLLGen(s: PSym): LLGen =
@@ -3729,6 +3763,10 @@ proc myClose(b: PPassContext, n: PNode): PNode =
 
   g.genMain()
 
+  var disp = generateMethodDispatchers()
+  for i in 0..sonsLen(disp)-1:
+    discard g.genFunctionWithBody(disp.sons[i].sym)
+
   let outfile =
     if options.outFile.len > 0:
       if options.outFile.isAbsolute: options.outFile
@@ -3771,7 +3809,7 @@ proc myOpen(s: PSym): PPassContext =
   if uglyGen == nil:
     let g = newLLGen(s)
 
-    let init = g.m.addFunction(s.llName & ".nlvmInit", llInitFuncType)
+    let init = g.m.addFunction(".nlvmInit", llInitFuncType)
 
     let b = llvm.appendBasicBlock(init, "entry." & s.llName)
     g.b.positionBuilderAtEnd(b)
