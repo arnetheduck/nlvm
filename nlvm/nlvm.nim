@@ -11,7 +11,9 @@ import llgen
 import
   compiler/commands,
   compiler/condsyms,
+  compiler/lexer,
   compiler/lists,
+  compiler/llstream,
   compiler/modules,
   compiler/msgs,
   compiler/nimconf,
@@ -26,6 +28,23 @@ proc commandLL() =
 
   modules.compileProject()
 
+proc commandScan =
+  var f = addFileExt(mainCommandArg(), NimExt)
+  var stream = llStreamOpen(f, fmRead)
+  if stream != nil:
+    var
+      L: TLexer
+      tok: TToken
+    initToken(tok)
+    openLexer(L, f, stream)
+    while true:
+      rawGetTok(L, tok)
+      printTok(tok)
+      if tok.tokType == tkEof: break
+    closeLexer(L)
+  else:
+    rawMessage(errCannotOpenFile, f)
+
 proc mainCommand() =
   lists.appendStr(searchPaths, options.libpath)
 
@@ -38,6 +57,11 @@ proc mainCommand() =
     msgWriteln("-- end of list --")
 
     for it in iterSearchPath(searchPaths): msgWriteln(it)
+
+  of "scan":
+    gCmd = cmdScan
+    wantMainModule()
+    commandScan()
 
   else: msgs.rawMessage(errInvalidCommandX, options.command)
 
