@@ -23,7 +23,8 @@ import
   compiler/rodread,
   compiler/ropes,
   compiler/trees,
-  compiler/types
+  compiler/types,
+  compiler/wordrecg
 
 import llvm/llvm
 
@@ -83,24 +84,30 @@ type LLScope = ref object
   n: PNode
   exit: llvm.BasicBlockRef
   goto: llvm.ValueRef
+  nestedTryStmts: int
+  nestedExceptStmts: int
 
 proc `$`(s: LLScope): string =
   $s.vars
 
+type LLFunc = ref object
+  scope: seq[LLScope]
+  ret: llvm.BasicBlockRef
+  options: TOptions
+  nestedTryStmts: seq[PNode]
+  inExceptBlock: int
+  finallySafePoints: seq[llvm.ValueRef]
+
 type LLGenObj = object of TPassContext
   m: llvm.ModuleRef
   b: llvm.BuilderRef
-
-  returnBlock: llvm.BasicBlockRef
+  f: LLFunc
 
   depth: int
-
-  scope: seq[LLScope]
 
   init: llvm.ValueRef
 
   syms: seq[PSym]
-  options: TOptions
 
 type LLGen = ref LLGenObj
 
@@ -109,6 +116,7 @@ type LLGen = ref LLGenObj
 var uglyGen: LLGen
 
 # Helpers
+proc newLLFunc(ret: llvm.BasicBlockRef): LLFunc
 proc llType(g: LLGen, typ: PType): llvm.TypeRef
 proc fieldIndex(typ: PType, name: string): seq[int]
 proc callErrno(g: LLGen): llvm.ValueRef
@@ -130,37 +138,43 @@ proc genCallStmt(g: LLGen, n: PNode)
 proc genProcStmt(g: LLGen, n: PNode)
 proc genStmt(g: LLGen, n: PNode)
 
-proc scopePush(g: LLGen, n: PNode, exit: llvm.BasicBlockRef) =
-  g.scope.add(
-    LLScope(vars: @[], n: n, exit: exit))
+proc scopePush(f: LLFunc, n: PNode, exit: llvm.BasicBlockRef) =
+  f.scope.add(
+    LLScope(vars: @[], n: n, exit: exit, nestedTryStmts: f.nestedTryStmts.len,
+      nestedExceptStmts: f.inExceptBlock))
 
-proc scopeFind(g: LLGen, sym: PSym): LLScope =
-  for i in 0..g.scope.len - 1:
-    let scope = g.scope[g.scope.len - 1 - i]
+proc scopeIdx(f: LLFunc, sym: PSym): int =
+  for i in 0..f.scope.len - 1:
+    let scope = f.scope[f.scope.len - 1 - i]
     if scope.n != nil and scope.n.kind == nkSym and scope.n.sym == sym:
-      result = scope
-      return
+      return f.scope.len - 1 - i
 
-proc scopePop(g: LLGen): LLScope {.discardable.} =
-  g.scope.pop
+  return -1
 
-proc scopeGet(g: LLGen, s: string): llvm.ValueRef =
-  for x in 0..g.scope.len - 1:
-    let scope = g.scope[g.scope.len - 1 - x]
+proc scopeFind(f: LLFunc, sym: PSym): LLScope =
+  let idx = f.scopeIdx(sym)
+  result = if idx == -1: nil else: f.scope[idx]
+
+proc scopePop(f: LLFunc): LLScope {.discardable.} =
+  f.scope.pop
+
+proc scopeGet(f: LLFunc, s: string): llvm.ValueRef =
+  for x in 0..f.scope.len - 1:
+    let scope = f.scope[f.scope.len - 1 - x]
     for y in scope.vars:
       if y[0] == s:
         return y[1]
-  internalError("Symbol missing from scope: " & $s & ", " & $g.scope)
+  internalError("Symbol missing from scope: " & $s & ", " & $f.scope)
 
-proc scopePut(g: LLGen, name: string, value: llvm.ValueRef) =
-  var s = g.scope[g.scope.len - 1]
+proc scopePut(f: LLFunc, name: string, value: llvm.ValueRef) =
+  var s = f.scope[f.scope.len - 1]
   for i, x in pairs(s.vars):
     if x[0] == name:
       # TODO using var s, why can't I replace through s?
-      g.scope[g.scope.len - 1].vars[i][1] = value
+      f.scope[f.scope.len - 1].vars[i][1] = value
       return
 
-  g.scope[g.scope.len - 1].vars.add((name, value))
+  f.scope[f.scope.len - 1].vars.add((name, value))
 
 proc localAlloca(b: llvm.BuilderRef, typ: llvm.TypeRef, name: string): llvm.ValueRef =
   # alloca will allocate memory on the stack that will be released at function
@@ -367,7 +381,10 @@ proc buildNimSeqDataGEP(b: BuilderRef, s: llvm.ValueRef, idx: llvm.ValueRef = ni
   b.buildGEP(s, [constGEPIdx(0), constGEPIdx(1), idx], "")
 
 proc isUnsigned(typ: PType): bool =
-  typ.skipTypes(abstractVarRange).kind in {tyUInt..tyUInt64, tyChar, tySet}
+  let typ = typ.skipTypes(abstractVarRange)
+
+  result = typ.kind in {tyUInt..tyUInt64, tyChar, tySet} or
+    (typ.kind == tyEnum and firstOrd(typ) >= 0)
 
 proc buildNimIntExt(b: BuilderRef, v: llvm.ValueRef, unsigned: bool): llvm.ValueRef =
   let nt = llIntType
@@ -1249,6 +1266,25 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
 
   result = f
 
+proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
+  # sometimes the implementation in the nim std library doesn't work for llvm
+  # but really needs to be there.. candidate for upstreaming...
+  if s.name.s == "finished" and s.typ.sons.len == 2 and
+      s.typ.sons[1].kind == tyProc:
+
+    let oldBlock = g.b.getInsertBlock()
+    let entry = f.appendBasicBlock("entry")
+    g.b.positionBuilderAtEnd(entry)
+
+    let gep = g.b.buildGEP(f.getParam(0), [constGEPIdx(0), constGEPIdx(1)])
+    let p = g.b.buildLoad(gep, "")
+    let ax = g.b.buildBitCast(p, llIntType.pointerType(), "")
+    let a = g.b.buildLoad(ax, "")
+    let cmp = g.b.buildICmp(llvm.IntSLT, a, constNimInt(0), "")
+    discard g.b.buildRet(cmp)
+    g.b.positionBuilderAtEnd(oldBlock)
+    return true
+
 proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
   result = g.genFunction(s)
 
@@ -1261,6 +1297,8 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
 
+  if g.genFakeImpl(s, result): return
+
   let ft = result.typeOf().getElementType()
 
   var i = 1
@@ -1268,17 +1306,12 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
 
   # generate body
   let oldBlock = g.b.getInsertBlock()
-  let oldScope = g.scope
-  let oldReturn = g.returnBlock
-  let oldOptions = g.options
-
+  let oldF = g.f
   let entry = llvm.appendBasicBlock(result, "entry")
-  g.returnBlock = llvm.appendBasicBlock(result, "return")
+  g.f = newLLFunc(llvm.appendBasicBlock(result, "return"))
 
-  g.scope = @[]
-  g.scopePush(s.ast, g.returnBlock)
-
-  g.options = s.options
+  g.f.options = s.options
+  g.f.scopePush(s.ast, g.f.ret)
 
   for arg in llvm.params(result):
     while i < s.typ.n.len and isCompileTimeOnly(s.typ.n[i].sym.typ):
@@ -1286,7 +1319,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
     if i >= s.typ.len:
       if s.typ.callConv == ccClosure:
         arg.setValueName("ClEnv")
-        g.scopePut("ClEnv", arg)
+        g.f.scopePut("ClEnv", arg)
 
         continue
       else:
@@ -1300,10 +1333,10 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
       arg.setValueName(param.sym.llName & "len")
       lastIsArr = false
       i += 1
-      g.scopePut(param.sym.llName & "len", arg)
+      g.f.scopePut(param.sym.llName & "len", arg)
     else:
       arg.setValueName(param.sym.llName)
-      g.scopePut(param.sym.llName, arg)
+      g.f.scopePut(param.sym.llName, arg)
 
       if skipTypes(param.typ, {tyVar}).kind in {tyOpenArray, tyVarargs}:
         lastIsArr = true
@@ -1313,40 +1346,38 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
   g.b.positionBuilderAtEnd(entry)
 
   # Scope for local variables
-  g.scopePush(s.ast, g.returnBlock)
+  g.f.scopePush(s.ast, g.f.ret)
 
   if tfCapturesEnv in s.typ.flags:
     let ls = lastSon(s.ast[paramsPos])
-    let lx = g.b.buildBitCast(g.scopeGet("ClEnv"), g.llType(ls.sym.typ), ls.sym.llName)
+    let lx = g.b.buildBitCast(g.f.scopeGet("ClEnv"), g.llType(ls.sym.typ), ls.sym.llName)
 
-    g.scopePut(ls.sym.llName, lx)
+    g.f.scopePut(ls.sym.llName, lx)
 
   let rt = ft.getReturnType()
   if rt.getTypeKind() != llvm.VoidTypeKind:
     let res = g.b.localAlloca(rt, "result")
     discard g.b.buildStore(llvm.constNull(rt), res)
-    g.scopePut("result", res)
+    g.f.scopePut("result", res)
     g.genStmt(s.ast.sons[bodyPos])
 
-    g.b.buildBrFallthrough(g.returnBlock)
-    g.b.positionBuilderAtEnd(g.returnBlock)
+    g.b.buildBrFallthrough(g.f.ret)
+    g.b.positionBuilderAtEnd(g.f.ret)
 
     discard g.b.buildRet(g.b.buildLoad(res, ""))
   else:
     g.genStmt(s.ast.sons[bodyPos])
 
-    g.b.buildBrFallthrough(g.returnBlock)
-    g.b.positionBuilderAtEnd(g.returnBlock)
+    g.b.buildBrFallthrough(g.f.ret)
+    g.b.positionBuilderAtEnd(g.f.ret)
 
     discard g.b.buildRetVoid()
 
-  let fn = g.returnBlock.getBasicBlockParent()
-  if fn.getLastBasicBlock() != g.returnBlock:
-    g.returnBlock.moveBasicBlockAfter(fn.getLastBasicBlock())
+  let fn = g.f.ret.getBasicBlockParent()
+  if fn.getLastBasicBlock() != g.f.ret:
+    g.f.ret.moveBasicBlockAfter(fn.getLastBasicBlock())
 
-  g.options = oldOptions
-  g.returnBlock = oldReturn
-  g.scope = oldScope
+  g.f = oldF
   g.b.positionBuilderAtEnd(oldBlock)
 
 proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.ValueRef] =
@@ -1382,7 +1413,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
       of tyOpenArray, tyVarargs:
         v = g.genExpr(p, param.typ.kind == tyVar)
         if v == nil: return
-        len = g.scopeGet(pr.sym.llName & "len")
+        len = g.f.scopeGet(pr.sym.llName & "len")
       of tyArray, tyArrayConstr:
         v = g.genExpr(p, false)
         if v == nil: return
@@ -1671,7 +1702,7 @@ proc genOrdExpr(g: LLGen, n: PNode): llvm.ValueRef =
 proc genLengthOpenArrayExpr(g: LLGen, n: PNode): llvm.ValueRef =
   # openarray must be a parameter so we should find it in the scope
   let s = if n[1].kind == nkHiddenDeref: n[1][0] else: n[1]
-  result = g.scopeGet(s.sym.llName & "len")
+  result = g.f.scopeGet(s.sym.llName & "len")
 
 proc genLengthStrExpr(g: LLGen, n: PNode): llvm.ValueRef =
   if n[1].typ.kind == tyCString:
@@ -1834,9 +1865,9 @@ proc genFBinOpExpr(g: LLGen, n: PNode, op: Opcode, unsigned = false): llvm.Value
 
   result = g.b.buildBinOp(op, ax, bx, "")
 
-  if optNaNCheck in g.options:
+  if optNaNCheck in g.f.options:
     discard g.callCompilerProc("nanCheck", [result])
-  if optInfCheck in g.options:
+  if optInfCheck in g.f.options:
     discard g.callCompilerProc("infCheck", [result])
 
 proc genMinMaxIExpr(g: LLGen, n: PNode, op: IntPredicate): llvm.ValueRef =
@@ -2430,7 +2461,7 @@ proc genReprExpr(g: LLGen, n: PNode): llvm.ValueRef =
     result = g.callCompilerProc("reprSet", [ax, g.genTypeInfo(t)])
   of tyOpenArray, tyVarargs:
     let s = if n[1].kind == nkHiddenDeref: n[1][0] else: n[1]
-    let l = g.scopeGet(s.sym.llName & "len")
+    let l = g.f.scopeGet(s.sym.llName & "len")
     let ax = g.genExpr(n[1], false)
     result = g.callCompilerProc("reprOpenArray", [ax, l, g.genTypeInfo(t.elemType)])
   of tyCString, tyArray, tyArrayConstr, tyRef, tyPtr, tyPointer, tyNil,
@@ -2594,7 +2625,7 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
         (s.kind == skConst and n.sym.ast.isDeepConstExprLL(false)):
       v = g.genGlobal(s)
     else:
-      v = g.scopeGet(s.llName)
+      v = g.f.scopeGet(s.llName)
 
     if v == nil:
       internalError(n.info, "Symbol not found: " & s.llName)
@@ -2801,7 +2832,7 @@ proc genBracketArrayExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   # GEP indices are signed, so if a char appears here we want to make sure
   # it's zero-extended
   let bi = g.b.buildTruncOrExt(bx, llIntType, n[1].typ)
-  let b = if first > 0: g.b.buildSub(bi, constNimInt(first.int), "") else: bi
+  let b = if first != 0: g.b.buildSub(bi, constNimInt(first.int), "") else: bi
   if ax.typeOf().isArrayPtr():
     result = g.b.buildGEP(ax, [constGEPIdx(0), b])
   else:
@@ -2905,11 +2936,11 @@ proc genIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
     if s.sons.len == 1:
       # else branch
-      g.scopePush(n, nil)
+      g.f.scopePush(n, nil)
       let ax = g.genExpr(s[0], load)
       if ax != nil:
         g.genAssignment(ax, tmp, s[0].typ)
-      g.scopePop()
+      g.f.scopePop()
 
       discard g.b.buildBr(iend)
     else:
@@ -2924,11 +2955,11 @@ proc genIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       discard g.b.buildCondBr(cond, itrue, ifalse)
 
       g.b.positionBuilderAtEnd(itrue)
-      g.scopePush(n, nil)
+      g.f.scopePush(n, nil)
       let ax = g.genExpr(s[1], load)
       if ax != nil:
         g.genAssignment(ax, tmp, s[0].typ)
-      g.scopePop()
+      g.f.scopePop()
 
       discard g.b.buildBr(iend)
 
@@ -3111,7 +3142,7 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       elif n[i+1].kind == nkElse: f.appendBasicBlock("case.else")
       else: f.appendBasicBlock("case.of." & $(i+1))
 
-    g.scopePush(n, caseend)
+    g.f.scopePush(n, caseend)
     g.b.positionBuilderAtEnd(casedo)
     let res = g.genExpr(s.lastSon, true)
     g.genAssignment(res, result, n.typ)
@@ -3133,7 +3164,7 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
           if bx == nil:
             discard g.b.buildBr(caseend)
             g.b.positionBuilderAtEnd(caseend)
-            g.scopePop()
+            g.f.scopePop()
             return
 
           let cmpb = g.b.buildICmp(llvm.IntSGE, ax, bx, "")
@@ -3151,7 +3182,7 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
           if bx == nil:
             discard g.b.buildBr(caseend)
             g.b.positionBuilderAtEnd(caseend)
-            g.scopePop()
+            g.f.scopePop()
             return
 
           var cmp: llvm.ValueRef
@@ -3177,7 +3208,7 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       discard g.b.buildBr(casedo)
     else:
       internalError(s.info, "Unexpected case kind " & $s.kind)
-    g.scopePop()
+    g.f.scopePop()
 
   g.b.positionBuilderAtEnd(caseend)
 
@@ -3188,14 +3219,20 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     result = g.b.buildLoadValue(result)
 
 proc genClosureExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  let
+  var
     ax = g.genExpr(n[0], true)
     bx = g.genExpr(n[1], true)
   if ax == nil or bx == nil: return
+
+  # TODO workaround for how params are loaded by nkSym - this needs a review
+  if bx.typeOf().getElementType().getTypeKind() == llvm.PointerTypeKind:
+    bx = g.b.buildLoad(bx, "")
+
   let
     a = g.b.buildBitcast(ax, llVoidPtrType, "")
     b = g.b.buildBitcast(bx, llVoidPtrType, "")
   result = g.b.localAlloca(llClosureType, "")
+
   discard g.b.buildStore(a, g.b.buildGEP(result, [constGEPIdx(0), constGEPIdx(0)]))
   discard g.b.buildStore(b, g.b.buildGEP(result, [constGEPIdx(0), constGEPIdx(1)]))
 
@@ -3499,7 +3536,7 @@ proc genIdentDefsStmt(g: LLGen, n: PNode) =
   # Put in scope only once init is finished (init might refence
   # a var with the same name)
   if local:
-    g.scopePut(n[0].sym.llName, x)
+    g.f.scopePut(n[0].sym.llName, x)
 
 proc genVarTupleStmt(g: LLGen, n: PNode) =
   for s in n.sons[0..n.sonsLen - 3]:
@@ -3529,7 +3566,7 @@ proc genVarTupleStmt(g: LLGen, n: PNode) =
     if sfGlobal notin v.flags:
       # Put in scope only once init is finished (init might refence
       # a var with the same name)
-      g.scopePut(v.llName, x)
+      g.f.scopePut(v.llName, x)
 
 proc genAsgnStmt(g: LLGen, n: PNode) =
   let
@@ -3560,16 +3597,16 @@ proc genIfStmt(g: LLGen, n: PNode) =
   let f = pre.getBasicBlockParent()
 
   # TODO Single scope enough?
-  g.scopePush(n, nil)
+  g.f.scopePush(n, nil)
   var iend: llvm.BasicBlockRef
   for i in 0..sonsLen(n) - 1:
     let s = n[i]
 
     if s.sons.len == 1:
       # else branch
-      g.scopePush(n, nil)
+      g.f.scopePush(n, nil)
       g.genStmt(s[0])
-      g.scopePop()
+      g.f.scopePop()
 
       if g.b.needsBr():
         if iend == nil:
@@ -3589,9 +3626,9 @@ proc genIfStmt(g: LLGen, n: PNode) =
       discard g.b.buildCondBr(cond, itrue, ifalse)
 
       g.b.positionBuilderAtEnd(itrue)
-      g.scopePush(n, nil)
+      g.f.scopePush(n, nil)
       g.genStmt(s[1])
-      g.scopePop()
+      g.f.scopePop()
 
       if g.b.needsBr():
         if iend == nil:
@@ -3605,7 +3642,7 @@ proc genIfStmt(g: LLGen, n: PNode) =
       discard g.b.buildBr(iend)
     llvm.moveBasicBlockAfter(iend, g.b.getInsertBlock())
     g.b.positionBuilderAtEnd(iend)
-  g.scopePop()
+  g.f.scopePop()
 
 proc genWhenStmt(g: LLGen, n: PNode) =
   g.genStmt(n[1][0])
@@ -3633,9 +3670,9 @@ proc genWhileStmt(g: LLGen, n: PNode) =
 
   # loop body
   g.b.positionBuilderAtEnd(wtrue)
-  g.scopePush(n, wfalse)
+  g.f.scopePush(n, wfalse)
   g.genStmt(n[1])
-  g.scopePop()
+  g.f.scopePop()
 
   # back to comparison
   discard g.b.buildBr(wcmp)
@@ -3670,7 +3707,7 @@ proc genCaseStmt(g: LLGen, n: PNode) =
       elif n[i+1].kind == nkElse: f.appendBasicBlock("case.else")
       else: f.appendBasicBlock("case.of." & $(i+1))
 
-    g.scopePush(n, caseend)
+    g.f.scopePush(n, caseend)
     g.b.positionBuilderAtEnd(casedo)
     g.genStmt(s.lastSon)
 
@@ -3691,7 +3728,7 @@ proc genCaseStmt(g: LLGen, n: PNode) =
           if bx == nil:
             discard g.b.buildBr(caseend)
             g.b.positionBuilderAtEnd(caseend)
-            g.scopePop()
+            g.f.scopePop()
             return
 
           let cmpb = g.b.buildICmp(llvm.IntSGE, ax, bx, "")
@@ -3709,7 +3746,7 @@ proc genCaseStmt(g: LLGen, n: PNode) =
           if bx == nil:
             discard g.b.buildBr(caseend)
             g.b.positionBuilderAtEnd(caseend)
-            g.scopePop()
+            g.f.scopePop()
             return
 
           var cmp: llvm.ValueRef
@@ -3735,7 +3772,7 @@ proc genCaseStmt(g: LLGen, n: PNode) =
       discard g.b.buildBr(casedo)
     else:
       internalError(s.info, "Unexpected case kind " & $s.kind)
-    g.scopePop()
+    g.f.scopePop()
 
   g.b.positionBuilderAtEnd(caseend)
 
@@ -3775,15 +3812,17 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
     # Put in scope only once init is finished (init might refence
     # a var with the same name)
     if not (sfGlobal in v.flags):
-      g.scopePut(v.llName, x)
+      g.f.scopePut(v.llName, x)
 
 proc genTryStmt(g: LLGen, n: PNode) =
   # create safe point
   let tsp = magicsys.getCompilerProc("TSafePoint").typ
-  let spt =  g.llStructType(tsp)
+  let spt = g.llStructType(tsp)
 
   let sp = g.b.localAlloca(spt, "sp")
   discard g.callCompilerProc("pushSafePoint", [sp])
+
+  g.f.scopePush(nil, nil)
 
   # call setjmp
   let setjmp = g.m.getOrInsertFunction("_setjmp", llSetjmpType)
@@ -3807,13 +3846,22 @@ proc genTryStmt(g: LLGen, n: PNode) =
 
   g.b.positionBuilderAtEnd(sjok)
 
+  g.f.scopePush(nil, nil)
+  g.f.nestedTryStmts.add(n)
+
   g.genStmt(n[0])
+
   discard g.callCompilerProc("popSafePoint", [])
+  g.f.scopePop()
+
   discard g.b.buildBr(sjend)
 
   g.b.positionBuilderAtEnd(sjexc)
+  g.f.scopePush(nil, nil)
+
   discard g.callCompilerProc("popSafePoint", [])
 
+  inc g.f.inExceptBlock
   var i = 1
   let length = sonsLen(n)
   while (i < length) and (n[i].kind == nkExceptBranch):
@@ -3860,13 +3908,21 @@ proc genTryStmt(g: LLGen, n: PNode) =
 
       g.b.positionBuilderAtEnd(sjnext)
 
+  dec g.f.inExceptBlock
+  discard pop(g.f.nestedTryStmts)
+  g.f.scopePop()
+
   if i == 1:
     # finally without catch!
     discard g.b.buildBr(sjend)
   g.b.positionBuilderAtEnd(sjend)
 
   if i < length and n[i].kind == nkFinally:
+    g.f.finallySafePoints.add(sp)
+    g.f.scopePush(nil, nil)
     g.genStmt(n[i][0])
+    g.f.scopePop()
+    discard g.f.finallySafePoints.pop()
 
   # TODO is the load needed?
   # TODO is this needed if we have a catch-all?
@@ -3883,9 +3939,16 @@ proc genTryStmt(g: LLGen, n: PNode) =
 
   g.b.positionBuilderAtEnd(sjnm)
   sjend.moveBasicBlockBefore(sjrr)
+  g.f.scopePop()
 
 proc genRaiseStmt(g: LLGen, n: PNode) =
-  # TODO raise nested in try
+  if g.f.inExceptBlock > 0:
+    let finallyBlock = g.f.nestedTryStmts[g.f.nestedTryStmts.len - 1].lastSon
+    if finallyBlock.kind == nkFinally:
+      g.f.scopePush(nil, nil)
+      g.genStmt(finallyBlock.sons[0])
+      g.f.scopePop()
+
   if n[0].kind != nkEmpty:
     let ax = g.genExpr(n[0], true)
     if (ax == nil): return
@@ -3896,10 +3959,54 @@ proc genRaiseStmt(g: LLGen, n: PNode) =
   else:
     discard g.callCompilerProc("reraiseException", [])
 
+proc blockLeave(g: LLGen, howManyTrys, howManyExcepts: int) =
+  var stack: seq[PNode] = @[]
+
+  var alreadyPoppedCnt = g.f.inExceptBlock
+  for i in 1..howManyTrys:
+    if alreadyPoppedCnt > 0:
+      dec alreadyPoppedCnt
+    else:
+      discard g.callCompilerProc("popSafePoint", [])
+
+    let tryStmt = g.f.nestedTryStmts.pop
+    stack.add(tryStmt)
+
+    let finallyStmt = lastSon(tryStmt)
+    if finallyStmt.kind == nkFinally:
+      g.genStmt(finallyStmt[0])
+
+  for i in countdown(howManyTrys-1, 0):
+    g.f.nestedTryStmts.add(stack[i])
+
+  for i in countdown(howManyExcepts-1, 0):
+    discard g.callCompilerProc("popCurrentException", [])
+
 proc genReturnStmt(g: LLGen, n: PNode) =
   if (n.sons[0].kind != nkEmpty):
     g.genStmt(n.sons[0])
-  discard g.b.buildBr(g.returnBlock)
+
+  g.blockLeave(g.f.nestedTryStmts.len, g.f.inExceptBlock)
+
+  if (g.f.finallySafePoints.len > 0):
+    let tsp = magicsys.getCompilerProc("TSafePoint").typ
+    let sp = g.f.finallySafePoints[g.f.finallySafePoints.len-1]
+    let statusP = g.b.buildGEP(sp, (@[0] & fieldIndex(tsp, "status")).map(constGEPIdx))
+
+
+    let pre = g.b.getInsertBlock()
+    let f = pre.getBasicBlockParent()
+
+    let s = g.b.buildLoad(statusP, "")
+    let retpop = f.appendBasicBlock("ret.pop")
+    let retdone = f.appendBasicBlock("ret.done")
+    let scmp = g.b.buildICmp(llvm.IntNE, s, constNimInt(0), "")
+    discard g.b.buildCondBr(scmp, retpop, retdone)
+    g.b.positionBuilderAtEnd(retpop)
+    discard g.callCompilerProc("popCurrentException", [])
+    discard g.b.buildBr(retdone)
+
+  discard g.b.buildBr(g.f.ret)
 
   # Sometimes, there might be dead code after the return statement.. as a hack
   # we add a block that will have no predecessors, to avoid dealing with it
@@ -3912,30 +4019,36 @@ proc genReturnStmt(g: LLGen, n: PNode) =
 proc genBreakStmt(g: LLGen, n: PNode) =
   p("b", n[0], g.depth)
 
-  if n[0].kind != nkEmpty:
-    let s = g.scopeFind(n[0].sym)
-    if s == nil:
-      p("TODO NOT FOUND", n[0], 0)
-    else:
-      # similar to return, there might be more stuff after a break that messes
-      # things up - we add an extra block just in case
-      # TODO: one case when this happens is with finally blocks, which are
-      # currently broken anyway, but this way at least the generated bytecode is
-      # valid
-      let pre = g.b.getInsertBlock()
-      let f = pre.getBasicBlockParent()
-      let cont = f.appendBasicBlock("block.cont." & $s.n.sym.id)
-      if s.exit == nil:
-        s.exit = f.appendBasicBlock("block.exit." & $s.n.sym.id)
-      discard g.b.buildBr(s.exit)
-      g.b.positionBuilderAtEnd(cont)
-  else:
-    p("TODO genBreakStmt", n, 0)
+  if n[0].kind == nkEmpty:
+    internalError(n.info, "Unexpected nkBreakStmt with nkEmpty")
+
+  let idx = g.f.scopeIdx(n[0].sym)
+  if idx == -1:
+    internalError(n.info, "Scope not found: " & $n[0].sym)
+
+  let s = g.f.scope[idx]
+
+  g.blockLeave(
+    g.f.nestedTryStmts.len - s.nestedTryStmts,
+    g.f.inExceptBlock - s.nestedExceptStmts)
+
+  # similar to return, there might be more stuff after a break that messes
+  # things up - we add an extra block just in case
+  # TODO: one case when this happens is with finally blocks, which are
+  # currently broken anyway, but this way at least the generated bytecode is
+  # valid
+  let pre = g.b.getInsertBlock()
+  let f = pre.getBasicBlockParent()
+  let cont = f.appendBasicBlock("block.cont." & $s.n.sym.id)
+  if s.exit == nil:
+    s.exit = f.appendBasicBlock("block.exit." & $s.n.sym.id)
+  discard g.b.buildBr(s.exit)
+  g.b.positionBuilderAtEnd(cont)
 
 proc genBlockStmt(g: LLGen, n: PNode) =
-  g.scopePush(n[0], nil)
+  g.f.scopePush(n[0], nil)
   g.genStmt(n[1])
-  let scope = g.scopePop()
+  let scope = g.f.scopePop()
 
   if scope.exit != nil:
     g.b.buildBrFallthrough(scope.exit)
@@ -3951,7 +4064,7 @@ proc genGotoStateStmt(g: LLGen, n: PNode) =
 
   let l = n[0].typ.lastOrd()
 
-  g.scope[g.scope.len - 1].goto = g.b.buildSwitch(ax, g.returnBlock, (l + 1).cuint)
+  g.f.scope[g.f.scope.len - 1].goto = g.b.buildSwitch(ax, g.f.ret, (l + 1).cuint)
 
 proc genStateStmt(g: LLGen, n: PNode) =
   let pre = g.b.getInsertBlock()
@@ -3959,9 +4072,9 @@ proc genStateStmt(g: LLGen, n: PNode) =
   let state = f.appendBasicBlock("state." & $n[0].intVal)
   g.b.buildBrFallthrough(state)
   g.b.positionBuilderAtEnd(state)
-  for i in 0..g.scope.len-1:
-    if g.scope[g.scope.len - i - 1].goto != nil:
-      g.scope[g.scope.len - i - 1].goto.addCase(constNimInt(n[0].intVal.int), state)
+  for i in 0..g.f.scope.len-1:
+    if g.f.scope[g.f.scope.len - i - 1].goto != nil:
+      g.f.scope[g.f.scope.len - i - 1].goto.addCase(constNimInt(n[0].intVal.int), state)
       break
 
 proc genBreakStateStmt(g: LLGen, n: PNode) =
@@ -3969,7 +4082,7 @@ proc genBreakStateStmt(g: LLGen, n: PNode) =
   # able to do better
   var ax: llvm.ValueRef
   if n[0].kind == nkClosure:
-    ax = g.scopeGet(n[0][1].sym.llName)
+    ax = g.f.scopeGet(n[0][1].sym.llName)
   else:
     ax = g.genExpr(n[0], false)
     ax = g.b.buildGEP(ax, [constGEPIdx(0), constGEPIdx(1)])
@@ -3984,9 +4097,9 @@ proc genBreakStateStmt(g: LLGen, n: PNode) =
 
   # nkBreakState happens in a loop, so we need to find the end of that loop...
   var whileExit: llvm.BasicBlockRef
-  for i in 0..g.scope.len-1:
-    if g.scope[g.scope.len - i - 1].exit != nil:
-      whileExit = g.scope[g.scope.len - i - 1].exit
+  for i in 0..g.f.scope.len-1:
+    if g.f.scope[g.f.scope.len - i - 1].exit != nil:
+      whileExit = g.f.scope[g.f.scope.len - i - 1].exit
       break
 
   if whileExit == nil:
@@ -4069,13 +4182,27 @@ proc genStmt(g: LLGen, n: PNode) =
   of nkState: g.genStateStmt(n)
   of nkBreakState: g.genBreakStateStmt(n)
 
+  of nkPragma:
+    for s in n:
+      case whichPragma(s)
+      of wEmit: internalError(n.info, "pragma emit not supported")
+      else: discard
+
   of nkTypeSection, nkCommentStmt, nkIteratorDef, nkIncludeStmt,
      nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
-     nkFromStmt, nkTemplateDef, nkMacroDef, nkPragma: discard
+     nkFromStmt, nkTemplateDef, nkMacroDef: discard
   of nkNilLit: discard  # expresssion?
   of nkStmtListExpr: discard g.genStmtListExpr(n, false)
   else: internalError(n.info, "Unhandled statement: " & $n.kind)
   g.depth -= 1
+
+proc newLLFunc(ret: llvm.BasicBlockRef): LLFunc =
+  new(result)
+  result.scope = @[]
+  result.options = gOptions
+  result.ret = ret
+  result.nestedTryStmts = @[]
+  result.finallySafePoints = @[]
 
 proc newLLGen(s: PSym): LLGen =
   new(result)
@@ -4083,9 +4210,7 @@ proc newLLGen(s: PSym): LLGen =
 
   result.m = llvm.moduleCreateWithName(name)
   result.b = llvm.createBuilder()
-  result.scope = @[]
   result.syms = @[]
-  result.options = gOptions
 
 proc genMain(g: LLGen) =
   let f = g.m.addFunction("main", llMainType)
@@ -4122,14 +4247,14 @@ proc myClose(b: PPassContext, n: PNode): PNode =
 
   # return from nlvmInit
 
-  g.b.buildBrFallthrough(g.returnBlock)
-  g.b.positionBuilderAtEnd(g.returnBlock)
+  g.b.buildBrFallthrough(g.f.ret)
+  g.b.positionBuilderAtEnd(g.f.ret)
 
   discard g.b.buildRetVoid()
 
-  let fn = g.returnBlock.getBasicBlockParent()
-  if fn.getLastBasicBlock() != g.returnBlock:
-    g.returnBlock.moveBasicBlockAfter(fn.getLastBasicBlock())
+  let fn = g.f.ret.getBasicBlockParent()
+  if fn.getLastBasicBlock() != g.f.ret:
+    g.f.ret.moveBasicBlockAfter(fn.getLastBasicBlock())
 
   g.genMain()
 
@@ -4159,7 +4284,7 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
   p("Process", n, 0)
 
   let g = LLGen(b)
-  g.options = gOptions
+  g.f.options = gOptions
 
   g.genStmt(n)
 
@@ -4184,9 +4309,8 @@ proc myOpen(s: PSym): PPassContext =
     let b = llvm.appendBasicBlock(init, "entry." & s.llName)
     g.b.positionBuilderAtEnd(b)
 
-    g.returnBlock = llvm.appendBasicBlock(init, "return")
-
-    g.scopePush(nil, g.returnBlock)
+    g.f = newLLFunc(llvm.appendBasicBlock(init, "return"))
+    g.f.scopePush(nil, g.f.ret)
 
     g.init = init
 
