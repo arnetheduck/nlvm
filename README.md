@@ -4,9 +4,8 @@ NLVM (the nim-level virtual machine?) is in its present incarnation an llvm
 (http://llvm.org) IR generator for the Nim language (http://nim-lang.org).
 
 In some distant future, it would be nice if (in no particular order):
-* it could compile itself
-* it generated executables
-* it implemented more core Nim features (bounds checking etc)
+* it generated executables, and not just bitcode files
+* it implemented more core Nim features (bounds checking, GC etc)
 * it had fewer bugs than the reference nim compiler
 * it had a nice automated test suite
 * someone found it useful
@@ -24,7 +23,7 @@ you find bugs, feel free to fix them as well :)
 
 Fork and enjoy!
 
-Jacek Sieka (arnetheduck on gmail point com), 2016-01-19
+Jacek Sieka (arnetheduck on gmail point com), 2016-03-23
 
 # Compile instructions
 
@@ -56,8 +55,13 @@ Compile nim:
 
 Compile nlvm:
 
-    cd $SRC/nlvm/nlvm
-    ../Nim/bin/nim c nlvm
+    cd $SRC
+    make
+
+Compile with itself and compare:
+
+    cd $SRC
+    make compare
 
 # Compiling your code
 
@@ -66,20 +70,20 @@ containing all dependencies in LLVM bytecode format. The following examples
 assume you've added LLVM to your `$PATH`.
 
     cd $SRC/nlvm/nlvm
-    LD_LIBRARY_PATH=$SRC/llvm-3.7.1.src/build/Debug+Asserts/lib ./nlvm c xxx.nim
+    LD_LIBRARY_PATH=$SRC/llvm-3.7.1.src/build/Debug+Asserts/lib ./nlvm c nlvm
 
 Convert bitcode to text (`.ll`):
 
-    llvm-dis nimcache/xxx.bc
-    less nimcache/xxx.ll
+    llvm-dis nimcache/nlvm.bc
+    less nimcache/nlvm.ll
 
 See optimized code:
 
-    opt -Os nimcache/xxx.bc | llvm-dis
+    opt -Os nimcache/nlvm.bc | llvm-dis
 
 Compile to assembly (`.s`):
 
-    llc nimcache/xxx.bc
+    llc nimcache/nlvm.bc
 
 Compile and link - can use either of `clang`, `gcc` or `ld`.
 * `ld` requires assembly files (generated with `llc`) and lots of flags
@@ -90,8 +94,7 @@ Compile and link - can use either of `clang`, `gcc` or `ld`.
 Apart from the code of your module, you'll also need to add the workaround
 library in `lib/`:
 
-    clang nimcache/xxx.bc lib/nimbase-linux-amd64.ll -ldl -o xxx
-
+    clang nimcache/nlvm.bc lib/nimbase-linux-amd64.ll -ldl -o xxx
 
 # Random notes
 
@@ -101,3 +104,9 @@ library in `lib/`:
 * The upstream test suite runs `compiler/nim` to compile the test code. To run
   it with `nlvm`, I have a little shell script that simply calls `nlvm` and
   `clang` instead
+* nlvm doesn't understand C
+* The nim standard library likes to import C headers directly which works
+  because the upstream nim compiler uses a C compiler underneath - ergo,
+  large parts of the standard library don't work with nlvm.
+* nlvm should work on any x86_64 linux, but there is no support for other
+  platforms (int size, calling conventions etc) - patches welcome
