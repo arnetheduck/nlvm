@@ -196,6 +196,10 @@ proc scopePut(f: LLFunc, name: string, value: llvm.ValueRef) =
 
   f.scope[f.scope.len - 1].vars.add((name, value))
 
+proc positionAndMoveToEnd(b: llvm.BuilderRef, bl: llvm.BasicBlockRef) =
+  bl.moveBasicBlockAfter(b.getInsertBlock().getBasicBlockParent().getLastBasicBlock())
+  b.positionBuilderAtEnd(bl)
+
 proc localAlloca(b: llvm.BuilderRef, typ: llvm.TypeRef, name: string): llvm.ValueRef =
   # alloca will allocate memory on the stack that will be released at function
   # exit - thus for a variable local to a loop we would actually be creating a
@@ -1301,7 +1305,7 @@ template withRangeItems(il: expr, n: PNode, body: stmt) {.immediate.} =
   discard g.b.buildBr(rcmp)
 
   # continue at the end
-  g.b.positionBuilderAtEnd(rdone)
+  g.b.positionAndMoveToEnd(rdone)
 
 proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
   let name = s.llName
@@ -1411,20 +1415,16 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
     g.genStmt(s.ast.sons[bodyPos])
 
     g.b.buildBrFallthrough(g.f.ret)
-    g.b.positionBuilderAtEnd(g.f.ret)
+    g.b.positionAndMoveToEnd(g.f.ret)
 
     discard g.b.buildRet(g.b.buildLoad(res, nn("load.result")))
   else:
     g.genStmt(s.ast.sons[bodyPos])
 
     g.b.buildBrFallthrough(g.f.ret)
-    g.b.positionBuilderAtEnd(g.f.ret)
+    g.b.positionAndMoveToEnd(g.f.ret)
 
     discard g.b.buildRetVoid()
-
-  let fn = g.f.ret.getBasicBlockParent()
-  if fn.getLastBasicBlock() != g.f.ret:
-    g.f.ret.moveBasicBlockAfter(fn.getLastBasicBlock())
 
   g.f = oldF
   g.b.positionBuilderAtEnd(oldBlock)
@@ -2514,7 +2514,7 @@ proc genInSetExpr(g: LLGen, n: PNode): llvm.ValueRef =
     discard g.b.buildStore(constInt1(true), res)
     discard g.b.buildBr(send)
 
-    g.b.positionBuilderAtEnd(send)
+    g.b.positionAndMoveToEnd(send)
     result = g.b.buildLoad(res, nn("inset.result", n))
     return
 
@@ -3077,8 +3077,7 @@ proc genIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if n[n.sonsLen - 1].sonsLen != 1:
     discard g.b.buildBr(iend)
 
-  llvm.moveBasicBlockAfter(iend, g.b.getInsertBlock())
-  g.b.positionBuilderAtEnd(iend)
+  g.b.positionAndMoveToEnd(iend)
 
   if load:
     result = g.b.buildLoad(result, nn("ifx.load", n))
@@ -3321,7 +3320,7 @@ proc genCaseExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       internalError(s.info, "Unexpected case kind " & $s.kind)
     g.f.scopePop()
 
-  g.b.positionBuilderAtEnd(caseend)
+  g.b.positionAndMoveToEnd(caseend)
 
   if f.getLastBasicBlock() != caseend:
     caseend.moveBasicBlockAfter(f.getLastBasicBlock())
@@ -3742,8 +3741,7 @@ proc genIfStmt(g: LLGen, n: PNode) =
   if iend != nil:
     if n[n.sonsLen - 1].sonsLen != 1:
       discard g.b.buildBr(iend)
-    llvm.moveBasicBlockAfter(iend, g.b.getInsertBlock())
-    g.b.positionBuilderAtEnd(iend)
+    g.b.positionAndMoveToEnd(iend)
   g.f.scopePop()
 
 proc genWhenStmt(g: LLGen, n: PNode) =
@@ -3780,7 +3778,7 @@ proc genWhileStmt(g: LLGen, n: PNode) =
   discard g.b.buildBr(wcmp)
 
   # continue at the end
-  g.b.positionBuilderAtEnd(wfalse)
+  g.b.positionAndMoveToEnd(wfalse)
 
 proc genCaseStmt(g: LLGen, n: PNode) =
   let pre = g.b.getInsertBlock()
@@ -3876,10 +3874,7 @@ proc genCaseStmt(g: LLGen, n: PNode) =
       internalError(s.info, "Unexpected case kind " & $s.kind)
     g.f.scopePop()
 
-  g.b.positionBuilderAtEnd(caseend)
-
-  if f.getLastBasicBlock() != caseend:
-    caseend.moveBasicBlockAfter(f.getLastBasicBlock())
+  g.b.positionAndMoveToEnd(caseend)
 
 proc genConstDefStmt(g: LLGen, n: PNode) =
   # TODO generate lazily
@@ -4157,8 +4152,7 @@ proc genBlockStmt(g: LLGen, n: PNode) =
 
   if scope.exit != nil:
     g.b.buildBrFallthrough(scope.exit)
-    scope.exit.moveBasicBlockAfter(g.b.getInsertBlock())
-    g.b.positionBuilderAtEnd(scope.exit)
+    g.b.positionAndMoveToEnd(scope.exit)
 
 proc genDiscardStmt(g: LLGen, n: PNode) =
   discard g.genExpr(n[0], true)
