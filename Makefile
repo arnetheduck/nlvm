@@ -30,9 +30,18 @@ nlvm/nimcache/nlvm.self.bc: nlvm/nlvm.self
 nlvm/nimcache/nlvm.self.ll: nlvm/nimcache/nlvm.self.bc
 	llvm-dis nlvm/nimcache/nlvm.self.bc
 
-.PHONE: compare
+.PHONY: compare
 compare: nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
 	diff -u nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
+
+Nim/tests/testament/tester: $(NIMC)
+	cd Nim && bin/nim c tests/testament/tester
+
+.PHONY: test
+test: Nim/tests/testament/tester $(NIMC)
+	cp compiler/nim Nim/compiler
+	cd Nim && tests/testament/tester all
+	cd Nim && tests/testament/tester html
 
 .PHONY: self
 self: nlvm/nlvm.self

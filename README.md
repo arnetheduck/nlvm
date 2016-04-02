@@ -63,6 +63,11 @@ Compile with itself and compare:
     cd $SRC
     make compare
 
+Run nim test suite:
+
+    cd $SRC
+    make test
+
 # Compiling your code
 
 When compiling, nlvm will generate a single `.bc` file for your whole project,
@@ -70,7 +75,7 @@ containing all dependencies in LLVM bytecode format. The following examples
 assume you've added LLVM to your `$PATH`.
 
     cd $SRC/nlvm/nlvm
-    LD_LIBRARY_PATH=$SRC/llvm-3.7.1.src/build/Debug+Asserts/lib ./nlvm c nlvm
+    ./nlvm c nlvm
 
 Convert bitcode to text (`.ll`):
 
