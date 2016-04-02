@@ -2870,7 +2870,7 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       result = g.genFunction(s)
     else:
       result = g.genFunctionWithBody(s)
-  of skProc, skConverter, skIterators:
+  of skProc, skConverter, skIterator:
     if (lfNoDecl in s.loc.flags or s.magic != mNone or
          {sfImportc, sfInfixCall} * s.flags != {}) and
          lfImportCompilerProc notin s.loc.flags:
