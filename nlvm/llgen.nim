@@ -151,8 +151,10 @@ proc nn(s: string, li: TLineInfo): string =
   result = s & fn & ln & col
 
 proc nn(s: string): string = s
-proc nn(s: string, n: PNode): string = nn(s, n.info)
-proc nn(s: string, sym: PSym): string = nn(s, sym.info)
+proc nn(s: string, n: PNode): string =
+  if n == nil: nn(s) else: nn(s, n.info)
+proc nn(s: string, sym: PSym): string =
+  if s == nil: nn(s) else: nn(s, sym.info)
 proc nn(s: string, v: llvm.ValueRef): string =
   var vn = v.getValueName()
   if vn == nil: vn = ""
@@ -1242,6 +1244,41 @@ proc callErrno(g: LLGen): llvm.ValueRef =
 
   result = g.b.buildCall(f, [], nn("errno"))
 
+proc callWithOverflow(g: LLGen, op: string, a, b: llvm.ValueRef, name: string): llvm.ValueRef =
+  let t = a.typeOf()
+  let ft = llvm.functionType(llvm.structType([t, int1Type()]), [t, t])
+  let f = g.m.getOrInsertFunction(
+    "llvm." & op & ".with.overflow.i" & $t.getIntTypeWidth(), ft)
+
+  result = g.b.buildCall(f, [a, b], name)
+
+proc callBinOpWithOver(
+    g: LLGen, a, b: llvm.ValueRef, op: Opcode, n: PNode): llvm.ValueRef =
+  var opfn: string
+  case op
+  of llvm.Add: opfn = "sadd"
+  of llvm.Sub: opfn = "ssub"
+  of llvm.Mul: opfn = "smul"
+  else: internalError("bad overflow op")
+
+  let bo = g.callWithOverflow(opfn, a, b, nn("binop.over." & $op, n))
+
+  let over = g.b.buildExtractValue(bo, 1, nn("binop.isover", n))
+  let pre = g.b.getInsertBlock()
+  let f = pre.getBasicBlockParent()
+
+  let lover = f.appendBasicBlock(nn("binop.over", n))
+  let lok = f.appendBasicBlock(nn("binop.over.ok", n))
+
+  discard g.b.buildCondBr(over, lover, lok)
+  g.b.positionBuilderAtEnd(lover)
+  discard g.callCompilerProc("raiseOverflow", [])
+  discard g.b.buildUnreachable()
+  g.b.positionBuilderAtEnd(lok)
+
+  let v = g.b.buildExtractValue(bo, 0, nn("binop.result", n))
+  result = g.b.buildTruncOrExt(v, a.typeOf(), false)
+
 proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
   case analyseObjectWithTypeField(t)
   of frNone:
@@ -1307,18 +1344,6 @@ template withRangeItems(il: expr, n: PNode, body: stmt) {.immediate.} =
   # continue at the end
   g.b.positionAndMoveToEnd(rdone)
 
-proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
-  let name = s.llName
-  result = g.m.getNamedFunction(name)
-
-  if result != nil:
-    return
-
-  let ft = g.llProcType(s.typ, s.typ.callConv == ccClosure)
-  let f = g.m.addFunction(name, ft)
-
-  result = f
-
 proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
   # sometimes the implementation in the nim std library doesn't work for llvm
   # but really needs to be there.. candidate for upstreaming...
@@ -1326,7 +1351,7 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
       s.typ.sons[1].kind == tyProc:
 
     let oldBlock = g.b.getInsertBlock()
-    let entry = f.appendBasicBlock(nn("entry", s))
+    let entry = f.appendBasicBlock(nn("entry.fake", s))
     g.b.positionBuilderAtEnd(entry)
 
     let gep = g.b.buildGEP(f.getParam(0), [constGEPIdx(0), constGEPIdx(1)])
@@ -1337,6 +1362,44 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
     discard g.b.buildRet(cmp)
     g.b.positionBuilderAtEnd(oldBlock)
     return true
+
+  if (s.name.s == "addInt" or s.name.s == "subInt" or s.name.s == "mulInt") and
+      s.typ.sons.len == 3 and
+      s.typ.sons[0].kind == tyInt and
+      s.typ.sons[1].kind == tyInt and
+      s.typ.sons[2].kind == tyInt:
+    # prefer intrinsic for these...
+    let oldBlock = g.b.getInsertBlock()
+    let entry = f.appendBasicBlock(nn("entry.fake", s))
+    g.b.positionBuilderAtEnd(entry)
+    var res: llvm.ValueRef
+    let
+      a = f.getParam(0)
+      b = f.getParam(1)
+    if s.name.s == "addInt": res = g.callBinOpWithOver(a, b, llvm.Add, nil)
+    if s.name.s == "subInt": res = g.callBinOpWithOver(a, b, llvm.Sub, nil)
+    if s.name.s == "mulInt": res = g.callBinOpWithOver(a, b, llvm.Mul, nil)
+    discard g.b.buildRet(res)
+    g.b.positionBuilderAtEnd(oldBlock)
+    return true
+
+proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
+  let name = s.llName
+  result = g.m.getNamedFunction(name)
+
+  if result != nil:
+    return
+
+  let ft = g.llProcType(s.typ, s.typ.callConv == ccClosure)
+  let f = g.m.addFunction(name, ft)
+
+  if sfNoReturn in s.flags:
+    f.addfunctionAttr(llvm.NoReturnAttribute)
+
+  if g.genFakeImpl(s, f):
+    f.setLinkage(llvm.InternalLinkage)
+
+  result = f
 
 proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
   result = g.genFunction(s)
@@ -1349,8 +1412,6 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
 
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
-
-  if g.genFakeImpl(s, result): return
 
   let ft = result.typeOf().getElementType()
 
@@ -1501,26 +1562,26 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   var callres: llvm.ValueRef
 
   if nf.typ.callConv == ccClosure:
+    let args = g.genCallArgs(n, nfpt, typ)
+
     let prc = g.b.buildExtractValue(fx, 0, nn("call.clo.prc.ptr", n))
     let env = g.b.buildExtractValue(fx, 1, nn("call.clo.env.ptr", n))
 
     let pre = g.b.getInsertBlock()
     let f = pre.getBasicBlockParent()
 
-    let clonil = f.appendBasicBlock(nn("call.clo.nil", n))
+    let clonil = f.appendBasicBlock(nn("call.clo.noenv", n))
     let cloenv = f.appendBasicBlock(nn("call.clo.env", n))
     let cloend = f.appendBasicBlock(nn("call.clo.end", n))
 
     let cmp = g.b.buildICmp(
-      llvm.IntEQ, env, llvm.constNull(env.typeOf()), nn("call.clo.isnil", n))
+      llvm.IntEQ, env, llvm.constNull(env.typeOf()), nn("call.clo.noenv", n))
     discard g.b.buildCondBr(cmp, clonil, cloenv)
 
     g.b.positionBuilderAtEnd(clonil)
 
-    if prc.typeOf().getElementType().getTypeKind() != llvm.FunctionTypeKind:
-      fx = g.b.buildBitCast(prc, nft, "")
+    fx = g.b.buildBitCast(prc, nft, nn("call.clo.prc.noenv", n))
 
-    let args = g.genCallArgs(n, fx.typeOf().getElementType(), typ)
     let res = g.b.buildCall(fx, args)
     discard g.b.buildBr(cloend)
 
@@ -1529,8 +1590,7 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     let cft = llvm.pointerType(g.llProcType(nf.typ, true))
     let cfx = g.b.buildBitCast(prc, cft, nn("call.clo.prc", n))
 
-    let args2 = g.genCallArgs(n, cfx.typeOf().getElementType(), typ)
-    let clargs = args2 & @[env]
+    let clargs = args & @[env]
     let cres = g.b.buildCall(cfx, clargs)
 
     discard g.b.buildBr(cloend)
@@ -1957,6 +2017,56 @@ proc genBinOpExpr(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
 
   let bo = g.b.buildBinOp(op, a, b, nn("binop." & $op, n))
   result = g.b.buildTruncOrExt(bo, g.llType(n.typ), n.typ)
+
+proc genBinOpOverflowExpr(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
+  if optOverflowCheck notin g.f.options:
+    return g.genBinOpExpr(n, op)
+
+  let
+    ax = g.genExpr(n[1], true)
+    bx = g.genExpr(n[2], true)
+  if ax == nil or bx == nil: return
+
+  var
+    a = ax
+    b = bx
+  if a.typeOf().getTypeKind() == llvm.IntegerTypeKind and
+      b.typeOf().getTypeKind() == llvm.IntegerTypeKind and
+      a.typeOf().getIntTypeWidth() != b.typeOf().getIntTypeWidth():
+    # TODO should probably extend to the biggest of the two, rather than
+    # full int
+    a = g.b.buildNimIntExt(ax, n[1].typ.isUnsigned())
+    b = g.b.buildNimIntExt(bx, n[2].typ.isUnsigned())
+
+  result = g.callBinOpWithOver(a, b, op, n)
+
+proc genBinOpCallExpr(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
+  if optOverflowCheck notin g.f.options:
+    return g.genBinOpExpr(n, op)
+
+  let
+    ax = g.genExpr(n[1], true)
+    bx = g.genExpr(n[2], true)
+  if ax == nil or bx == nil: return
+
+  var
+    a = ax
+    b = bx
+  if a.typeOf().getTypeKind() == llvm.IntegerTypeKind and
+      b.typeOf().getTypeKind() == llvm.IntegerTypeKind and
+      a.typeOf().getIntTypeWidth() != b.typeOf().getIntTypeWidth():
+    # TODO should probably extend to the biggest of the two, rather than
+    # full int
+    a = g.b.buildNimIntExt(ax, n[1].typ.isUnsigned())
+    b = g.b.buildNimIntExt(bx, n[2].typ.isUnsigned())
+
+  var opfn: string
+  case op
+  of llvm.SDiv: opfn = "divInt"
+  of llvm.SRem: opfn = "modInt"
+  else: internalError("Unexpected op: " & $op)
+
+  result = g.callCompilerProc(opfn, [a, b])
 
 proc genFBinOpExpr(g: LLGen, n: PNode, op: Opcode, unsigned = false): llvm.ValueRef =
   let
@@ -2636,11 +2746,11 @@ proc genMagicExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of mLengthSeq: result = g.genLengthSeqExpr(n)
   of mCard: result = g.genCardExpr(n)
   of mChr: result = g.genChrExpr(n)
-  of mAddI: result = g.genBinOpExpr(n, llvm.Add)
-  of mSubI: result = g.genBinOpExpr(n, llvm.Sub)
-  of mMulI: result = g.genBinOpExpr(n, llvm.Mul)
-  of mDivI: result = g.genBinOpExpr(n, llvm.SDiv)
-  of mModI: result = g.genBinOpExpr(n, llvm.SRem) # TODO verify
+  of mAddI: result = g.genBinOpOverflowExpr(n, llvm.Add)
+  of mSubI: result = g.genBinOpOverflowExpr(n, llvm.Sub)
+  of mMulI: result = g.genBinOpOverflowExpr(n, llvm.Mul)
+  of mDivI: result = g.genBinOpCallExpr(n, llvm.SDiv)
+  of mModI: result = g.genBinOpCallExpr(n, llvm.SRem) # TODO verify
   of mSucc: result = g.genBinOpExpr(n, llvm.Add)
   of mPred: result = g.genBinOpExpr(n, llvm.Sub)
   of mAddF64: result = g.genFBinOpExpr(n, llvm.FAdd)
@@ -3072,7 +3182,7 @@ proc genIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
       discard g.b.buildBr(iend)
 
-      g.b.positionBuilderAtEnd(ifalse)
+      g.b.positionAndMoveToEnd(ifalse)
 
   if n[n.sonsLen - 1].sonsLen != 1:
     discard g.b.buildBr(iend)
@@ -3198,14 +3308,20 @@ proc genObjUpConvExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if load and n.typ.kind != tyRef:
     result = g.b.buildLoad(result, "")
 
-proc genChckRangeExpr(g: LLGen, n: PNode): llvm.ValueRef =
-  # TODO actually make the range check call, maybe some truncating as well?
+proc genChckRangeExpr(g: LLGen, n: PNode, fn: string): llvm.ValueRef =
   let v = g.genExpr(n[0], true)
   if v == nil: return
 
   let
-    vt = v.typeOf()
     nt = g.llType(n.typ)
+
+  # c gen says range check for uints is problematic..?
+  if optRangeCheck in g.f.options and
+      n.typ.skipTypes(abstractVarRange).kind notin {tyUInt..tyUInt64}:
+    let
+      bx = g.genExpr(n[1], true)
+      cx = g.genExpr(n[2], true)
+    discard g.callCompilerProc(fn, [v, bx, cx])
 
   result = g.b.buildTruncOrExt(v, nt, n.typ)
 
@@ -3465,14 +3581,15 @@ proc genAppendStrChStmt(g: LLGen, n: PNode) =
 
 proc genAppendStrStrStmt(g: LLGen, n: PNode) =
   let tgtp = g.genExpr(n[1], false)
-  var tgt = g.b.buildLoad(tgtp, "")
+  var tgt = g.b.buildLoad(tgtp, nn("load.str.adds", n))
 
   # First, find out total length of the new strings
   var tgtlen = constNimInt(0)
 
   var constlen = 0
   var exprs: seq[llvm.ValueRef] = @[]
-  for s in n.sons[2..n.sonsLen - 1]:
+  for i in 2..n.sonsLen - 1:
+    let s = n[i]
     let sx = g.genExpr(s, true)
     exprs.add(sx)
     if sx == nil: continue
@@ -3482,11 +3599,13 @@ proc genAppendStrStrStmt(g: LLGen, n: PNode) =
     elif s.kind in {nkStrLit..nkTripleStrLit}:
       inc(constlen, len(s.strVal))
     else:
-      let slen = g.b.buildLoad(g.b.buildNimSeqLenGEP(sx), "")
-      tgtlen = g.b.buildAdd(tgtlen, slen, "")
+      let slen = g.b.buildLoad(
+        g.b.buildNimSeqLenGEP(sx), nn("load.str.adds.len." & $i, n))
+      tgtlen = g.b.buildAdd(tgtlen, slen, nn("str.adds.tot." & $i, n))
 
   if constlen > 0:
-    tgtlen = g.b.buildAdd(tgtlen, constNimInt(constlen), "")
+    tgtlen = g.b.buildAdd(
+      tgtlen, constNimInt(constlen), nn("str.adds.tot.const", n))
 
   # Make room
   tgt = g.callCompilerProc("resizeString", [tgt, tgtlen])
@@ -3510,16 +3629,17 @@ proc genAppendSeqElemStmt(g: LLGen, n: PNode) =
 
   let
     et = n[1].typ.skipTypes(abstractVar).elemType
-    a = g.b.buildLoad(ax, "")
+    a = g.b.buildLoad(ax, nn("seq.add.old", n))
     ap = g.b.buildGEP(a, [constGEPIdx(0), constGEPIdx(0)])
     newseq = g.callCompilerProc("incrSeqV2", [ap, g.llType(et).sizeOfX()])
-    tgt = g.b.buildBitCast(newseq, a.typeOf(), "")
+    tgt = g.b.buildBitCast(newseq, a.typeOf(), nn("seq.add.new", n))
     lenp = g.b.buildNimSeqLenGEP(tgt)
-    len = g.b.buildLoad(lenp, "")
+    len = g.b.buildLoad(lenp, nn("load.seq.add.last", n))
 
   g.genAssignment(n[2], g.b.buildNimSeqDataGEP(tgt, len), et)
 
-  let newlen = g.b.buildAdd(len, llvm.constInt(len.typeOf(), 1, llvm.False), "")
+  let newlen = g.b.buildAdd(
+    len, llvm.constInt(len.typeOf(), 1, llvm.False), nn("seq.add.newlen", n))
   discard g.b.buildStore(newlen, lenp)
   discard g.b.buildStore(tgt, ax)
 
@@ -3529,7 +3649,7 @@ proc genSetLengthStrStmt(g: LLGen, n: PNode) =
     bx = g.genExpr(n[2], true)
   if ax == nil or bx == nil: return
 
-  let a = g.b.buildLoad(ax, "")
+  let a = g.b.buildLoad(ax, nn("setlen.str", n))
   discard g.b.buildStore(g.callCompilerProc("setLengthStr", [a, bx]), ax)
 
 proc genSetLengthSeqStmt(g: LLGen, n: PNode) =
@@ -3539,7 +3659,7 @@ proc genSetLengthSeqStmt(g: LLGen, n: PNode) =
   if ax == nil or bx == nil: return
 
   let
-    a = g.b.buildLoad(ax, "")
+    a = g.b.buildLoad(ax, nn("setlen.seq", n))
     ap = g.b.buildGEP(a, [constGEPIdx(0), constGEPIdx(0)])
     at = a.typeOf()
     so = at.getElementType().structGetTypeAtIndex(1).getElementType().sizeOfX()
@@ -3554,14 +3674,14 @@ proc genSwapStmt(g: LLGen, n: PNode) =
   if ax == nil or bx == nil: return
 
   let t = g.llType(n[1].typ)
-  let tmpx = g.b.localAlloca(t, "")
+  let tmpx = g.b.localAlloca(t, nn("swap.tmp", n))
   g.buildStoreNull(tmpx)
 
-  let a = g.b.buildLoad(ax, "")
+  let a = g.b.buildLoad(ax, nn("load.swap.a", n))
   g.genAssignment(a, tmpx, n[1].typ)
-  let b = g.b.buildLoad(bx, "")
+  let b = g.b.buildLoad(bx, nn("load.swap.b", n))
   g.genAssignment(b, ax, n[1].typ)
-  let tmp = g.b.buildLoad(tmpx, "")
+  let tmp = g.b.buildLoad(tmpx, nn("load.swap.tmp", n))
   g.genAssignment(tmp, bx, n[1].typ)
 
 proc genResetStmt(g: LLGen, n: PNode) =
@@ -3736,7 +3856,7 @@ proc genIfStmt(g: LLGen, n: PNode) =
           iend = f.appendBasicBlock(nn("if.end", n))
         discard g.b.buildBr(iend)
 
-      g.b.positionBuilderAtEnd(ifalse)
+      g.b.positionAndMoveToEnd(ifalse)
 
   if iend != nil:
     if n[n.sonsLen - 1].sonsLen != 1:
@@ -4235,7 +4355,9 @@ proc genExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of nkAddr, nkHiddenAddr: result = g.genAddrExpr(n)
   of nkObjDownConv: result = g.genObjDownConvExpr(n, load)
   of nkObjUpConv: result = g.genObjUpConvExpr(n, load)
-  of nkChckRange, nkChckRange64: result = g.genChckRangeExpr(n)
+  of nkChckRangeF: result = g.genChckRangeExpr(n, "chckRangeF")
+  of nkChckRange64: result = g.genChckRangeExpr(n, "chckRange64")
+  of nkChckRange: result = g.genChckRangeExpr(n, "chckRange")
   of nkStringToCString: result = g.genStringToCStringExpr(n)
   of nkCStringToString: result = g.genToStrExpr(n, "cstrToNimstr")
   of nkIfStmt: result = g.genIfExpr(n, load) # if in case! see tcaststm.nim
