@@ -11,4 +11,4 @@ outbase=$(basename "$outname")
 
 ../nlvm/nlvm "$@"
 
-clang -g -pthread ../lib/*.ll "$outpath/nimcache/${outbase}.bc" -ldl -lm -lpcre -o "$outname" -Wno-override-module
+clang -g -pthread ../nlvm-lib/*.ll "$outpath/nimcache/${outbase}.bc" -ldl -lm -lpcre -o "$outname" -Wno-override-module
