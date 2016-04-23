@@ -30,7 +30,6 @@ import llvm/llvm
 
 var
   llctxt = llvm.getGlobalContext()
-  llIntBits = 64u
   llBoolType = llvm.int1Type()
   llCharType = llvm.int8Type()
   llCIntType = llvm.int32Type()  # c int on linux
@@ -354,12 +353,6 @@ proc isArrayPtr(t: llvm.TypeRef): bool =
 # Has to be i32 per LLVM docs
 proc constGEPIdx(val: int): llvm.ValueRef =
   constInt32(val.int32)
-
-proc constCString(m: llvm.ModuleRef, val: string): llvm.ValueRef =
-  let ss = llvm.constString(val)
-  let tmp = m.addPrivateConstant(ss.typeOf(), nn("cstr"))
-  tmp.setInitializer(ss)
-  result = constGEP(tmp, [constGEPIdx(0), constGEPIdx(0)])
 
 proc constOffsetOf(g: LLGen, t: PType, name: string): llvm.ValueRef =
   let
@@ -690,7 +683,7 @@ proc llTupleType(g: LLGen, typ: PType): llvm.TypeRef =
 
   result.structSetBody(elements)
 
-proc hasTypeField(typ: PType): bool {.inline.} =
+proc hasTypeField(typ: PType): bool =
   if typ.kind != tyObject: return false
   if typ.isPureObject(): return false
   if tfFinal in typ.flags and typ.sons[0] == nil: return false
@@ -749,7 +742,8 @@ proc constNimNodeSlot(g: LLGen, offset, typeInfo: llvm.ValueRef, name: string): 
     els = tnn.getStructElementTypes()
 
   result = llvm.constNamedStruct(tnn,
-    [constInt8(1), offset, typeInfo, g.m.constCString(name),
+    [constInt8(1), offset, typeInfo,
+    g.b.buildGlobalStringPtr(name, ".nimnode.slot." & name),
     constNull(els[4]), constNull(els[5])])
 
 
@@ -773,7 +767,9 @@ proc constNimNodeList(g: LLGen, nodes: openarray[llvm.ValueRef]): llvm.ValueRef 
     [constInt8(2), constNull(els[1]), constNull(els[2]), constNull(els[3]),
     constInt64(nodes.len), nodesVal])
 
-proc constNimNodeCase(g: LLGen, offset, typeInfo: llvm.ValueRef, name: string, nodesLen: int, nodes: openarray[llvm.ValueRef]): llvm.ValueRef =
+proc constNimNodeCase(
+    g: LLGen, offset, typeInfo: llvm.ValueRef, name: string, nodesLen: int,
+    nodes: openarray[llvm.ValueRef]): llvm.ValueRef =
   let
     tnn = g.llMagicType("TNimNode")
     tnnp = tnn.pointerType()
@@ -790,7 +786,8 @@ proc constNimNodeCase(g: LLGen, offset, typeInfo: llvm.ValueRef, name: string, n
     nodesVal = constBitCast(tmp, els[5])
 
   result = llvm.constNamedStruct(tnn,
-    [constInt8(3), offset, typeInfo, g.m.constCString(name),
+    [constInt8(3), offset, typeInfo,
+    g.b.buildGlobalStringPtr(name, ".nimnode.case." & name),
     constInt64(nodesLen), nodesVal])
 
 proc genObjectNodeInfoInit(g: LLGen, t: PType, n: PNode, suffix: string): llvm.ValueRef =
@@ -1302,6 +1299,14 @@ proc cpNewObj(g: LLGen, typ: PType): llvm.ValueRef =
   result = g.b.buildBitCast(x, t.pointerType(), nn("newObj"))
   g.genObjectInit(objType, result)
 
+proc cpNewSeq(g: LLGen, typ: PType, len: llvm.ValueRef, name: string): llvm.ValueRef =
+  let
+    t = skipTypes(typ, abstractVarRange)
+    ti = g.genTypeInfo(t)
+    tmp = g.callCompilerProc("newSeq", [ti, len])
+
+  result = g.b.buildBitCast(tmp, g.llType(t), name)
+
 template withRangeItems(il: expr, n: PNode, body: stmt) {.immediate.} =
   let
     ax = g.genExpr(s[0], true)
@@ -1730,11 +1735,20 @@ proc isDeepConstExprLL(n: PNode, strict: bool): bool =
   of nkStrLit..nkTripleStrLit: result = not strict
   of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
     result = n[1].isDeepConstExprLL(strict)
+  of nkPar:
+    if strict: return false
+    for s in n.sons:
+      if not s.isDeepConstExprLL(strict): return false
+    result = true
+
   of nkCurly: result = nfAllConst in n.flags
   of nkBracket:
-    for s in n.sons[0..<n.sonsLen]:
+    if n.typ.kind notin {tyArray, tyArrayConstr, tySequence}: return false
+    if n.typ.kind == tySequence and strict: return false
+
+    for s in n.sons:
       if not s.isDeepConstExprLL(strict): return false
-    result = n.typ.kind in {tyArray, tyArrayConstr}
+    result = true
   of nkObjConstr:
     let typ = n.typ.skipTypes(abstractInst)
     # TODO inheritance can be done, just being lazy...
@@ -1745,12 +1759,16 @@ proc isDeepConstExprLL(n: PNode, strict: bool): bool =
     result = true
   else: result = false
 
-proc isConstString(n: PNode): bool =
+proc isSeqLike(n: PNode): bool =
   case n.kind
   of nkStrLit..nkTripleStrLit: result = true
   of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
-    result = n[1].isConstString()
-  else: result = false
+    result = n[1].isSeqLike()
+  else:
+    if n.typ.kind == tySequence:
+      result = true
+    else:
+      result = false
 
 proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef =
   case n.kind
@@ -1758,20 +1776,43 @@ proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef =
   of nkStrLit..nkTripleStrLit: result = constNimString(n)
   of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
     result = g.genConstInitializer(n[1])
+
+  of nkPar:
+    let t = g.llType(n.typ)
+    var vals: seq[llvm.ValueRef] = @[]
+    for i in 0..<n.sonsLen:
+      let s = n[i]
+
+      if s.isSeqLike():
+        # Need pointer for string literals
+        vals.add(constBitCast(g.genExpr(s, false), t.structGetTypeAtIndex(i.cuint)))
+      else:
+        vals.add(g.genConstInitializer(s))
+
+    result = llvm.constNamedStruct(t, vals)
+
   of nkCurly: result = if nfAllConst in n.flags: constNimSet(n) else: nil
   of nkBracket:
-    let t = g.llType(n.typ)
-    if n.typ.kind in {tyArray, tyArrayConstr} and n.isDeepConstExprLL(false):
-      var vals: seq[llvm.ValueRef] = @[]
-      for s in n.sons:
-        if s.isConstString():
-          # Need pointer for string literals
-          vals.add(g.genExpr(s, true))
-        else:
-          vals.add(g.genConstInitializer(s))
-      result = constArray(t.getElementType(), vals)
+    if n.typ.kind notin {tyArray, tyArrayConstr, tySequence}: return nil
+
+    var vals: seq[llvm.ValueRef] = @[]
+    for s in n.sons:
+      if s.isSeqLike():
+        # Need pointer for string literals
+        vals.add(g.genExpr(s, false))
+      else:
+        vals.add(g.genConstInitializer(s))
+
+    let et = g.llType(n.typ.elemType)
+
+    let s = constArray(et, vals)
+    if n.typ.kind in {tyArray, tyArrayConstr}:
+      result = s
     else:
-      result = nil
+      let ll = constNimInt(vals.len)
+      let x = llvm.constNamedStruct(llGenericSeqType, [ll, ll])
+      result = llvm.constStruct([x, s])
+
   of nkObjConstr:
     let t = g.llType(n.typ)
     if n.isDeepConstExprLL(false):
@@ -1779,7 +1820,7 @@ proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef =
       for i in 0..<vals.len:
         vals[i] = llvm.constNull(t.structGetTypeAtIndex(i.cuint))
       for i in 1..<n.len:
-        if n[i].isConstString():
+        if n[i].isSeqLike():
           # Need pointer for string literals
           vals[i-1] = g.genExpr(n[i], true)
         else:
@@ -2642,13 +2683,9 @@ proc genIsNilExpr(g: LLGen, n: PNode): llvm.ValueRef =
       llvm.IntEQ, ax, llvm.constNull(ax.typeOf()), nn("isnil", n))
 
 proc genArrToSeqExpr(g: LLGen, n: PNode): llvm.ValueRef =
-  let
-    t = skipTypes(n.typ, abstractInst)
-    l = int(lengthOrd(skipTypes(n[1].typ, abstractInst)))
-    ti = g.genTypeInfo(t)
-    tmp = g.callCompilerProc("newSeq", [ti, constNimInt(l)])
-
-  result = g.b.buildBitCast(tmp, g.llType(t), nn("arrtoseq", n))
+  let l = int(lengthOrd(skipTypes(n[1].typ, abstractInst)))
+  let t = n.typ.skipTypes(abstractVarRange)
+  result = g.cpNewSeq(t, constNimInt(l), nn("arrtoseq", n))
 
   let ax = g.genExpr(n[1], true)
 
@@ -2824,7 +2861,7 @@ proc genFloatLitExpr(g: LLGen, n: PNode): llvm.ValueRef =
 
 proc genStrLitExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let ss = constNimString(n)
-  let s = g.m.addPrivateConstant(ss.typeOf(), nn("str", n))
+  let s = g.m.addPrivateConstant(ss.typeOf(), nn(".str", n))
   s.setInitializer(ss)
   result = constBitCast(s, llNimStringDescPtr)
 
@@ -2850,7 +2887,13 @@ proc genCallExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   result = g.genCall(n, load)
 
 proc genParExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  result = g.b.localAlloca(g.llType(n.typ), nn("parexpr", n))
+  if n.isDeepConstExprLL(false):
+    let init = g.genConstInitializer(n)
+    result = g.m.addPrivateConstant(init.typeOf(), nn("par.init", n))
+    result.setInitializer(init)
+    return
+
+  result = g.b.localAlloca(g.llType(n.typ), nn("par", n))
   g.buildStoreNull(result)
 
   for i in 0..<n.sonsLen:
@@ -2861,7 +2904,7 @@ proc genParExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     g.genAssignment(s, tgt, s.typ)
 
   if load:
-    result = g.b.buildLoad(result, nn("parexpr.load", n))
+    result = g.b.buildLoad(result, nn("load.par", n))
 
 proc genObjConstrExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   var
@@ -2946,9 +2989,20 @@ proc genBracketExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let typ = n.typ.skipTypes(abstractVarRange)
   let t = g.llType(typ)
 
+  if n.isDeepConstExprLL(false):
+    let init = g.genConstInitializer(n)
+    let c = g.m.addPrivateConstant(init.typeOf(), nn("bracket.init", n))
+    c.setInitializer(init)
+
+    if load and c.typeOf().isArrayPtr():
+      result = g.b.buildGEP(c, [constGEPIdx(0), constGEPIdx(0)], nn("bracket.const", n))
+    else:
+      result = c
+    return
+
   case typ.kind
   of tyArray, tyArrayConstr:
-    result = g.b.localAlloca(t, nn("brackexpr", n))
+    result = g.b.localAlloca(t, nn("bracket.arr", n))
     g.buildStoreNull(result)
 
     for i in 0..<sonsLen(n):
@@ -2960,8 +3014,7 @@ proc genBracketExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of tySequence:
     let ti = g.genTypeInfo(typ)
 
-    result = g.callCompilerProc("newSeq", [ti, constNimInt(n.sonsLen())])
-    result = g.b.buildBitCast(result, t, nn("newseq", n))
+    result = g.cpNewSeq(typ, constNimInt(n.sonsLen()), nn("bracket.seq", n))
     for i in 0..<sonsLen(n):
       let gep = g.b.buildNimSeqDataGEP(result, constGEPIdx(i))
       g.genAssignment(n[i], gep, typ.elemType)
@@ -3370,18 +3423,27 @@ proc genClosureExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 proc genEchoStmt(g: LLGen, n: PNode) =
   let b = n[1].skipConv
 
-  let nilStr = g.m.constCString("nil")
+  var nilStr = g.m.getNamedGlobal("echo.nil")
+  if nilStr == nil:
+    nilStr = g.b.buildGlobalStringPtr("nil", "echo.nil")
+  else:
+    nilStr = g.b.buildBitCast(nilStr, llCStringType, nn("echo.nil", n))
 
   proc getCStr(v: llvm.ValueRef): llvm.ValueRef =
-    let cmp = g.b.buildICmp(llvm.IntEQ, v, constNull(v.typeOf()), "")
-    result = g.b.buildSelect(cmp, nilStr, g.b.buildNimSeqDataGEP(v), "")
+    let cmp = g.b.buildICmp(llvm.IntEQ, v, constNull(v.typeOf()), nn("echo.isnil", n))
+    result = g.b.buildSelect(cmp, nilStr, g.b.buildNimSeqDataGEP(v), nn("echo.s", n))
 
   let args = b.sons.
     mapIt(llvm.ValueRef, g.genExpr(it, true)).
     mapIt(llvm.ValueRef, getCStr(it))
 
-  let arg0 = "%s".repeat(args.len) & "\n"
-  let v = g.b.buildGlobalStringPtr(arg0, "")
+  var v = g.m.getNamedGlobal("echo." & $args.len)
+  if v == nil:
+    let arg0 = "%s".repeat(args.len) & "\n"
+    v = g.b.buildGlobalStringPtr(arg0, "echo." & $args.len)
+  else:
+    v = g.b.buildBitCast(v, llCStringType, nn("echo." & $args.len, n))
+
   let f = g.m.getOrInsertFunction("printf", llPrintfType)
 
   discard g.b.buildCall(f, v & args)
@@ -3410,9 +3472,7 @@ proc genNewSeqStmt(g: LLGen, n: PNode) =
   if at.getTypeKind() != llvm.PointerTypeKind:
     internalError("expected pointer, not " & $at)
 
-  let ti = g.genTypeInfo(n[1].typ.skipTypes(abstractVarRange))
-
-  let x = g.callCompilerProc("newSeq", [ti, bx])
+  let x = g.cpNewSeq(n[1].typ, bx, nn("newseq", n))
   discard g.b.buildStore(g.b.buildBitCast(x, at.getElementType(), ""), ax)
 
 proc genInclStmt(g: LLGen, n: PNode) =
@@ -3868,8 +3928,16 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
     let ci = g.genConstInitializer(init)
     if ci == nil: internalError(n.info, "Unable to generate const initializer: " & $init)
 
-    let c = g.m.addPrivateConstant(ci.typeOf(), v.llName)
-    c.setInitializer(ci)
+    let x = g.genGlobal(v)
+    x.setGlobalConstant(llvm.True)
+    x.setUnnamedAddr(llvm.True)
+
+    case v.typ.kind
+    of tyArray, tyArrayConstr, tySet: x.setInitializer(ci)
+    else:
+      let c = g.m.addPrivateConstant(ci.typeOf(), nn(".const.init", n))
+      c.setInitializer(ci)
+      x.setInitializer(llvm.constBitCast(c, x.typeOf().getElementType()))
     return
 
   var x: llvm.ValueRef
