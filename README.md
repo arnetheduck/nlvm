@@ -4,10 +4,10 @@ NLVM (the nim-level virtual machine?) is in its present incarnation an llvm
 (http://llvm.org) IR generator for the Nim language (http://nim-lang.org).
 
 In some distant future, it would be nice if (in no particular order):
+
 * it generated executables, and not just bitcode files
 * it implemented more core Nim features (bounds checking, GC etc)
 * it had fewer bugs than the reference nim compiler
-* it had a nice automated test suite
 * someone found it useful
 * earth survived humans
 
@@ -23,7 +23,7 @@ you find bugs, feel free to fix them as well :)
 
 Fork and enjoy!
 
-Jacek Sieka (arnetheduck on gmail point com), 2016-03-23
+Jacek Sieka (arnetheduck on gmail point com)
 
 # Compile instructions
 
@@ -97,9 +97,9 @@ Compile and link - can use either of `clang`, `gcc` or `ld`.
 * `clang` will link correctly, and works with `.bc` files directly, yay!
 
 Apart from the code of your module, you'll also need to add the workaround
-library in `lib/`:
+library in `nlvm-lib/`:
 
-    clang nimcache/nlvm.bc lib/nimbase-linux-amd64.ll -ldl -o xxx
+    clang nimcache/nlvm.bc nlvm-lib/nimbase-linux-amd64.ll -ldl -o xxx
 
 # Random notes
 
