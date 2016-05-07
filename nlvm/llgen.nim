@@ -5,7 +5,8 @@
 import
   os,
   strutils,
-  sequtils
+  sequtils,
+  tables
 
 import
   compiler/ast,
@@ -76,20 +77,15 @@ llvm.structSetBody(llGenericSeqType, [llIntType, llIntType])
 llvm.structSetBody(llNimStringDesc, [llGenericSeqType, llvm.arrayType(llvm.int8Type(), 0)])
 llvm.structSetBody(llClosureType, [llVoidPtrType, llVoidPtrType])
 
-type NamedVal = tuple[name: string, value: llvm.ValueRef]
-
 type LLScope = ref object
-  vars: seq[NamedVal]
   n: PNode
   exit: llvm.BasicBlockRef
   goto: llvm.ValueRef
   nestedTryStmts: int
   nestedExceptStmts: int
 
-proc `$`(s: LLScope): string =
-  $s.vars
-
 type LLFunc = ref object
+  vars: Table[int, llvm.ValueRef]
   scope: seq[LLScope]
   ret: llvm.BasicBlockRef
   options: TOptions
@@ -161,7 +157,7 @@ proc nn(s: string, v: llvm.ValueRef): string =
 
 proc scopePush(f: LLFunc, n: PNode, exit: llvm.BasicBlockRef) =
   f.scope.add(
-    LLScope(vars: @[], n: n, exit: exit, nestedTryStmts: f.nestedTryStmts.len,
+    LLScope(n: n, exit: exit, nestedTryStmts: f.nestedTryStmts.len,
       nestedExceptStmts: f.inExceptBlock))
 
 proc scopeIdx(f: LLFunc, sym: PSym): int =
@@ -179,23 +175,13 @@ proc scopeFind(f: LLFunc, sym: PSym): LLScope =
 proc scopePop(f: LLFunc): LLScope {.discardable.} =
   f.scope.pop
 
-proc scopeGet(f: LLFunc, s: string): llvm.ValueRef =
-  for x in 0..f.scope.len - 1:
-    let scope = f.scope[f.scope.len - 1 - x]
-    for y in scope.vars:
-      if y[0] == s:
-        return y[1]
-  internalError("Symbol missing from scope: " & $s & ", " & $f.scope)
+proc scopeGet(f: LLFunc, id: int): llvm.ValueRef =
+  if f.vars.hasKey(id): return f.vars[id]
 
-proc scopePut(f: LLFunc, name: string, value: llvm.ValueRef) =
-  var s = f.scope[f.scope.len - 1]
-  for i, x in pairs(s.vars):
-    if x[0] == name:
-      # TODO using var s, why can't I replace through s?
-      f.scope[f.scope.len - 1].vars[i][1] = value
-      return
+  internalError("Symbol missing from scope: " & $id & ", " & $f.vars)
 
-  f.scope[f.scope.len - 1].vars.add((name, value))
+proc scopePut(f: LLFunc, id: int, value: llvm.ValueRef) =
+  f.vars[id] = value
 
 proc positionAndMoveToEnd(b: llvm.BuilderRef, bl: llvm.BasicBlockRef) =
   bl.moveBasicBlockAfter(b.getInsertBlock().getBasicBlockParent().getLastBasicBlock())
@@ -1437,7 +1423,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
     if i >= s.typ.len:
       if s.typ.callConv == ccClosure:
         arg.setValueName("ClEnv")
-        g.f.scopePut("ClEnv", arg)
+        g.f.scopePut(-1, arg)
 
         continue
       else:
@@ -1451,10 +1437,10 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
       arg.setValueName(param.sym.llName & "len")
       lastIsArr = false
       i += 1
-      g.f.scopePut(param.sym.llName & "len", arg)
+      g.f.scopePut(-param.sym.id, arg)
     else:
       arg.setValueName(param.sym.llName)
-      g.f.scopePut(param.sym.llName, arg)
+      g.f.scopePut(param.sym.id, arg)
 
       if skipTypes(param.typ, {tyVar}).kind in {tyOpenArray, tyVarargs}:
         lastIsArr = true
@@ -1468,15 +1454,16 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
 
   if tfCapturesEnv in s.typ.flags:
     let ls = lastSon(s.ast[paramsPos])
-    let lx = g.b.buildBitCast(g.f.scopeGet("ClEnv"), g.llType(ls.sym.typ), nn("ClEnvX"))
+    let lx = g.b.buildBitCast(g.f.scopeGet(-1), g.llType(ls.sym.typ), nn("ClEnvX"))
 
-    g.f.scopePut(ls.sym.llName, lx)
+    g.f.scopePut(ls.sym.id, lx)
 
   let rt = ft.getReturnType()
   if rt.getTypeKind() != llvm.VoidTypeKind:
     let res = g.b.localAlloca(rt, nn("result"))
     g.buildStoreNull(res)
-    g.f.scopePut("result", res)
+    let resSym = s.ast.sons[resultPos].sym
+    g.f.scopePut(resSym.id, res)
     g.genStmt(s.ast.sons[bodyPos])
 
     g.b.buildBrFallthrough(g.f.ret)
@@ -1523,9 +1510,9 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
         v = g.b.buildNimSeqDataGEP(v)
       of tyOpenArray, tyVarargs:
         v = g.genExpr(p, param.typ.kind == tyVar)
-        len = g.f.scopeGet(pr.sym.llName & "len")
+        len = g.f.scopeGet(-pr.sym.id)
       of tyArray, tyArrayConstr:
-        v = g.genExpr(p, false)
+        v = g.genExpr(p, true)
         len = constNimInt(lengthOrd(pr.typ).int)
       else:
         v = g.genExpr(p, false)
@@ -1886,7 +1873,7 @@ proc genOrdExpr(g: LLGen, n: PNode): llvm.ValueRef =
 proc genLengthOpenArrayExpr(g: LLGen, n: PNode): llvm.ValueRef =
   # openarray must be a parameter so we should find it in the scope
   let s = if n[1].kind == nkHiddenDeref: n[1][0] else: n[1]
-  result = g.f.scopeGet(s.sym.llName & "len")
+  result = g.f.scopeGet(-s.sym.id)
 
 proc genLengthStrExpr(g: LLGen, n: PNode): llvm.ValueRef =
   if n[1].typ.kind == tyCString:
@@ -2657,8 +2644,9 @@ proc genReprExpr(g: LLGen, n: PNode): llvm.ValueRef =
     result = g.callCompilerProc("reprSet", [ax, g.genTypeInfo(t)])
   of tyOpenArray, tyVarargs:
     let s = if n[1].kind == nkHiddenDeref: n[1][0] else: n[1]
-    let l = g.f.scopeGet(s.sym.llName & "len")
-    let ax = g.genExpr(n[1], false)
+    let a = g.f.scopeGet(s.sym.id)
+    let ax = g.b.buildExtractValue(a, 0.cuint, nn("repr.a.0", n))
+    let l = g.b.buildExtractValue(a, 1.cuint, nn("repr.a.1", n))
     result = g.callCompilerProc("reprOpenArray", [ax, l, g.genTypeInfo(t.elemType)])
   of tyCString, tyArray, tyArrayConstr, tyRef, tyPtr, tyPointer, tyNil,
      tySequence:
@@ -2817,7 +2805,7 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
         (s.kind == skConst and n.sym.ast.isDeepConstExprLL(false)):
       v = g.genGlobal(s)
     else:
-      v = g.f.scopeGet(s.llName)
+      v = g.f.scopeGet(s.id)
 
     if v == nil:
       internalError(n.info, "Symbol not found: " & s.llName)
@@ -3044,9 +3032,9 @@ proc genBracketArrayExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
 proc genBracketOpenArrayExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let
-    ax = g.genExpr(n[0], false)
+    s = if n[0].kind == nkHiddenDeref: n[0][0] else: n[0]
+    ax = g.f.scopeGet(s.sym.id)
     bx = g.genExpr(n[1], true)
-
   result = g.b.buildGEP(ax, [bx])
 
   if load:
@@ -3702,7 +3690,7 @@ proc genIdentDefsStmt(g: LLGen, n: PNode) =
   # Put in scope only once init is finished (init might refence
   # a var with the same name)
   if local:
-    g.f.scopePut(n[0].sym.llName, x)
+    g.f.scopePut(n[0].sym.id, x)
 
 proc genVarTupleStmt(g: LLGen, n: PNode) =
   for s in n.sons[0..n.sonsLen - 3]:
@@ -3732,7 +3720,7 @@ proc genVarTupleStmt(g: LLGen, n: PNode) =
     if sfGlobal notin v.flags:
       # Put in scope only once init is finished (init might refence
       # a var with the same name)
-      g.f.scopePut(v.llName, x)
+      g.f.scopePut(v.id, x)
 
 proc genAsgnStmt(g: LLGen, n: PNode) =
   let ax = g.genExpr(n[0], false)
@@ -3954,7 +3942,7 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
   # Put in scope only once init is finished (init might refence
   # a var with the same name)
   if sfGlobal notin v.flags:
-    g.f.scopePut(v.llName, x)
+    g.f.scopePut(v.id, x)
 
 proc genTryStmt(g: LLGen, n: PNode) =
   # create safe point
@@ -4224,7 +4212,7 @@ proc genBreakStateStmt(g: LLGen, n: PNode) =
   # able to do better
   var ax: llvm.ValueRef
   if n[0].kind == nkClosure:
-    ax = g.f.scopeGet(n[0][1].sym.llName)
+    ax = g.f.scopeGet(n[0][1].sym.id)
   else:
     ax = g.genExpr(n[0], false)
     ax = g.b.buildGEP(ax, [constGEPIdx(0), constGEPIdx(1)])
@@ -4346,6 +4334,7 @@ proc genStmt(g: LLGen, n: PNode) =
 
 proc newLLFunc(ret: llvm.BasicBlockRef): LLFunc =
   new(result)
+  result.vars = initTable[int, llvm.ValueRef]()
   result.scope = @[]
   result.options = gOptions
   result.ret = ret
