@@ -104,6 +104,7 @@ proc handleCmdLine() =
     # GC not supported yet
     defineSymbol("nogc")
     defineSymbol("useMalloc")
+    #defineSymbol("useSysAssert")
 
     # default signal handler does memory allocations and all kinds of
     # disallowed-in-signal-handler-stuff
@@ -113,7 +114,10 @@ proc handleCmdLine() =
     mainCommand()
 
 # Beautiful...
-options.gPrefixDir = splitPath(getAppDir()).head & "/Nim/"
+var tmp = getAppDir()
+while not dirExists(tmp / "nlvm-lib") and tmp.len > 1:
+  tmp = tmp.parentDir()
 
+options.gPrefixDir = tmp / "Nim"
 condsyms.initDefines()
 handleCmdLine()

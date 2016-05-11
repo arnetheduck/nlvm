@@ -15,20 +15,14 @@ $(NIM)/koch:
 $(NIMC): $(NIM)/koch $(NIM)/compiler/*.nim
 	cd $(NIM) && ./koch boot -d:release
 
-nlvm/nimcache/nlvm.bc: $(NLVMC) nlvm/*.nim llvm/*.nim
-	cd nlvm && ./nlvm c nlvm
-
 nlvm/nimcache/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim
-	llvm-dis nlvm/nimcache/nlvm.bc
+	cd nlvm && ./nlvm -o:nimcache/nlvm.ll -c c nlvm
 
-nlvm/nlvm.self: $(NLVMC) nlvm/nimcache/nlvm.bc nlvm-lib/*.ll
-	clang -g -pthread nlvm-lib/*.ll nlvm/nimcache/nlvm.bc  -ldl -lm -lpcre -lLLVM-3.7 -L ../llvm-3.7.1.src/build/Debug+Asserts/lib -v -Xlinker '-rpath=$$ORIGIN/../../llvm-3.7.1.src/build/Debug+Asserts/lib' -o nlvm/nlvm.self
+nlvm/nlvm.self: $(NLVMC)
+	cd nlvm && ./nlvm -o:nlvm.self "-l:-lLLVM-3.7" --clibdir:../../llvm-3.7.1.src/build/Debug+Asserts/lib "-l:-Xlinker '-rpath=\$$ORIGIN/../../llvm-3.7.1.src/build/Debug+Asserts/lib'" c nlvm
 
-nlvm/nimcache/nlvm.self.bc: nlvm/nlvm.self
-	cd nlvm && ./nlvm.self c nlvm && mv nimcache/nlvm.bc nimcache/nlvm.self.bc
-
-nlvm/nimcache/nlvm.self.ll: nlvm/nimcache/nlvm.self.bc
-	llvm-dis nlvm/nimcache/nlvm.self.bc
+nlvm/nimcache/nlvm.self.ll: nlvm/nlvm.self
+	cd nlvm && ./nlvm.self -c -o:nimcache/nlvm.self.ll c nlvm
 
 .PHONY: compare
 compare: nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll

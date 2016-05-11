@@ -3,6 +3,7 @@
 # See the LICENSE file for license info (doh!)
 
 import
+  math,
   os,
   strutils,
   sequtils,
@@ -1790,15 +1791,22 @@ proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef =
       else:
         vals.add(g.genConstInitializer(s))
 
-    let et = g.llType(n.typ.elemType)
+    if n.typ.elemType.kind == tyEmpty:
+      assert n.typ.kind == tySequence
 
-    let s = constArray(et, vals)
-    if n.typ.kind in {tyArray, tyArrayConstr}:
-      result = s
-    else:
-      let ll = constNimInt(vals.len)
+      let ll = constNimInt(0)
       let x = llvm.constNamedStruct(llGenericSeqType, [ll, ll])
-      result = llvm.constStruct([x, s])
+      result = llvm.constStruct([x])
+    else:
+      let et = g.llType(n.typ.elemType)
+
+      let s = constArray(et, vals)
+      if n.typ.kind in {tyArray, tyArrayConstr}:
+        result = s
+      else:
+        let ll = constNimInt(vals.len)
+        let x = llvm.constNamedStruct(llGenericSeqType, [ll, ll])
+        result = llvm.constStruct([x, s])
 
   of nkObjConstr:
     let t = g.llType(n.typ)
@@ -3921,7 +3929,7 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
     x.setUnnamedAddr(llvm.True)
 
     case v.typ.kind
-    of tyArray, tyArrayConstr, tySet: x.setInitializer(ci)
+    of tyArray, tyArrayConstr, tySet, tyTuple: x.setInitializer(ci)
     else:
       let c = g.m.addPrivateConstant(ci.typeOf(), nn(".const.init", n))
       c.setInitializer(ci)
@@ -4124,7 +4132,6 @@ proc genReturnStmt(g: LLGen, n: PNode) =
     let sp = g.f.finallySafePoints[g.f.finallySafePoints.len-1]
     let statusP = g.b.buildGEP(sp, (@[0] & fieldIndex(tsp, "status")).map(constGEPIdx))
 
-
     let pre = g.b.getInsertBlock()
     let f = pre.getBasicBlockParent()
 
@@ -4136,6 +4143,7 @@ proc genReturnStmt(g: LLGen, n: PNode) =
     g.b.positionBuilderAtEnd(retpop)
     discard g.callCompilerProc("popCurrentException", [])
     discard g.b.buildBr(retdone)
+    g.b.positionBuilderAtEnd(retdone)
 
   discard g.b.buildBr(g.f.ret)
 
@@ -4371,6 +4379,75 @@ proc genMain(g: LLGen) =
 
   discard g.b.buildRet(constInt(llCIntType, 0, False))
 
+proc loadBase(g: LLGen) =
+  let m = parseIRInContext(
+    llctxt, options.gPrefixDir / "../nlvm-lib/nlvmbase-linux-amd64.ll")
+
+  var err: cstring
+  if g.m.linkModules(m, LinkerDestroySource, cast[cstringArray](addr(err))) != 0:
+    internalError($err)
+
+proc writeOutput(g: LLGen, project: string) =
+  var outFile: string
+  if options.outFile.len > 0:
+    if options.outFile.isAbsolute:
+      outFile = options.outFile
+    else:
+      outFile = getCurrentDir() / options.outFile
+  else:
+    if optCompileOnly in gGlobalOptions:
+      outFile = project & ".ll"
+    elif optNoLinking in gGLobalOptions:
+      outFile = project & ".o"
+    else:
+      outFile = project
+
+  if optCompileOnly in gGlobalOptions:
+    discard g.m.printModuleToFile(outfile, nil)
+    return
+
+  let ofile =
+    if optNoLinking in gGlobalOptions:
+      outFile
+    else:
+      completeCFilePath(project & ".o")
+
+  initializeX86AsmPrinter()
+  initializeX86Target()
+  initializeX86TargetInfo()
+  initializeX86TargetMC()
+
+  let triple = llvm.getDefaultTargetTriple()
+
+  var tr: llvm.TargetRef
+  discard getTargetFromTriple(triple, addr(tr), nil)
+
+  var reloc = llvm.RelocDefault
+  if optGenDynLib in gGlobalOptions and
+      ospNeedsPIC in platform.OS[targetOS].props:
+    reloc = llvm.RelocPIC
+
+  let tm = createTargetMachine(tr, triple, "", "", llvm.CodeGenLevelAggressive,
+    reloc, llvm.CodeModelDefault)
+
+  var err: cstring
+  if llvm.targetMachineEmitToFile(tm, g.m, ofile, llvm.ObjectFile,
+    cast[cstringArray](addr(err))) == llvm.True:
+    internalError($err[0])
+    return
+
+  if optNoLinking in gGlobalOptions:
+    return
+
+  # the c generator loads libraries using dlopen/dlsym/equivalent, which nlvm
+  # doesn't support, so here, we add a few libraries..
+  cLinkedLibs.add("pcre")
+
+  addFileToLink(ofile)
+
+  # Linking is a horrible mess - let's reuse the c compiler for now
+  callCCompiler(project)
+
 proc myClose(b: PPassContext, n: PNode): PNode =
   if passes.skipCodegen(n): return n
   p("Close", n, 0)
@@ -4399,17 +4476,8 @@ proc myClose(b: PPassContext, n: PNode): PNode =
   for i in 0..sonsLen(disp)-1:
     discard g.genFunctionWithBody(disp.sons[i].sym)
 
-  let outfile =
-    if options.outFile.len > 0:
-      if options.outFile.isAbsolute: options.outFile
-      else: getCurrentDir() / options.outFile
-    else: changeFileExt(completeCFilePath(s.filename), "bc")
-  discard g.m.writeBitcodeToFile(outfile)
-
-  if gVerbosity == 2:
-    # When we've generated some broken code, llvm-dis fails whereas
-    # writing the module like this works
-    discard g.m.printModuleToFile(outfile.changeFileExt(".ll"), nil)
+  g.loadBase()
+  g.writeOutput(changeFileExt(gProjectFull, ""))
 
   result = n
 

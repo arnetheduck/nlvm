@@ -7,87 +7,87 @@
 ; in nlvm
 
 ; dlfcn.h
-@RTLD_NOW = global i32 2
+@RTLD_NOW = linkonce_odr constant i32 2
 
 ; errno.h
-@EBADF = global i32 9
-@EEXIST = global i32 17
-@EINTR = global i32 4
-@ENOENT = global i32 2
+@EBADF = linkonce_odr constant i32 9
+@EEXIST = linkonce_odr constant i32 17
+@EINTR = linkonce_odr constant i32 4
+@ENOENT = linkonce_odr constant i32 2
 
 ; fcntl.h
-@O_RDONLY = global i32 0
-@O_RDWR = global i32 2
+@O_RDONLY = linkonce_odr constant i32 0
+@O_RDWR = linkonce_odr constant i32 2
 
-@O_CREAT = global i32 64
-@O_TRUNC = global i32 512
+@O_CREAT = linkonce_odr constant i32 64
+@O_TRUNC = linkonce_odr constant i32 512
 
-@FD_CLOEXEC = global i32 1
+@FD_CLOEXEC = linkonce_odr constant i32 1
 
 ; limits.h
-@PATH_MAX = global i32 4096
+@PATH_MAX = linkonce_odr constant i32 4096
 
 ; signal.h
-@SIGABRT = global i32 6
-@SIGCONT = global i32 18
-@SIGFPE = global i32 8
-@SIGILL = global i32 4
-@SIGINT = global i32 2
-@SIGKILL = global i32 9
-@SIGPIPE = global i32 13
-@SIGSEGV = global i32 11
-@SIGSTOP = global i32 19
-@SIGTERM = global i32 15
+@SIGABRT = linkonce_odr constant i32 6
+@SIGCONT = linkonce_odr constant i32 18
+@SIGFPE = linkonce_odr constant i32 8
+@SIGILL = linkonce_odr constant i32 4
+@SIGINT = linkonce_odr constant i32 2
+@SIGKILL = linkonce_odr constant i32 9
+@SIGPIPE = linkonce_odr constant i32 13
+@SIGSEGV = linkonce_odr constant i32 11
+@SIGSTOP = linkonce_odr constant i32 19
+@SIGTERM = linkonce_odr constant i32 15
 
 ; stdio.h
-@_IOFBF = global i32 0
-@_IOLBF = global i32 1
-@_IONBF = global i32 2
+@_IOFBF = linkonce_odr constant i32 0
+@_IOLBF = linkonce_odr constant i32 1
+@_IONBF = linkonce_odr constant i32 2
 
 ; time.h
-@CLOCKS_PER_SEC = global i64 1000000
+@CLOCKS_PER_SEC = linkonce_odr constant i64 1000000
 
 ; unistd.h
-@_SC_NPROCESSORS_ONLN = global i32 84
-@F_SETFD = global i32 2
+@_SC_NPROCESSORS_ONLN = linkonce_odr constant i32 84
+@F_SETFD = linkonce_odr constant i32 2
 
 ; sys/mman.h
-@MAP_ANONYMOUS = global i32 32
-@MAP_PRIVATE = global i32 2
-@MAP_POPULATE = global i32 32768
-@MAP_SHARED = global i32 1
-@MAP_FAILED = global i32 -1
+@MAP_ANONYMOUS = linkonce_odr constant i32 32
+@MAP_PRIVATE = linkonce_odr constant i32 2
+@MAP_POPULATE = linkonce_odr constant i32 32768
+@MAP_SHARED = linkonce_odr constant i32 1
+@MAP_FAILED = linkonce_odr constant i32 -1
 
-@PROT_READ = global i32 1
-@PROT_WRITE = global i32 2
+@PROT_READ = linkonce_odr constant i32 1
+@PROT_WRITE = linkonce_odr constant i32 2
 
 ; sys/stat.h
-@S_IRWXU = global i32 448
-@S_IRUSR = global i32 256
-@S_IWUSR = global i32 128
-@S_IXUSR = global i32 64
+@S_IRWXU = linkonce_odr constant i32 448
+@S_IRUSR = linkonce_odr constant i32 256
+@S_IWUSR = linkonce_odr constant i32 128
+@S_IXUSR = linkonce_odr constant i32 64
 
-@S_IRWXG = global i32 56
-@S_IRGRP = global i32 32
-@S_IWGRP = global i32 16
-@S_IXGRP = global i32 8
+@S_IRWXG = linkonce_odr constant i32 56
+@S_IRGRP = linkonce_odr constant i32 32
+@S_IWGRP = linkonce_odr constant i32 16
+@S_IXGRP = linkonce_odr constant i32 8
 
-@S_IRWXO = global i32 7
-@S_IROTH = global i32 4
-@S_IWOTH = global i32 2
-@S_IXOTH = global i32 1
+@S_IRWXO = linkonce_odr constant i32 7
+@S_IROTH = linkonce_odr constant i32 4
+@S_IWOTH = linkonce_odr constant i32 2
+@S_IXOTH = linkonce_odr constant i32 1
 
-define i1 @S_ISDIR(i32 %m) {
+define linkonce_odr i1 @S_ISDIR(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 16384
   ret i1 %2
 }
-define i1 @S_ISLNK(i32 %m) {
+define linkonce_odr i1 @S_ISLNK(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 40960
   ret i1 %2
 }
-define i1 @S_ISREG(i32 %m) {
+define linkonce_odr i1 @S_ISREG(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 32768
   ret i1 %2
@@ -96,24 +96,24 @@ define i1 @S_ISREG(i32 %m) {
 ; sys/select.h
 %fd_set = type opaque
 
-define void @FD_ZERO(%fd_set*) {
+define linkonce_odr void @FD_ZERO(%fd_set*) {
   ret void
 }
-define void @FD_SET(i32, %fd_set*) {
+define linkonce_odr void @FD_SET(i32, %fd_set*) {
   ret void
 }
-define i32 @FD_ISSET(i32, %fd_set*) {
+define linkonce_odr i32 @FD_ISSET(i32, %fd_set*) {
   ret i32 0
 }
 
 ; sys/socket.h
-@AF_INET = global i32 2
-@AF_INET6 = global i32 10
+@AF_INET = linkonce_odr constant i32 2
+@AF_INET6 = linkonce_odr constant i32 10
 
 ; sys/wait.h
-@WNOHANG = global i32 1
+@WNOHANG = linkonce_odr constant i32 1
 
-define i1 @WIFEXITED(i32 %m) {
+define linkonce_odr i1 @WIFEXITED(i32 %m) {
   %1 = and i32 %m, 127
   %2 = icmp eq i32 %1, 0
   ret i1 %2
@@ -123,14 +123,14 @@ define i1 @WIFEXITED(i32 %m) {
 
 declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i32, i1)
 
-define void @zeroMem(i8* %p, i64 %s) {
+define linkonce_odr void @zeroMem(i8* %p, i64 %s) {
   call void @llvm.memset.p0i8.i64(i8* %p, i8 0, i64 %s, i32 0, i1 false)
   ret void
 }
 
 declare i32 @memcmp(i8*, i8*, i64)
 
-define i1 @equalMem(i8* %a, i8* %b, i64 %l) {
+define linkonce_odr i1 @equalMem(i8* %a, i8* %b, i64 %l) {
   %1 = call i32 @memcmp(i8* %a, i8* %b, i64 %l)
   %2 = icmp eq i32 %1, 0
   ret i1 %2

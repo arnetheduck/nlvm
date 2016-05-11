@@ -5,7 +5,6 @@ NLVM (the nim-level virtual machine?) is in its present incarnation an llvm
 
 In some distant future, it would be nice if (in no particular order):
 
-* it generated executables, and not just bitcode files
 * it implemented more core Nim features (bounds checking, GC etc)
 * it had fewer bugs than the reference nim compiler
 * someone found it useful
@@ -37,7 +36,8 @@ Start with a clone:
     git clone https://github.com/arnetheduck/nlvm.git
     cd nlvm && git submodule update --init
 
-Compile llvm shared library:
+Compile llvm shared library - while llvm is normally linked statically, this
+keeps link times of nlvm itself down:
 
     cd $SRC
     wget http://llvm.org/releases/3.7.1/llvm-3.7.1.src.tar.xz
@@ -70,45 +70,39 @@ Run nim test suite:
 
 # Compiling your code
 
-When compiling, nlvm will generate a single `.bc` file for your whole project,
-containing all dependencies in LLVM bytecode format. The following examples
-assume you've added LLVM to your `$PATH`.
+When compiling, nlvm will generate a single `.o` file with all code from your
+project and link it using `$(CC)` which helps it pick the right flags for
+linking with the C library.
+
+    cd $SRC/Nim/examples
+    ../../nlvm/nlvm c fizzbuzz
+
+If you want to see the generated llvm IR, use the `-c` option:
 
     cd $SRC/nlvm/nlvm
-    ./nlvm c nlvm
+    ../../nlvm/nlvm c -c fizzbuzz
+    less fizzbuzz.ll
 
-Convert bitcode to text (`.ll`):
+You can then run the llvm optimizer on it:
 
-    llvm-dis nimcache/nlvm.bc
-    less nimcache/nlvm.ll
+    opt -Os fizzbuzz.ll | llvm-dis
 
-See optimized code:
+... or compile it to assembly (`.s`):
 
-    opt -Os nimcache/nlvm.bc | llvm-dis
+    llc fizzbuzz.ll
+    less nlvm.s
 
-Compile to assembly (`.s`):
-
-    llc nimcache/nlvm.bc
-
-Compile and link - can use either of `clang`, `gcc` or `ld`.
-* `ld` requires assembly files (generated with `llc`) and lots of flags
-  to link correctly to the c library: http://stackoverflow.com/q/3577922
-* `gcc` will do the correct linking, but still requires assembly files
-* `clang` will link correctly, and works with `.bc` files directly, yay!
-
-Apart from the code of your module, you'll also need to add the workaround
-library in `nlvm-lib/`:
-
-    clang nimcache/nlvm.bc nlvm-lib/nimbase-linux-amd64.ll -ldl -o xxx
+Apart from the code of your `.nim` files, the compiler will also mix in the
+compatibility found library in `nlvm-lib/`.
 
 # Random notes
 
 * I have no hopes of keeping up with upstream, so I've pinned it at a
   particular commit with the submodule - patches welcome to update to new
   upstream versions
-* The upstream test suite runs `compiler/nim` to compile the test code. To run
-  it with `nlvm`, I have a little shell script that simply calls `nlvm` and
-  `clang` instead
+* The upstream test suite runs `compiler/nim` to compile the test code.
+  `make test` uses a trick where nlvm is copied to that location, so as to
+  fool the test runner
 * nlvm doesn't understand C
 * The nim standard library likes to import C headers directly which works
   because the upstream nim compiler uses a C compiler underneath - ergo,

@@ -4,7 +4,7 @@ LLVM_INC=../../llvm-3.7.1.src/include
 C2NIM="../../c2nim/c2nim"
 C2NIMFLAGS="--nep1 --skipinclude --prefix:LLVM --dynlib:LLVMLib"
 
-HEADERS="BitReader.h BitWriter.h Core.h Support.h"
+HEADERS="BitReader.h BitWriter.h Core.h IRReader.h Linker.h TargetMachine.h Support.h"
 
 for a in $HEADERS; do
   OUT="llvm/${a%.h}.nim"

@@ -23,14 +23,32 @@ type
   OpaquePassRegistry{.pure, final.} = object
   OpaqueUse{.pure, final.} = object
   OpaqueDiagnosticInfo{.pure, final.} = object
+  OpaqueTargetMachine{.pure, final.} = object
+  target{.pure, final.} = object
+
 
   # Funny type names that came out of c2nim
   uint64T = uint64
   uint8T = uint8
 
+# Target.h is quite a mess with lots of site-specific stuff - for now, I'll
+# just type out the parts that are useful for me
+  OpaqueTargetData{.pure, final.} = object
+  TargetDataRef* = ptr OpaqueTargetData
+
+proc initializeX86AsmParser*() {.importc: "LLVMInitializeX86AsmParser", dynlib: LLVMLib.}
+proc initializeX86AsmPrinter*() {.importc: "LLVMInitializeX86AsmPrinter", dynlib: LLVMLib.}
+proc initializeX86Disassembler*() {.importc: "LLVMInitializeX86Disassembler", dynlib: LLVMLib.}
+proc initializeX86Target*() {.importc: "LLVMInitializeX86Target", dynlib: LLVMLib.}
+proc initializeX86TargetInfo*() {.importc: "LLVMInitializeX86TargetInfo", dynlib: LLVMLib.}
+proc initializeX86TargetMC*() {.importc: "LLVMInitializeX86TargetMC", dynlib: LLVMLib.}
+
 include llvm/Core
 include llvm/BitReader
 include llvm/BitWriter
+include llvm/IRReader
+include llvm/Linker
+include llvm/TargetMachine
 
 # A few helpers to make things more smooth
 
@@ -47,6 +65,22 @@ proc `$`*(v: TypeRef): string =
 const
   False*: Bool = 0
   True*: Bool = 1
+
+template checkErr(body: expr): expr =
+  var err: cstring
+  let e {.inject.} = cast[cstringArray](addr(err))
+  let res = body
+  if res != 0:
+    echo err
+    quit 1
+
+proc createMemoryBufferWithContentsOfFile(file: string): MemoryBufferRef =
+  checkErr: createMemoryBufferWithContentsOfFile(file, addr(result), e)
+
+proc parseIRInContext*(contextRef: ContextRef, file: string): ModuleRef =
+  let mb = createMemoryBufferWithContentsOfFile(file)
+
+  checkErr: parseIRInContext(contextRef, mb, addr(result), e)
 
 proc getOrInsertFunction*(m: ModuleRef, name: cstring, functionTy: TypeRef): ValueRef =
   result = m.getNamedFunction(name)

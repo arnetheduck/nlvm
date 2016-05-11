@@ -1,14 +1,1 @@
-#!/bin/bash
-
-# Helper that emulates enough of nim to be used by the testament tester
-
-set -e
-
-nimfile=${@: -1}
-outname=${nimfile%.*}
-outpath=$(dirname "$outname")
-outbase=$(basename "$outname")
-
-../nlvm/nlvm "$@"
-
-clang -g -pthread ../nlvm-lib/*.ll "$outpath/nimcache/${outbase}.bc" -ldl -lm -lpcre -o "$outname" -Wno-override-module
+../nlvm/nlvm
