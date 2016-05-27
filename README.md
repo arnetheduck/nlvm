@@ -1,14 +1,10 @@
 # Introduction
 
-NLVM (the nim-level virtual machine?) is in its present incarnation an llvm
-(http://llvm.org) IR generator for the Nim language (http://nim-lang.org).
+NLVM (the nim-level virtual machine?) is an LLVM-based (http://llvm.org)
+compiler for the Nim language (http://nim-lang.org).
 
-In some distant future, it would be nice if (in no particular order):
-
-* it implemented more core Nim features (bounds checking, GC etc)
-* it had fewer bugs than the reference nim compiler
-* someone found it useful
-* earth survived humans
+From Nim's point of view, it's a backend just like C or JavaScript - from
+LLVM's point of view, it's a language frontend that emits IR.
 
 When I started on this little project, I knew neither llvm-ir nor Nim.
 Therefore, I'd specially like to thank the friendly folks at the #nim
@@ -24,6 +20,19 @@ Fork and enjoy!
 
 Jacek Sieka (arnetheduck on gmail point com)
 
+# Status
+
+NLVM can currently:
+* compile itself (on linux) and many other Nim apps
+* pass ~90% of all upstream test cases
+
+In some distant future, it would be nice if (in no particular order):
+
+* it implemented more core Nim features (GC, stack traces)
+* it had fewer bugs than the reference Nim compiler
+* someone found it useful
+* earth survived humans
+
 # Compile instructions
 
 To do what I do, you will need:
@@ -36,8 +45,8 @@ Start with a clone:
     git clone https://github.com/arnetheduck/nlvm.git
     cd nlvm && git submodule update --init
 
-Compile llvm shared library - while llvm is normally linked statically, this
-keeps link times of nlvm itself down:
+Compile LLVM shared library - while LLVM is normally linked statically, this
+keeps link times of NLVM itself down:
 
     cd $SRC
     wget http://llvm.org/releases/3.7.1/llvm-3.7.1.src.tar.xz
@@ -53,7 +62,7 @@ Compile nim:
     cd $SRC/nlvm/Nim
     ./bootstrap.sh
 
-Compile nlvm:
+Compile NLVM:
 
     cd $SRC
     make
@@ -70,20 +79,20 @@ Run nim test suite:
 
 # Compiling your code
 
-When compiling, nlvm will generate a single `.o` file with all code from your
+When compiling, NLVM will generate a single `.o` file with all code from your
 project and link it using `$(CC)` which helps it pick the right flags for
 linking with the C library.
 
     cd $SRC/Nim/examples
     ../../nlvm/nlvm c fizzbuzz
 
-If you want to see the generated llvm IR, use the `-c` option:
+If you want to see the generated LLVM IR, use the `-c` option:
 
     cd $SRC/nlvm/nlvm
     ../../nlvm/nlvm c -c fizzbuzz
     less fizzbuzz.ll
 
-You can then run the llvm optimizer on it:
+You can then run the LLVM optimizer on it:
 
     opt -Os fizzbuzz.ll | llvm-dis
 

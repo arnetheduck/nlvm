@@ -37,5 +37,9 @@ test: Nim/tests/testament/tester $(NIMC)
 	cd Nim && tests/testament/tester --targets:c all
 	cd Nim && tests/testament/tester html
 
+.PHONY: t2
+t2:
+	cp Nim/testresults.json Nim/t2.json
+
 .PHONY: self
 self: nlvm/nlvm.self
