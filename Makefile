@@ -3,11 +3,13 @@ NIMC=$(NIM)/bin/nim
 
 NLVMC=nlvm/nlvm
 
+LLVMPATH=$(shell realpath ../llvm-3.7.1.src/build/Debug+Asserts/lib)
+
 .PHONY: all
 all: $(NLVMC)
 
 $(NLVMC): $(NIM)/compiler/*.nim  nlvm/*.nim llvm/*.nim
-	cd nlvm && ../$(NIMC) c nlvm
+	cd nlvm && ../$(NIMC) c "-l:-Xlinker '-rpath=$(LLVMPATH)'" nlvm
 
 $(NIM)/koch:
 	cd $(NIM) && ./bootstrap.sh && $(NIMC) c koch
@@ -19,7 +21,7 @@ nlvm/nimcache/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim
 	cd nlvm && ./nlvm -o:nimcache/nlvm.ll -c c nlvm
 
 nlvm/nlvm.self: $(NLVMC)
-	cd nlvm && ./nlvm -o:nlvm.self "-l:-lLLVM-3.7" --clibdir:../../llvm-3.7.1.src/build/Debug+Asserts/lib "-l:-Xlinker '-rpath=\$$ORIGIN/../../llvm-3.7.1.src/build/Debug+Asserts/lib'" c nlvm
+	cd nlvm && ./nlvm -o:nlvm.self "-l:-lLLVM-3.7" "--clibdir:$(LLVMPATH)" "-l:-Xlinker '-rpath=$(LLVMPATH)'" c nlvm
 
 nlvm/nimcache/nlvm.self.ll: nlvm/nlvm.self
 	cd nlvm && ./nlvm.self -c -o:nimcache/nlvm.self.ll c nlvm
