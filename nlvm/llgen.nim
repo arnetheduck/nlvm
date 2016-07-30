@@ -1877,7 +1877,10 @@ proc asgnByValue(t: PType): bool =
   result = typ.kind notin {tyObject, tyTuple}
 
 proc genRefAssign(g: LLGen, v, t: llvm.ValueRef) =
-  discard g.callCompilerProc("unsureAsgnRef", [t, v])
+  if usesNativeGc():
+    discard g.callCompilerProc("unsureAsgnRef", [t, v])
+  else:
+    discard g.b.buildStore(v, t)
 
 proc genAssignment(g: LLGen, v, t: llvm.ValueRef, typ: PType, deep = true) =
   let
