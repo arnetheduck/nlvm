@@ -811,9 +811,12 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
     # loop body
     g.b.positionBuilderAtEnd(wtrue)
 
-    var gep = g.b.buildGEP(v, [c], nn("while.data"))
-    if typ.sons[1].skipTypes(typedescInst).kind in {tyArray, tyArrayConstr}:
-      gep = g.b.buildGEP(gep, [gep0, gep0])
+    var gep =
+      if v.typeOf().isArrayPtr(): g.b.buildGEP(v, [gep0, c], nn("while.data"))
+      else: g.b.buildGEP(v, [c], nn("while.data"))
+
+    if typ.sons[1].skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyString, tySequence}:
+      gep = g.b.buildLoad(gep, nn("mk.arr.load"))
 
     genMarker(g, typ.sons[1], gep, op)
 
@@ -3268,7 +3271,10 @@ proc genStrLitExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     s.setInitializer(ss)
     result = constBitCast(s, llNimStringDescPtr)
   else:
-    result = g.b.buildGlobalStringPtr(n.strVal, nn(".str", n))
+    let init = constString(n.strVal)
+    let s = g.m.addPrivateConstant(init.typeOf(), nn(".cstr", n))
+    s.setInitializer(init)
+    result = constBitCast(s, llCStringType)
 
 proc genNilLitExpr(g: LLGen, n: PNode): llvm.ValueRef =
   if n.typ.kind == tyProc:
