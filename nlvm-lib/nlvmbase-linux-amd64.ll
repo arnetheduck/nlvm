@@ -135,3 +135,12 @@ define linkonce_odr i1 @equalMem(i8* %a, i8* %b, i64 %l) {
   %2 = icmp eq i32 %1, 0
   ret i1 %2
 }
+
+define linkonce_odr i1 @likely(i1 %a) {
+  ret i1 %a
+}
+
+define linkonce_odr i1 @unlikely(i1 %a) {
+  ret i1 %a
+}
+
