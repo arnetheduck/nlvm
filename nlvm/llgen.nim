@@ -685,9 +685,71 @@ proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var 
     for s in n.sons:
       g.genMarker(typ, s, v, op, start)
   of nkRecCase:
+    let kind = n[0].sym
+    var gep = g.b.buildGEP(v, (@[0] & start).map(constGEPIdx), nn("mk.kind", kind))
+    let vk = g.b.buildLoad(gep, nn("mk.kind.load", kind))
+
+    let pre = g.b.getInsertBlock()
+    let f = pre.getBasicBlockParent()
+
+    let caseend = f.appendBasicBlock(nn("mk.kind.end", kind))
+
     inc(start)
-    for j in 1..<n.sonsLen:
-      g.genMarker(typ, n[j].lastSon, v, op, start)
+    var hasElse = false
+
+    for i in 1..<n.sonsLen:
+      let branch = n[i]
+
+      let prefix = "mk.case." & branch.lastSon.sym.llName & "."
+
+      let ctrue = f.appendBasicBlock(nn(prefix, branch))
+      if branch.kind == nkOfBranch:
+        var length = branch.len
+        for j in 0 .. length-2:
+          var cmp: llvm.ValueRef
+
+          if branch[j].kind == nkRange:
+            let s = branch[j][0].intVal
+            let e = branch[j][1].intVal
+
+            let scmp = g.b.buildICmp(
+              llvm.IntSGE, vk, llvm.constInt(vk.typeOf(), s.culonglong, llvm.True),
+                nn(prefix & $s, branch))
+            let ecmp = g.b.buildICmp(
+              llvm.IntSLE, vk, llvm.constInt(vk.typeOf(), e.culonglong, llvm.True),
+                nn(prefix & $e, branch))
+
+            cmp = g.b.buildAnd(scmp, ecmp, nn(prefix & "rng", branch))
+
+          else:
+            let k = branch[j].intVal
+            cmp = g.b.buildICmp(
+              llvm.IntEQ, vk, llvm.constInt(vk.typeOf(), k.culonglong, llvm.True),
+              nn(prefix & $k, branch))
+
+          let cfalse = f.appendBasicBlock(nn(prefix & ".false", branch))
+          discard g.b.buildCondBr(cmp, ctrue, cfalse)
+          g.b.positionBuilderAtEnd(cfalse)
+      else:
+        hasElse = true
+        discard g.b.buildBr(ctrue)
+
+      let x = g.b.getInsertBlock()
+      g.b.positionBuilderAtEnd(ctrue)
+      let field = branch.lastSon.sym
+      var gep = g.b.buildGEP(v, (@[0] & start).map(constGEPIdx), nn(prefix, field))
+      if field.typ.skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyString, tySequence}:
+        gep = g.b.buildLoad(gep, nn("mk.load", field))
+      inc(start)
+
+      g.genMarker(field.typ, gep, op)
+
+      discard g.b.buildBr(caseend)
+      g.b.positionBuilderAtEnd(x)
+
+    if not hasElse:
+      discard g.b.buildBr(caseend)
+    g.b.positionAndMoveToEnd(caseend)
 
   of nkSym:
     let field = n.sym
@@ -850,7 +912,7 @@ proc genMarkerProc(g: LLGen, typ: PType): llvm.ValueRef =
   if result != nil:
     return
 
-  let ft = llvm.functionType(llvm.voidType(), @[llVoidPtrType, llIntType], false)
+  let ft = llvm.functionType(llvm.voidType(), @[llVoidPtrType, llvm.int8Type()], false)
 
   result = g.m.addFunction(name, ft)
 
@@ -882,7 +944,7 @@ proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
 
   let vp = g.b.buildBitCast(v, llVoidPtrType, nn("vp"))
 
-  g.genMarker(typ, v, constNimInt(0))
+  g.genMarker(typ, v, constInt8(0))
 
   discard g.b.buildRetVoid()
 
@@ -903,9 +965,9 @@ proc genTypeInfoInit(g: LLGen, t: PType, ntlt, lt: llvm.TypeRef,
     if t.kind == tyObject and not t.hasTypeField(): tyPureObject
     elif t.kind == tyProc and t.callConv == ccClosure: tyTuple
     else: t.kind
-  let kindVar = llvm.constInt(llvm.int8Type(), ord(kind).culonglong, llvm.False)
+  let kindVar = constInt8(ord(kind))
 
-  var flags = 0
+  var flags = 0'i8
   if not containsGarbageCollectedRef(t): flags = flags or 1
   if not canFormAcycle(t) or (t.kind == tyProc and t.callConv == ccClosure):
     flags = flags or 2
@@ -920,7 +982,7 @@ proc genTypeInfoInit(g: LLGen, t: PType, ntlt, lt: llvm.TypeRef,
       # C gen overwrites flags in this case!
       flags = 1 shl 2
 
-  let flagsVar = llvm.constInt(llvm.int8Type(), flags.culonglong, llvm.False)
+  let flagsVar = constInt8(flags)
 
   let values = [
     sizeVar, kindVar, flagsVar, baseVar, nodeVar, finalizerVar,
