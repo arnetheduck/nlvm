@@ -53,7 +53,7 @@ proc mainCommand() =
   of "c", "cc", "compile", "compiletoc": commandLL()
   of "dump":
     msgWriteln("-- list of currently defined symbols --")
-    for s in definedSymbolNames(): msgWriteln (s)
+    for s in definedSymbolNames(): msgWriteln(s)
     msgWriteln("-- end of list --")
 
     for it in iterSearchPath(searchPaths): msgWriteln(it)
