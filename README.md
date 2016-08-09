@@ -28,7 +28,7 @@ NLVM can currently:
 
 In some distant future, it would be nice if (in no particular order):
 
-* it implemented more core Nim features (GC, stack traces)
+* it implemented more core Nim features (stack traces, debug info)
 * it had fewer bugs than the reference Nim compiler
 * someone found it useful
 * earth survived humans
@@ -116,5 +116,5 @@ compatibility found library in `nlvm-lib/`.
 * The nim standard library likes to import C headers directly which works
   because the upstream nim compiler uses a C compiler underneath - ergo,
   large parts of the standard library don't work with nlvm.
-* nlvm should work on any x86_64 linux, but there is no support for other
+* nlvm should work on any `x86_64` linux, but there is no support for other
   platforms (int size, calling conventions etc) - patches welcome

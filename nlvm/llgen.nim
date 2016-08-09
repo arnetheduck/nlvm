@@ -1948,93 +1948,79 @@ proc genRefAssign(g: LLGen, v, t: llvm.ValueRef) =
   else:
     discard g.b.buildStore(v, t)
 
-proc genAssignment(g: LLGen, v, t: llvm.ValueRef, typ: PType, deep = true) =
-  let
-    vt = v.typeOf()
-    tt = t.typeOf()
+proc genAsgnFromRef(g: LLGen, v, t: llvm.ValueRef, typ: PType, deep = true) =
+  let tt = t.typeOf()
 
   if tt.getTypeKind() != llvm.PointerTypeKind:
     internalError("Ptr required in genAssignment: " & $t)
 
   let tet = tt.getElementType()
 
-  if typ.kind == tyString:
+  let ty = typ.skipTypes(abstractRange)
+  case ty.kind
+  of tyRef:
+    let x = g.b.buildLoadValue(v)
+    g.genRefAssign(x, t)
+  of tySequence:
+    let x = g.b.buildLoadValue(v)
+    if deep:  # TODO or OnStack?
+      discard g.callCompilerProc("genericSeqAssign", [t, x, g.genTypeInfo(ty)])
+    else:
+      g.genRefAssign(x, t)
+  of tyString:
+    let x = g.b.buildLoadValue(v)
     if deep:
-      let sx = g.callCompilerProc("copyString", [v])
+      let sx = g.callCompilerProc("copyString", [x])
       g.genRefAssign(sx, t)
     else:
-      g.genRefAssign(v, t)
-  elif typ.kind == tyTuple:
-    for i in 0..<typ.sonsLen:
-      let
-        tp = g.b.buildGEP(
-          t, [gep0, constGEPIdx(i.int32)], nn("asgn.tup.tgt." & $i, t))
-        vp = g.b.buildExtractValue(v, i.cuint, nn("asgn.tup." & $i, v))
-      g.genAssignment(vp, tp, typ.sons[i])
-  elif typ.kind == tySequence:
-    if deep:  # TODO or OnStack?
-      discard g.callCompilerProc("genericSeqAssign", [t, v, g.genTypeInfo(typ)])
-    else:
-      g.genRefAssign(v, t)
-  elif tet == vt:
-    discard g.b.buildStore(v, t)
-  elif tet.getTypeKind() == llvm.ArrayTypeKind and tt == vt:
-    let
-      tp = g.b.buildGEP(t, [gep0, gep0])
-      vp = g.b.buildGEP(v, [gep0, gep0])
-      so = tet.getElementType().sizeOfX()
-      n = g.b.buildMul(
-        so, constNimInt(tet.getArrayLength().int), nn("asgn.arr.sz", t))
-    g.callMemcpy(tp, vp, n)
-  elif tet.getTypeKind() == llvm.ArrayTypeKind and
-      vt.getTypeKind() == llvm.PointerTypeKind and
-      vt.getElementType() == tet.getElementType():
-    let
-      tp = g.b.buildGEP(t, [gep0, gep0])
-      so = tet.getElementType().sizeOfX()
-      n = g.b.buildMul(
-        so, constNimInt(tet.getArrayLength().int), nn("asgn.arr.sz", t))
-    g.callMemcpy(tp, v, n)
-  elif typ.kind == tyProc:
-    if typ.callConv == ccClosure:
-      let clprc = g.b.buildGEP(t, [gep0, gep0])
-      let clv =
-        g.b.buildBitCast(v, clprc.typeOf().getElementType(), nn("asgn.clo.prc", v))
-      discard g.b.buildStore(clv, clprc)
-    else:
-      discard g.b.buildStore(g.b.buildBitCast(v, tet, nn("asgn.prc", v)), t)
-  elif tet == llCStringType and vt.isNimSeqLike:
-    # nim string to cstring
-    discard g.b.buildStore(g.b.buildNimSeqDataGEP(v), t)
-  else:
-    # TODO this is almost certainly wrong but handles cases like type aliases
-    # which currently are broken in nlvm
-    discard g.b.buildStore(
-      v, g.b.buildBitCast(t, vt.pointerType(), nn("asgn.bc", v)))
+      g.genRefAssign(x, t)
+  of tyProc:
+    let x = g.b.buildLoadValue(v)
 
-proc genAsgnFromRef(g: LLGen, v, t: llvm.ValueRef, typ: PType, deep = true) =
-  let typ = typ.skipTypes(abstractRange)
+    if ty.containsGarbageCollectedRef():
+      let tp = g.b.buildGEP(t, [gep0, gep0])
+      let p = g.b.buildExtractValue(x, 0, nn("asgn.p", v))
+      discard g.b.buildStore(
+        g.b.buildBitCast(p, tp.typeOf().getElementType(), nn("asgn.pc", v)), tp)
 
-  case typ.kind
-  of tyObject:
-    if typ.containsGarbageCollectedRef() or typ.hasTypeField():
-      discard g.callCompilerProc("genericAssign", [t, v, g.genTypeInfo(typ)])
+      let te = g.b.buildGEP(t, [gep0, gep1])
+      let e = g.b.buildExtractValue(x, 1, nn("asgn.e", v))
+
+      g.genRefAssign(e, te)
     else:
-      g.callMemcpy(t, v, t.typeOf().getElementType().sizeOfX())
+      discard g.b.buildStore(g.b.buildBitCast(x, tet, nn("asgn.xc")), t)
   of tyTuple:
     if typ.containsGarbageCollectedRef():
-      if typ.sonsLen <= 3:
-        for i in 0..<typ.sonsLen:
-          let
-            tp = g.b.buildGEP(t, [gep0, constGEPIdx(i.int32)])
-            vp = g.b.buildGEP(v, [gep0, constGEPIdx(i.int32)])
-          g.genAsgnFromRef(vp, tp, typ.sons[i], deep)
-      else:
-        discard g.callCompilerProc("genericAssign", [t, v, g.genTypeInfo(typ)])
+      discard g.callCompilerProc("genericAssign", [t, v, g.genTypeInfo(ty)])
     else:
       g.callMemcpy(t, v, t.typeOf().getElementType().sizeOfX())
 
-  else: g.genAssignment(g.b.buildLoad(v, nn("asgn.ref.load", v)), t, typ)
+  of tyObject:
+    if ty.hasTypeField() or ty.containsGarbageCollectedRef():
+      discard g.callCompilerProc("genericAssign", [t, v, g.genTypeInfo(ty)])
+    else:
+      g.callMemcpy(t, v, t.typeOf().getElementType().sizeOfX())
+
+  of tyArray, tyArrayConstr:
+    if ty.containsGarbageCollectedRef():
+      discard g.callCompilerProc("genericAssign", [t, v, g.genTypeInfo(ty)])
+    else:
+      g.callMemcpy(t, v, t.typeOf().getElementType().sizeOfX())
+
+  of tySet:
+    let size = getSize(ty)
+
+    if size <= 8:
+      let x = g.b.buildLoadValue(v)
+      discard g.b.buildStore(x, t)
+    else:
+      g.callMemcpy(t, v, t.typeOf().getElementType().sizeOfX())
+  of tyPtr, tyPointer, tyChar, tyBool, tyEnum, tyCString,
+     tyInt..tyUInt64, tyRange, tyVar:
+    let x = g.b.buildLoadValue(v)
+    discard g.b.buildStore(g.b.buildBitCast(x, tet, nn("asgn.c", v)), t)
+
+  else: internalError("genAssignment: " & $ty.kind)
 
 proc genAssignment(
   g: LLGen, v: PNode, t: llvm.ValueRef, typ: PType, deep = true) =
@@ -2110,9 +2096,7 @@ proc genAssignment(
     else:
       g.callMemcpy(t, p, t.typeOf().getElementType().sizeOfX())
   of tySet:
-    let
-      ax = g.genExpr(v, true)
-      size = getSize(ty)
+    let size = getSize(ty)
 
     if size <= 8:
       let x = g.genExpr(v, true)
@@ -3899,6 +3883,31 @@ proc genNewStmt(g: LLGen, n: PNode) =
     a = g.cpNewObj(n[1].typ.skipTypes(abstractVarRange))
   g.genRefAssign(a, ax)
 
+proc genNewFinalizeStmt(g: LLGen, n: PNode) =
+  let typ = n[1].typ.skipTypes(abstractVarRange)
+
+  let f = g.genExpr(n[2], false)
+
+  let ti = g.genTypeInfo(typ)
+
+  # Funny enough, the finalizer is set for all objects of this type, not
+  # just the one that's being created (!)
+  let init = ti.getInitializer()
+  ti.setInitializer(constNamedStruct(init.typeOf(), [
+    init.getOperand(0),
+    init.getOperand(1),
+    init.getOperand(2),
+    init.getOperand(3),
+    init.getOperand(4),
+    llvm.constBitCast(f, llVoidPtrType),
+    init.getOperand(6),
+    init.getOperand(7)]))
+
+  let
+    ax = g.genExpr(n[1], false)
+    a = g.cpNewObj(typ)
+  g.genRefAssign(a, ax)
+
 proc genNewSeqStmt(g: LLGen, n: PNode) =
   let
     ax = g.genExpr(n[1], false)
@@ -4057,12 +4066,9 @@ proc genSwapStmt(g: LLGen, n: PNode) =
     tmpx = g.b.localAlloca(t, nn("swap.tmp", n))
   g.buildStoreNull(tmpx)
 
-  let a = g.b.buildLoad(ax, nn("load.swap.a", n))
-  g.genAssignment(a, tmpx, n[1].typ)
-  let b = g.b.buildLoad(bx, nn("load.swap.b", n))
-  g.genAssignment(b, ax, n[1].typ)
-  let tmp = g.b.buildLoad(tmpx, nn("load.swap.tmp", n))
-  g.genAssignment(tmp, bx, n[1].typ)
+  g.genAsgnFromRef(ax, tmpx, n[1].typ)
+  g.genAsgnFromRef(bx, ax, n[1].typ)
+  g.genAsgnFromRef(tmpx, bx, n[1].typ)
 
 proc genResetStmt(g: LLGen, n: PNode) =
   let ax = g.genExpr(n[1], false)
@@ -4078,7 +4084,7 @@ proc genMagicStmt(g: LLGen, n: PNode) =
   of mInc: g.genIncDecStmt(n, llvm.Add)
   of mDec: g.genIncDecStmt(n, llvm.Sub)
   of mNew: g.genNewStmt(n)
-  of mNewFinalize: g.genNewStmt(n)  # TODO
+  of mNewFinalize: g.genNewFinalizeStmt(n)
   of mNewSeq: g.genNewSeqStmt(n)
   of mIncl: g.genInclStmt(n)
   of mExcl: g.genExclStmt(n)
@@ -4165,7 +4171,7 @@ proc genVarTupleStmt(g: LLGen, n: PNode) =
     if s.kind != nkSym:
       internalError("Expected nkSym: " & $s)
 
-  let t = g.genExpr(n.lastSon, true)
+  let t = g.genExpr(n.lastSon, false)
 
   for i in 0..n.sonsLen - 3:
     let s = n[i]
@@ -4182,9 +4188,9 @@ proc genVarTupleStmt(g: LLGen, n: PNode) =
       g.buildStoreNull(x)
       g.genObjectInit(v.typ, x)
 
-    let tv = g.b.buildExtractValue(t, i.cuint, "")
+    let tv = g.b.buildGEP(t, [gep0, constGEPIdx(i)], nn("vartuple." & $i, s))
 
-    g.genAssignment(tv, x, s.typ)
+    g.genAsgnFromRef(tv, x, s.typ)
 
     if sfGlobal notin v.flags:
       # Put in scope only once init is finished (init might refence

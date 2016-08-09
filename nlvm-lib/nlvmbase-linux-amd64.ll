@@ -10,6 +10,7 @@
 @RTLD_NOW = linkonce_odr constant i32 2
 
 ; errno.h
+@EAGAIN = linkonce_odr constant i32 11
 @EBADF = linkonce_odr constant i32 9
 @EEXIST = linkonce_odr constant i32 17
 @EINTR = linkonce_odr constant i32 4
@@ -28,8 +29,11 @@
 @PATH_MAX = linkonce_odr constant i32 4096
 
 ; signal.h
+@SIG_BLOCK = linkonce_odr constant i32 0
+@SIG_UNBLOCK = linkonce_odr constant i32 1
 @SIGABRT = linkonce_odr constant i32 6
 @SIGCONT = linkonce_odr constant i32 18
+@SIGCHLD = linkonce_odr constant i32 17
 @SIGFPE = linkonce_odr constant i32 8
 @SIGILL = linkonce_odr constant i32 4
 @SIGINT = linkonce_odr constant i32 2
@@ -45,6 +49,7 @@
 @_IONBF = linkonce_odr constant i32 2
 
 ; time.h
+@CLOCK_REALTIME = linkonce_odr constant i32 0
 @CLOCKS_PER_SEC = linkonce_odr constant i64 1000000
 
 ; unistd.h
