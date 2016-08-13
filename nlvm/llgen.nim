@@ -265,9 +265,10 @@ proc llName(typ: PType): string =
     of tyGenericBody: result = "genb." & typ.lastSon.llName & "_" & $typ.id
     of tyTypeDesc: result = "td." & typ.lastSon.llName & "_" & $typ.id
     of tyTuple: result = "tuple_" & $typ.id
-    of tyArray: result = "arr." & typ.elemType.llName
+    of tyArray, tyArrayConstr:
+      let n = if tfUncheckedArray in typ.flags: "0" else: $typ.lengthOrd()
+      result = "arr." & n & "." & typ.elemType.llName
     of tyRange: result = "rng." & typ.elemType.llName
-    of tyArrayConstr: result = "arr." & typ.elemType.llName
     of tyObject: result = "object_" & $typ.id
     else:
       result = "TY_" & $typ.id
@@ -857,6 +858,8 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
     discard
 
 proc genMarkerSeq(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
+  if typ.elemType.kind == tyEmpty: return
+
   let seqlenp = g.b.buildNimSeqLenGEP(v)
   let seqlen = g.b.buildLoad(seqlenp, nn("mk.seq.len"))
 
@@ -1248,7 +1251,7 @@ proc genTypeInfoBase(g: LLGen, t: PType): llvm.ValueRef =
     result = g.llMagicType("TNimType").pointerType().constNull()
 
 proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  var t = t.skipTypes({tyDistinct, tyGenericBody, tyGenericParam})
+  var t = t.skipTypes({tyDistinct, tyGenericBody, tyGenericParam, tyGenericInst})
 
   let name = ".typeinfo." & t.llName
   result = g.m.getNamedGlobal(name)
@@ -1946,7 +1949,8 @@ proc genRefAssign(g: LLGen, v, t: llvm.ValueRef) =
   if usesNativeGc():
     discard g.callCompilerProc("unsureAsgnRef", [t, v])
   else:
-    discard g.b.buildStore(v, t)
+    discard g.b.buildStore(
+      g.b.buildBitCast(v, t.typeOf().getElementType(), nn("bc", v)), t)
 
 proc genAsgnFromRef(g: LLGen, v, t: llvm.ValueRef, typ: PType, deep = true) =
   let tt = t.typeOf()
@@ -3203,7 +3207,7 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     if lfHeader in s.loc.flags or lfNoDecl in s.loc.flags:
       v = g.externGlobal(s)
     elif sfGlobal in s.flags or
-        (s.kind == skConst and n.sym.ast.isDeepConstExprLL(false)):
+        (s.kind == skConst and n.sym.ast.isDeepConstExprLL(true)):
       v = g.genGlobal(s)
     else:
       v = g.f.scopeGet(s.id)
@@ -3282,7 +3286,7 @@ proc genCallExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   result = g.genCall(n, load)
 
 proc genParExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  if n.isDeepConstExprLL(false):
+  if n.isDeepConstExprLL(true):
     let init = g.genConstInitializer(n)
     result = g.m.addPrivateConstant(init.typeOf(), nn("par.init", n))
     result.setInitializer(init)
@@ -3384,7 +3388,7 @@ proc genBracketExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let typ = n.typ.skipTypes(abstractVarRange)
   let t = g.llType(typ)
 
-  if n.isDeepConstExprLL(false):
+  if n.isDeepConstExprLL(true):
     let init = g.genConstInitializer(n)
     let c = g.m.addPrivateConstant(init.typeOf(), nn("bracket.init", n))
     c.setInitializer(init)
@@ -4203,7 +4207,7 @@ proc genAsgnStmt(g: LLGen, n: PNode) =
 
 proc genFastAsgnStmt(g: LLGen, n: PNode) =
   let ax = g.genExpr(n[0], false)
-  g.genAssignment(n[1], ax, n[0].typ, true)
+  g.genAssignment(n[1], ax, n[0].typ, false)
 
 proc genProcStmt(g: LLGen, n: PNode) =
   if n[genericParamsPos].kind != nkEmpty:
@@ -4391,7 +4395,7 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
 
   let init = v.ast
 
-  if init.isDeepConstExprLL(false):
+  if init.isDeepConstExprLL(true):
     let ci = g.genConstInitializer(init)
     if ci == nil: internalError(n.info, "Unable to generate const initializer: " & $init)
 
