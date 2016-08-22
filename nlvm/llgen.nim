@@ -965,7 +965,7 @@ proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
     discard g.b.buildRetVoid()
 
 proc registerGcRoot(g: LLGen, sym: PSym, v: llvm.ValueRef) =
-  if gSelectedGC in {gcMarkAndSweep, gcGenerational, gcV2} and
+  if gSelectedGC in {gcMarkAndSweep, gcGenerational, gcV2, gcRefc} and
     sym.typ.containsGarbageCollectedRef():
     g.b.withBlock(g.f.getInitBlock()):
       let prc = g.genGlobalMarkerProc(sym, v)
@@ -1952,6 +1952,10 @@ proc genRefAssign(g: LLGen, v, t: llvm.ValueRef) =
     discard g.b.buildStore(
       g.b.buildBitCast(v, t.typeOf().getElementType(), nn("bc", v)), t)
 
+proc callGenericAssign(g: LLGen, t, x: llvm.ValueRef, ty: PType, deep: bool) =
+  let f = if deep: "genericAssign" else: "genericShallowAssign"
+  discard g.callCompilerProc(f, [t, x, g.genTypeInfo(ty)])
+
 proc genAsgnFromRef(g: LLGen, v, t: llvm.ValueRef, typ: PType, deep = true) =
   let tt = t.typeOf()
 
@@ -1994,20 +1998,20 @@ proc genAsgnFromRef(g: LLGen, v, t: llvm.ValueRef, typ: PType, deep = true) =
     else:
       discard g.b.buildStore(g.b.buildBitCast(x, tet, nn("asgn.xc")), t)
   of tyTuple:
-    if typ.containsGarbageCollectedRef():
-      discard g.callCompilerProc("genericAssign", [t, v, g.genTypeInfo(ty)])
+    if ty.containsGarbageCollectedRef():
+      g.callGenericAssign(t, v, ty, deep)
     else:
       g.callMemcpy(t, v, t.typeOf().getElementType().sizeOfX())
 
   of tyObject:
     if ty.hasTypeField() or ty.containsGarbageCollectedRef():
-      discard g.callCompilerProc("genericAssign", [t, v, g.genTypeInfo(ty)])
+      g.callGenericAssign(t, v, ty, deep)
     else:
       g.callMemcpy(t, v, t.typeOf().getElementType().sizeOfX())
 
   of tyArray, tyArrayConstr:
     if ty.containsGarbageCollectedRef():
-      discard g.callCompilerProc("genericAssign", [t, v, g.genTypeInfo(ty)])
+      g.callGenericAssign(t, v, ty, deep)
     else:
       g.callMemcpy(t, v, t.typeOf().getElementType().sizeOfX())
 
@@ -2054,8 +2058,8 @@ proc genAssignment(
     else:
       g.genRefAssign(x, t)
   of tyProc:
+    let x = g.genExpr(v, true)
     if ty.containsGarbageCollectedRef():
-      let x = g.genExpr(v, true)
       let tp = g.b.buildGEP(t, [gep0, gep0])
       let p = g.b.buildExtractValue(x, 0, nn("asgn.p", v))
       discard g.b.buildStore(
@@ -2066,29 +2070,26 @@ proc genAssignment(
 
       g.genRefAssign(e, te)
     else:
-      let x = g.genExpr(v, true)
       discard g.b.buildStore(g.b.buildBitCast(x, tet, nn("asgn.xc")), t)
   of tyTuple:
     let x = g.genExpr(v, false)
-    if typ.containsGarbageCollectedRef():
-      discard g.callCompilerProc("genericAssign", [t, x, g.genTypeInfo(ty)])
+    if ty.containsGarbageCollectedRef():
+      g.callGenericAssign(t, x, ty, deep)
     else:
       g.callMemcpy(t, x, t.typeOf().getElementType().sizeOfX())
 
   of tyObject:
+    let x = g.genExpr(v, false)
     if ty.hasTypeField() or ty.containsGarbageCollectedRef():
-      let x = g.genExpr(v, false)
-      discard g.callCompilerProc("genericAssign", [t, x, g.genTypeInfo(ty)])
+      g.callGenericAssign(t, x, ty, deep)
     else:
-      let x = g.genExpr(v, false)
       g.callMemcpy(t, x, t.typeOf().getElementType().sizeOfX())
 
   of tyArray, tyArrayConstr:
+    let x = g.genExpr(v, false)
     if ty.containsGarbageCollectedRef():
-      let x = g.genExpr(v, false)
-      discard g.callCompilerProc("genericAssign", [t, x, g.genTypeInfo(ty)])
+      g.callGenericAssign(t, x, ty, deep)
     else:
-      let x = g.genExpr(v, false)
       g.callMemcpy(t, x, t.typeOf().getElementType().sizeOfX())
   of tyOpenArray, tyVarargs:
     let s = if v.kind == nkHiddenDeref: v[0] else: v
@@ -2119,6 +2120,10 @@ proc isDeepConstExprLL(n: PNode, strict: bool): bool =
   # strict means that anything involving a separate constant and a cast is
   # not allowed - as would happen with strings for example in a var string
   # initializer
+  # note; callers are only using strict mode now because otherwise, string and
+  # seq constants end up being passed to the garbage collector that tries to
+  # incref them - c compiler keeps track of where a var is allocated and avoids
+  # this
   case n.kind
   of nkCharLit..nkFloat128Lit, nkNilLit: result = true
   of nkStrLit..nkTripleStrLit: result = not strict
@@ -4945,6 +4950,7 @@ proc myClose(b: PPassContext, n: PNode): PNode =
 
   for m in g.markers:
     g.genMarkerProcBody(m[0], m[1])
+  g.markers.setLen(0)
 
   if sfMainModule notin s.flags: return n
 
