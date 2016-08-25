@@ -9,7 +9,7 @@ LLVMPATH=$(shell realpath ../llvm-3.7.1.src/build/Debug+Asserts/lib)
 all: $(NLVMC)
 
 $(NLVMC): $(NIM)/compiler/*.nim  nlvm/*.nim llvm/*.nim
-	cd nlvm && ../$(NIMC) c "-l:-Xlinker '-rpath=$(LLVMPATH)'" nlvm
+	cd nlvm && ../$(NIMC) --debuginfo c "-l:-lLLVM-3.7" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=$(LLVMPATH)'" nlvm
 
 $(NIM)/koch:
 	cd $(NIM) && ./bootstrap.sh && $(NIMC) c koch

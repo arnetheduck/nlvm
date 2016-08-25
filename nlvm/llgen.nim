@@ -4419,6 +4419,7 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
   var x: llvm.ValueRef
   if sfGlobal in v.flags:
     x = g.genGlobal(v)
+    g.registerGcRoot(v, x)
   else:
     x = g.b.localAlloca(g.llType(v.typ), v.llName)
     # Some initializers expect value to be null, so we always set it so
