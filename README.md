@@ -1,7 +1,8 @@
 # Introduction
 
-NLVM (the nim-level virtual machine?) is an LLVM-based (http://llvm.org)
-compiler for the Nim language (http://nim-lang.org).
+[NLVM](https://github.com/arnetheduck/nlvm) (the nim-level virtual machine?)
+is an [LLVM-based](http://llvm.org) compiler for the [Nim](http://nim-lang.org)
+language.
 
 From Nim's point of view, it's a backend just like C or JavaScript - from
 LLVM's point of view, it's a language frontend that emits IR.
@@ -28,7 +29,7 @@ NLVM can currently:
 
 In some distant future, it would be nice if (in no particular order):
 
-* it implemented more core Nim features (stack traces, debug info)
+* it implemented more core Nim features (threads, stack traces, debug info)
 * it had fewer bugs than the reference Nim compiler
 * someone found it useful
 * earth survived humans
@@ -106,9 +107,9 @@ compatibility found library in `nlvm-lib/`.
 
 # Random notes
 
-* I have no hopes of keeping up with upstream, so I've pinned it at a
-  particular commit with the submodule - patches welcome to update to new
-  upstream versions
+* Upstream is pinned using a submodule - nlvm relies heavily on internals
+  that keep changing - it's unlikely that it works with any other versions
+  patches welcome to update it
 * The upstream test suite runs `compiler/nim` to compile the test code.
   `make test` uses a trick where nlvm is copied to that location, so as to
   fool the test runner
