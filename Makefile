@@ -1,27 +1,26 @@
-NIM=Nim
-NIMC=$(NIM)/bin/nim
+NIMC=Nim/bin/nim
 
 NLVMC=nlvm/nlvm
 
-LLVMPATH=$(shell realpath ../llvm-3.7.1.src/build/Debug+Asserts/lib)
+LLVMPATH=$(shell realpath ../llvm-3.9.0.src/build/lib)
 
 .PHONY: all
 all: $(NLVMC)
 
-$(NLVMC): $(NIM)/compiler/*.nim  nlvm/*.nim llvm/*.nim
-	cd nlvm && ../$(NIMC) --debuginfo c "-l:-lLLVM-3.7" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=$(LLVMPATH)'" nlvm
+Nim/koch:
+	cd Nim && sh ./bootstrap.sh
 
-$(NIM)/koch:
-	cd $(NIM) && ./bootstrap.sh && $(NIMC) c koch
+$(NIMC): Nim/koch Nim/compiler/*.nim
+	cd Nim && ./koch boot -d:release
 
-$(NIMC): $(NIM)/koch $(NIM)/compiler/*.nim
-	cd $(NIM) && ./koch boot -d:release
+$(NLVMC): $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim
+	cd nlvm && ../$(NIMC) --debuginfo c "-l:-lLLVM-3.9" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=$(LLVMPATH)'" nlvm
 
 nlvm/nimcache/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim
 	cd nlvm && ./nlvm -o:nimcache/nlvm.ll -c c nlvm
 
 nlvm/nlvm.self: $(NLVMC)
-	cd nlvm && ./nlvm -o:nlvm.self "-l:-lLLVM-3.7" "--clibdir:$(LLVMPATH)" "-l:-Xlinker '-rpath=$(LLVMPATH)'" c nlvm
+	cd nlvm && ./nlvm -o:nlvm.self "-l:-lLLVM-3.9" "--clibdir:$(LLVMPATH)" "-l:-Xlinker '-rpath=$(LLVMPATH)'" c nlvm
 
 nlvm/nimcache/nlvm.self.ll: nlvm/nlvm.self
 	cd nlvm && ./nlvm.self -c -o:nimcache/nlvm.self.ll c nlvm
@@ -45,3 +44,7 @@ t2:
 
 .PHONY: self
 self: nlvm/nlvm.self
+
+.PHONY: clean
+clean:
+	rm -rf $(NLVMC) Nim/koch $(NIMC) nlvm/nimcache/nlvm.ll nlvm/nlvm.self nlvm/nimcache/nlvm.self.ll Nim/tests/testament/tester

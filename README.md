@@ -47,35 +47,33 @@ Start with a clone:
     cd nlvm && git submodule update --init
 
 Compile LLVM shared library - while LLVM is normally linked statically, this
-keeps link times of NLVM itself down:
+keeps link times of NLVM itself down, and is convenient for development:
 
     cd $SRC
-    wget http://llvm.org/releases/3.7.1/llvm-3.7.1.src.tar.xz
-    tar xvf llvm-3.7.1.src.tar.xz
-    cd llvm-3.7.1.src
+    wget http://llvm.org/releases/3.9.0/llvm-3.9.0.src.tar.xz
+    tar xvf llvm-3.9.0.src.tar.xz
+    cd llvm-3.9.0.src
     mkdir build
     cd build
-    ../configure --disable-optimized --enable-debug-runtime --enable-targets=x86_64 --enable-shared
-    nice make -j$(nproc)
+    cmake -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DLLVM_BUILD_LLVM_DYLIB=1 -DLLVM_OPTIMIZED_TABLEGEN=1 -DLLVM_TARGETS_TO_BUILD=X86 ..
+    nice ninja-build
 
 Compile nim:
 
     cd $SRC/nlvm/Nim
-    ./bootstrap.sh
+    sh ./bootstrap.sh
 
 Compile NLVM:
 
-    cd $SRC
+    cd $SRC/nlvm
     make
 
 Compile with itself and compare:
 
-    cd $SRC
     make compare
 
-Run nim test suite:
+Run nim/nlvm test suite (will write test results to `Nim/testresults.html`):
 
-    cd $SRC
     make test
 
 # Compiling your code
@@ -84,12 +82,12 @@ When compiling, NLVM will generate a single `.o` file with all code from your
 project and link it using `$(CC)` which helps it pick the right flags for
 linking with the C library.
 
-    cd $SRC/Nim/examples
+    cd $SRC/nlvm/Nim/examples
     ../../nlvm/nlvm c fizzbuzz
 
 If you want to see the generated LLVM IR, use the `-c` option:
 
-    cd $SRC/nlvm/nlvm
+    cd $SRC/nlvm/Nim/examples
     ../../nlvm/nlvm c -c fizzbuzz
     less fizzbuzz.ll
 
@@ -108,7 +106,7 @@ compatibility found library in `nlvm-lib/`.
 # Random notes
 
 * Upstream is pinned using a submodule - nlvm relies heavily on internals
-  that keep changing - it's unlikely that it works with any other versions
+  that keep changing - it's unlikely that it works with any other versions,
   patches welcome to update it
 * The upstream test suite runs `compiler/nim` to compile the test code.
   `make test` uses a trick where nlvm is copied to that location, so as to

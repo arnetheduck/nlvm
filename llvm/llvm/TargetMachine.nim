@@ -1,144 +1,140 @@
-#===-- llvm-c/TargetMachine.h - Target Machine Library C Interface - C++ -*-=*\
-#|*                                                                            *|
-#|*                     The LLVM Compiler Infrastructure                       *|
-#|*                                                                            *|
-#|* This file is distributed under the University of Illinois Open Source      *|
-#|* License. See LICENSE.TXT for details.                                      *|
-#|*                                                                            *|
-#|*===----------------------------------------------------------------------===*|
-#|*                                                                            *|
-#|* This header declares the C interface to the Target and TargetMachine       *|
-#|* classes, which can be used to generate assembly or object files.           *|
-#|*                                                                            *|
-#|* Many exotic languages can interoperate with C code but have a harder time  *|
-#|* with C++ due to name mangling. So in addition to C, this interface enables *|
-#|* tools written in such languages.                                           *|
-#|*                                                                            *|
-#\*===----------------------------------------------------------------------===
+## #===-- llvm-c/TargetMachine.h - Target Machine Library C Interface - C++ -*-=*\
+## #|*                                                                            *|
+## #|*                     The LLVM Compiler Infrastructure                       *|
+## #|*                                                                            *|
+## #|* This file is distributed under the University of Illinois Open Source      *|
+## #|* License. See LICENSE.TXT for details.                                      *|
+## #|*                                                                            *|
+## #|*===----------------------------------------------------------------------===*|
+## #|*                                                                            *|
+## #|* This header declares the C interface to the Target and TargetMachine       *|
+## #|* classes, which can be used to generate assembly or object files.           *|
+## #|*                                                                            *|
+## #|* Many exotic languages can interoperate with C code but have a harder time  *|
+## #|* with C++ due to name mangling. So in addition to C, this interface enables *|
+## #|* tools written in such languages.                                           *|
+## #|*                                                                            *|
+## #\*===----------------------------------------------------------------------===
 
-type 
+type
   TargetMachineRef* = ptr OpaqueTargetMachine
   TargetRef* = ptr target
-  CodeGenOptLevel* {.size: sizeof(cint).} = enum 
-    CodeGenLevelNone, CodeGenLevelLess, CodeGenLevelDefault, 
-    CodeGenLevelAggressive
-  RelocMode* {.size: sizeof(cint).} = enum 
+  CodeGenOptLevel* {.size: sizeof(cint).} = enum
+    CodeGenLevelNone, CodeGenLevelLess, CodeGenLevelDefault, CodeGenLevelAggressive
+  RelocMode* {.size: sizeof(cint).} = enum
     RelocDefault, RelocStatic, RelocPIC, RelocDynamicNoPic
-  CodeModel* {.size: sizeof(cint).} = enum 
-    CodeModelDefault, CodeModelJITDefault, CodeModelSmall, CodeModelKernel, 
+  CodeModel* {.size: sizeof(cint).} = enum
+    CodeModelDefault, CodeModelJITDefault, CodeModelSmall, CodeModelKernel,
     CodeModelMedium, CodeModelLarge
-  CodeGenFileType* {.size: sizeof(cint).} = enum 
+  CodeGenFileType* {.size: sizeof(cint).} = enum
     AssemblyFile, ObjectFile
 
 
 
 
 
-#* Returns the first llvm::Target in the registered targets list. 
+## #* Returns the first llvm::Target in the registered targets list. 
 
-proc getFirstTarget*(): TargetRef {.importc: "LLVMGetFirstTarget", 
-                                    dynlib: LLVMLib.}
-#* Returns the next llvm::Target given a previous one (or null if there's none) 
+proc getFirstTarget*(): TargetRef {.importc: "LLVMGetFirstTarget", dynlib: LLVMLib.}
+## #* Returns the next llvm::Target given a previous one (or null if there's none) 
 
-proc getNextTarget*(t: TargetRef): TargetRef {.importc: "LLVMGetNextTarget", 
+proc getNextTarget*(t: TargetRef): TargetRef {.importc: "LLVMGetNextTarget",
     dynlib: LLVMLib.}
-#===-- Target ------------------------------------------------------------===
-#* Finds the target corresponding to the given name and stores it in \p T.
-#  Returns 0 on success. 
+## #===-- Target ------------------------------------------------------------===
+## #* Finds the target corresponding to the given name and stores it in \p T.
+## #  Returns 0 on success. 
 
 proc getTargetFromName*(name: cstring): TargetRef {.
     importc: "LLVMGetTargetFromName", dynlib: LLVMLib.}
-#* Finds the target corresponding to the given triple and stores it in \p T.
-#  Returns 0 on success. Optionally returns any error in ErrorMessage.
-#  Use LLVMDisposeMessage to dispose the message. 
+## #* Finds the target corresponding to the given triple and stores it in \p T.
+## #  Returns 0 on success. Optionally returns any error in ErrorMessage.
+## #  Use LLVMDisposeMessage to dispose the message. 
 
-proc getTargetFromTriple*(triple: cstring; t: ptr TargetRef; 
-                          errorMessage: cstringArray): Bool {.
+proc getTargetFromTriple*(triple: cstring; t: ptr TargetRef;
+                         errorMessage: cstringArray): Bool {.
     importc: "LLVMGetTargetFromTriple", dynlib: LLVMLib.}
-#* Returns the name of a target. See llvm::Target::getName 
+## #* Returns the name of a target. See llvm::Target::getName 
 
-proc getTargetName*(t: TargetRef): cstring {.importc: "LLVMGetTargetName", 
+proc getTargetName*(t: TargetRef): cstring {.importc: "LLVMGetTargetName",
     dynlib: LLVMLib.}
-#* Returns the description  of a target. See llvm::Target::getDescription 
+## #* Returns the description  of a target. See llvm::Target::getDescription 
 
 proc getTargetDescription*(t: TargetRef): cstring {.
     importc: "LLVMGetTargetDescription", dynlib: LLVMLib.}
-#* Returns if the target has a JIT 
+## #* Returns if the target has a JIT 
 
-proc targetHasJIT*(t: TargetRef): Bool {.importc: "LLVMTargetHasJIT", 
-    dynlib: LLVMLib.}
-#* Returns if the target has a TargetMachine associated 
+proc targetHasJIT*(t: TargetRef): Bool {.importc: "LLVMTargetHasJIT", dynlib: LLVMLib.}
+## #* Returns if the target has a TargetMachine associated 
 
 proc targetHasTargetMachine*(t: TargetRef): Bool {.
     importc: "LLVMTargetHasTargetMachine", dynlib: LLVMLib.}
-#* Returns if the target as an ASM backend (required for emitting output) 
+## #* Returns if the target as an ASM backend (required for emitting output) 
 
-proc targetHasAsmBackend*(t: TargetRef): Bool {.
-    importc: "LLVMTargetHasAsmBackend", dynlib: LLVMLib.}
-#===-- Target Machine ----------------------------------------------------===
-#* Creates a new llvm::TargetMachine. See llvm::Target::createTargetMachine 
+proc targetHasAsmBackend*(t: TargetRef): Bool {.importc: "LLVMTargetHasAsmBackend",
+    dynlib: LLVMLib.}
+## #===-- Target Machine ----------------------------------------------------===
+## #* Creates a new llvm::TargetMachine. See llvm::Target::createTargetMachine 
 
-proc createTargetMachine*(t: TargetRef; triple: cstring; cpu: cstring; 
-                          features: cstring; level: CodeGenOptLevel; 
-                          reloc: RelocMode; codeModel: CodeModel): TargetMachineRef {.
+proc createTargetMachine*(t: TargetRef; triple: cstring; cpu: cstring;
+                         features: cstring; level: CodeGenOptLevel;
+                         reloc: RelocMode; codeModel: CodeModel): TargetMachineRef {.
     importc: "LLVMCreateTargetMachine", dynlib: LLVMLib.}
-#* Dispose the LLVMTargetMachineRef instance generated by
-#  LLVMCreateTargetMachine. 
+## #* Dispose the LLVMTargetMachineRef instance generated by
+## #  LLVMCreateTargetMachine. 
 
 proc disposeTargetMachine*(t: TargetMachineRef) {.
     importc: "LLVMDisposeTargetMachine", dynlib: LLVMLib.}
-#* Returns the Target used in a TargetMachine 
+## #* Returns the Target used in a TargetMachine 
 
 proc getTargetMachineTarget*(t: TargetMachineRef): TargetRef {.
     importc: "LLVMGetTargetMachineTarget", dynlib: LLVMLib.}
-#* Returns the triple used creating this target machine. See
-#  llvm::TargetMachine::getTriple. The result needs to be disposed with
-#  LLVMDisposeMessage. 
+## #* Returns the triple used creating this target machine. See
+## #  llvm::TargetMachine::getTriple. The result needs to be disposed with
+## #  LLVMDisposeMessage. 
 
 proc getTargetMachineTriple*(t: TargetMachineRef): cstring {.
     importc: "LLVMGetTargetMachineTriple", dynlib: LLVMLib.}
-#* Returns the cpu used creating this target machine. See
-#  llvm::TargetMachine::getCPU. The result needs to be disposed with
-#  LLVMDisposeMessage. 
+## #* Returns the cpu used creating this target machine. See
+## #  llvm::TargetMachine::getCPU. The result needs to be disposed with
+## #  LLVMDisposeMessage. 
 
 proc getTargetMachineCPU*(t: TargetMachineRef): cstring {.
     importc: "LLVMGetTargetMachineCPU", dynlib: LLVMLib.}
-#* Returns the feature string used creating this target machine. See
-#  llvm::TargetMachine::getFeatureString. The result needs to be disposed with
-#  LLVMDisposeMessage. 
+## #* Returns the feature string used creating this target machine. See
+## #  llvm::TargetMachine::getFeatureString. The result needs to be disposed with
+## #  LLVMDisposeMessage. 
 
 proc getTargetMachineFeatureString*(t: TargetMachineRef): cstring {.
     importc: "LLVMGetTargetMachineFeatureString", dynlib: LLVMLib.}
-#* Deprecated: use LLVMGetDataLayout(LLVMModuleRef M) instead. 
+## #* Create a DataLayout based on the targetMachine. 
 
-proc getTargetMachineData*(t: TargetMachineRef): TargetDataRef {.
-    importc: "LLVMGetTargetMachineData", dynlib: LLVMLib.}
-#* Set the target machine's ASM verbosity. 
+proc createTargetDataLayout*(t: TargetMachineRef): TargetDataRef {.
+    importc: "LLVMCreateTargetDataLayout", dynlib: LLVMLib.}
+## #* Set the target machine's ASM verbosity. 
 
 proc setTargetMachineAsmVerbosity*(t: TargetMachineRef; verboseAsm: Bool) {.
     importc: "LLVMSetTargetMachineAsmVerbosity", dynlib: LLVMLib.}
-#* Emits an asm or object file for the given module to the filename. This
-#  wraps several c++ only classes (among them a file stream). Returns any
-#  error in ErrorMessage. Use LLVMDisposeMessage to dispose the message. 
+## #* Emits an asm or object file for the given module to the filename. This
+## #  wraps several c++ only classes (among them a file stream). Returns any
+## #  error in ErrorMessage. Use LLVMDisposeMessage to dispose the message. 
 
-proc targetMachineEmitToFile*(t: TargetMachineRef; m: ModuleRef; 
-                              filename: cstring; codegen: CodeGenFileType; 
-                              errorMessage: cstringArray): Bool {.
+proc targetMachineEmitToFile*(t: TargetMachineRef; m: ModuleRef; filename: cstring;
+                             codegen: CodeGenFileType; errorMessage: cstringArray): Bool {.
     importc: "LLVMTargetMachineEmitToFile", dynlib: LLVMLib.}
-#* Compile the LLVM IR stored in \p M and store the result in \p OutMemBuf. 
+## #* Compile the LLVM IR stored in \p M and store the result in \p OutMemBuf. 
 
-proc targetMachineEmitToMemoryBuffer*(t: TargetMachineRef; m: ModuleRef; 
-                                      codegen: CodeGenFileType; 
-                                      errorMessage: cstringArray; 
-                                      outMemBuf: ptr MemoryBufferRef): Bool {.
+proc targetMachineEmitToMemoryBuffer*(t: TargetMachineRef; m: ModuleRef;
+                                     codegen: CodeGenFileType;
+                                     errorMessage: cstringArray;
+                                     outMemBuf: ptr MemoryBufferRef): Bool {.
     importc: "LLVMTargetMachineEmitToMemoryBuffer", dynlib: LLVMLib.}
-#===-- Triple ------------------------------------------------------------===
-#* Get a triple for the host machine as a string. The result needs to be
-#  disposed with LLVMDisposeMessage. 
+## #===-- Triple ------------------------------------------------------------===
+## #* Get a triple for the host machine as a string. The result needs to be
+## #  disposed with LLVMDisposeMessage. 
 
-proc getDefaultTargetTriple*(): cstring {.importc: "LLVMGetDefaultTargetTriple", 
-    dynlib: LLVMLib.}
-#* Adds the target-specific analysis passes to the pass manager. 
+proc getDefaultTargetTriple*(): cstring {.importc: "LLVMGetDefaultTargetTriple",
+                                       dynlib: LLVMLib.}
+## #* Adds the target-specific analysis passes to the pass manager. 
 
 proc addAnalysisPasses*(t: TargetMachineRef; pm: PassManagerRef) {.
     importc: "LLVMAddAnalysisPasses", dynlib: LLVMLib.}

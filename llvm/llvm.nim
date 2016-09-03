@@ -2,16 +2,15 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-const LLVMLib = "libLLVM-3.7.so"
+const LLVMLib = "libLLVM-3.9.so"
 
 # Includes and helpers for generated code
 type
   OpaqueMemoryBuffer = object
 
-include llvm/Support
-
 type
   # Opaque handles to various things
+  OpaqueAttributeRef{.pure, final.} = object
   OpaqueContext{.pure, final.} = object
   OpaqueModule{.pure, final.} = object
   OpaqueType{.pure, final.} = object
@@ -26,7 +25,6 @@ type
   OpaqueTargetMachine{.pure, final.} = object
   target{.pure, final.} = object
 
-
   # Funny type names that came out of c2nim
   uint64T = uint64
   uint8T = uint8
@@ -35,6 +33,9 @@ type
 # just type out the parts that are useful for me
   OpaqueTargetData{.pure, final.} = object
   TargetDataRef* = ptr OpaqueTargetData
+
+include llvm/Types
+include llvm/Support
 
 proc initializeX86AsmParser*() {.importc: "LLVMInitializeX86AsmParser", dynlib: LLVMLib.}
 proc initializeX86AsmPrinter*() {.importc: "LLVMInitializeX86AsmPrinter", dynlib: LLVMLib.}

@@ -4872,8 +4872,8 @@ proc loadBase(g: LLGen) =
     llctxt, options.gPrefixDir / "../nlvm-lib/nlvmbase-linux-amd64.ll")
 
   var err: cstring
-  if g.m.linkModules(m, LinkerDestroySource, cast[cstringArray](addr(err))) != 0:
-    internalError($err)
+  if g.m.linkModules2(m) != 0:
+    internalError("module link failed")
 
 proc writeOutput(g: LLGen, project: string) =
   var outFile: string

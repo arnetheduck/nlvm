@@ -3,3 +3,4 @@ nimcache
 *.s
 /nlvm/nlvm.self
 /testament.db
+*.ndb
