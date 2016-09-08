@@ -536,6 +536,7 @@ proc llType(g: LLGen, typ: PType): llvm.TypeRef =
   of tyCString: result = llCStringType
   of tyInt..tyUInt64: result = llNumTypes[typ.kind]
   of tyTypeDesc: result = g.llType(typ.lastSon)
+  of tyStatic: result = g.llType(typ.lastSon)
   else:
     internalError("Unhandled type " & $typ.kind)
 
@@ -1306,6 +1307,7 @@ proc llProcParamType(g: LLGen, t: PType): llvm.TypeRef =
   of tyProc:
     result = if typ.callConv == ccClosure: llvm.pointerType(g.llType(t))
              else: g.llType(t)
+  of tyDistinct: result = g.llProcParamType(t.lastSon)
   else: result = g.llType(t)
 
 proc llPassAsPtr(g: LLGen, t: PType): bool =
@@ -1939,11 +1941,6 @@ proc genMagicCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     discard g.genFunctionWithBody(magicsys.getCompilerProc($s.loc.r))
 
   result = g.genCall(n, load)
-
-proc asgnByValue(t: PType): bool =
-  let typ = t.skipTypes(abstractRange)
-
-  result = typ.kind notin {tyObject, tyTuple}
 
 proc genRefAssign(g: LLGen, v, t: llvm.ValueRef) =
   if usesNativeGc():
@@ -3634,19 +3631,11 @@ proc genCastExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
   let vtk = v.typeOf().getTypeKind()
   let ntk = nt.getTypeKind()
-  if vtk != ntk:
-    if vtk == llvm.PointerTypeKind and ntk == llvm.IntegerTypeKind:
-      result = g.b.buildPtrToInt(v, nt, nn("cast.pi", n))
-    elif vtk == llvm.IntegerTypeKind and ntk == llvm.PointerTypeKind:
-      result = g.b.buildIntToPtr(v, nt, nn("cast.ip", n))
-    elif vtk in {llvm.HalfTypeKind..llvm.PPC_FP128TypeKind} and ntk == llvm.IntegerTypeKind:
-      if n.typ.kind in {tyUInt..tyUInt64}:
-        result = g.b.buildFPToUI(v, nt, nn("cast.fptoui", n))
-      elif n.typ.kind in {tyInt..tyInt64}:
-        result = g.b.buildFPToSI(v, nt, nn("cast.fp.si", n))
-    else:
-      internalError(n.info, "Unhandled cast: " & $vtk & " " & $ntk)
-  elif vtk == llvm.IntegerTypeKind:
+  if vtk == llvm.PointerTypeKind and ntk == llvm.IntegerTypeKind:
+    result = g.b.buildPtrToInt(v, nt, nn("cast.pi", n))
+  elif vtk == llvm.IntegerTypeKind and ntk == llvm.PointerTypeKind:
+    result = g.b.buildIntToPtr(v, nt, nn("cast.ip", n))
+  elif vtk == llvm.IntegerTypeKind and ntk == llvm.IntegerTypeKind:
     result = g.b.buildTruncOrExt(v, nt, ntyp)
   else:
     result = g.b.buildBitCast(v, nt, nn("cast.bit", n))
