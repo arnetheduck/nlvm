@@ -212,24 +212,30 @@ proc localAlloca(b: llvm.BuilderRef, typ: llvm.TypeRef, name: string): llvm.Valu
 
   let pre = b.getInsertBlock()
   let f = pre.getBasicBlockParent()
-  let entry = f.getEntryBasicBlock()
+  var entry = f.getEntryBasicBlock()
 
   var first = entry.getFirstInstruction()
-  # Skip instructions that must be first in a block
-  while first != nil and
-    first.getInstructionOpcode() in {llvm.PHI, llvm.LandingPad, llvm.Alloca}:
-    first = first.getNextInstruction()
-  if first != nil:
-    b.positionBuilder(entry, first)
+  if first == nil or first.getInstructionOpcode() != llvm.Alloca:
+    # Allocate a specific alloca block and place it first in the function
+    let newEntry = entry.insertBasicBlock(nn("alloca"))
+    b.positionBuilderAtEnd(newEntry)
+    let br = b.buildBr(entry)
+    entry = newEntry
+    b.positionBuilderBefore(br)
   else:
-    b.positionBuilderAtEnd(entry)
+    while first.getInstructionOpcode() == llvm.Alloca:
+      first = first.getNextInstruction()
+    b.positionBuilderBefore(first)
+
   result = b.buildAlloca(typ, name)
   b.positionBuilderAtEnd(pre)
 
 proc addPrivateConstant*(m: ModuleRef, ty: llvm.TypeRef, name: cstring): llvm.ValueRef =
   result = m.addGlobal(ty, name)
   result.setGlobalConstant(llvm.True)
-  result.setUnnamedAddr(llvm.True)
+  # TODO when enabled, ptr equality checks (for example in isObj) get
+  #      optimized away - need to consider when it's safe
+  # result.setUnnamedAddr(llvm.True)
   result.setLinkage(llvm.PrivateLinkage)
 
 proc llName(s: PSym): string =
@@ -562,11 +568,17 @@ proc finalize(b: llvm.BuilderRef, llf: LLFunc) =
   if llf.init == nil: return
 
   let pre = llf.ret.getBasicBlockParent()
-  let first = pre.getEntryBasicBlock()
-  llf.init.moveBasicBlockBefore(first)
+  var entry = pre.getEntryBasicBlock()
+  if entry.getFirstInstruction().getInstructionOpcode() == llvm.Alloca:
+    entry.getLastInstruction().instructionEraseFromParent()
+    b.withBlock(entry):
+      discard b.buildBr(llf.init)
+    entry = entry.getNextBasicBlock()
+
+  llf.init.moveBasicBlockBefore(entry)
 
   b.withBlock(llf.init):
-    discard b.buildBr(first)
+    discard b.buildBr(entry)
 
 proc llMagicType(g: LLGen, name: string): llvm.TypeRef =
   g.llType(magicsys.getCompilerProc(name).typ)
@@ -1719,7 +1731,10 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
   let f = g.m.addFunction(name, ft)
 
   if sfNoReturn in s.flags:
-    f.addfunctionAttr(llvm.NoReturnAttribute)
+    f.addFunctionAttr(llvm.NoReturnAttribute)
+
+  if typ.callConv == ccNoInline:
+    f.addFunctionAttr(llvm.NoInlineAttribute)
 
   if g.genFakeImpl(s, f):
     f.setLinkage(llvm.InternalLinkage)
@@ -4557,7 +4572,10 @@ proc genConstDefStmt(g: LLGen, n: PNode) =
 
     let x = g.genGlobal(v)
     x.setGlobalConstant(llvm.True)
-    x.setUnnamedAddr(llvm.True)
+
+    # TODO when enabled, ptr equality checks (for example in isObj) get
+    #      optimized away - need to consider when it's safe
+    # x.setUnnamedAddr(llvm.True)
 
     case v.typ.kind
     of tyArray, tyArrayConstr, tySet, tyTuple: x.setInitializer(ci)
@@ -5002,6 +5020,10 @@ proc genMain(g: LLGen) =
   let b = f.appendBasicBlock(nn("entry"))
   g.b.positionBuilderAtEnd(b)
 
+  if platform.targetOS != osStandAlone and gSelectedGC != gcNone:
+    let bottom = g.b.buildAlloca(llIntType, nn("bottom"))
+    discard g.callCompilerProc("initStackBottomWith", [bottom])
+
   let cmdLine = g.m.getNamedGlobal("cmdLine")
   if cmdLine != nil:
     cmdLine.setLinkage(llvm.CommonLinkage)
@@ -5026,6 +5048,36 @@ proc loadBase(g: LLGen) =
   if g.m.linkModules2(m) != 0:
     internalError("module link failed")
 
+proc runOptimizers(g: LLGen) =
+  if {optOptimizeSpeed, optOptimizeSize} * gOptions == {}:
+    return
+
+  let pmb = llvm.passManagerBuilderCreate()
+
+  if optOptimizeSize in gOptions:
+    pmb.passManagerBuilderSetOptLevel(2)
+    pmb.passManagerBuilderSetSizeLevel(2)
+    pmb.passManagerBuilderUseInlinerWithThreshold(25)
+  else:
+    pmb.passManagerBuilderSetOptLevel(3)
+    pmb.passManagerBuilderSetSizeLevel(0)
+    pmb.passManagerBuilderUseInlinerWithThreshold(275)
+
+  let fpm = g.m.createFunctionPassManagerForModule()
+  let mpm = llvm.createPassManager()
+
+  pmb.passManagerBuilderPopulateFunctionPassManager(fpm)
+  pmb.passManagerBuilderPopulateModulePassManager(mpm)
+
+  var f = g.m.getFirstFunction()
+  while f != nil:
+    discard fpm.runFunctionPassManager(f)
+    f = f.getNextFunction()
+  discard mpm.runPassManager(g.m)
+
+  fpm.disposePassManager()
+  mpm.disposePassManager()
+
 proc writeOutput(g: LLGen, project: string) =
   var outFile: string
   if options.outFile.len > 0:
@@ -5040,16 +5092,6 @@ proc writeOutput(g: LLGen, project: string) =
       outFile = project & ".o"
     else:
       outFile = project
-
-  if optCompileOnly in gGlobalOptions:
-    discard g.m.printModuleToFile(outfile, nil)
-    return
-
-  let ofile =
-    if optNoLinking in gGlobalOptions:
-      outFile
-    else:
-      completeCFilePath(project & ".o")
 
   initializeX86AsmPrinter()
   initializeX86Target()
@@ -5066,8 +5108,28 @@ proc writeOutput(g: LLGen, project: string) =
       ospNeedsPIC in platform.OS[targetOS].props:
     reloc = llvm.RelocPIC
 
-  let tm = createTargetMachine(tr, triple, "", "", llvm.CodeGenLevelAggressive,
+  let cgl =
+    if optOptimizeSpeed in gOptions: llvm.CodeGenLevelAggressive
+    else: llvm.CodeGenLevelDefault
+
+  let tm = createTargetMachine(tr, triple, "", "", cgl,
     reloc, llvm.CodeModelDefault)
+
+  let layout = tm.createTargetDataLayout()
+  g.m.setModuleDataLayout(layout)
+  g.m.setTarget(triple)
+
+  g.runOptimizers()
+
+  if optCompileOnly in gGlobalOptions:
+    discard g.m.printModuleToFile(outfile, nil)
+    return
+
+  let ofile =
+    if optNoLinking in gGlobalOptions:
+      outFile
+    else:
+      completeCFilePath(project & ".o")
 
   var err: cstring
   if llvm.targetMachineEmitToFile(tm, g.m, ofile, llvm.ObjectFile,

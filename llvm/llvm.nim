@@ -23,20 +23,21 @@ type
   OpaqueUse{.pure, final.} = object
   OpaqueDiagnosticInfo{.pure, final.} = object
   OpaqueTargetMachine{.pure, final.} = object
+  OpaquePassManagerBuilder{.pure, final.} = object
   target{.pure, final.} = object
 
   # Funny type names that came out of c2nim
   uint64T = uint64
   uint8T = uint8
 
-# Target.h is quite a mess with lots of site-specific stuff - for now, I'll
-# just type out the parts that are useful for me
   OpaqueTargetData{.pure, final.} = object
-  TargetDataRef* = ptr OpaqueTargetData
+  OpaqueTargetLibraryInfotData{.pure, final.} = object
 
 include llvm/Types
 include llvm/Support
 
+# Target.h is quite a mess with lots of site-specific stuff - some of the parts
+# that c2nim can't deal with:
 proc initializeX86AsmParser*() {.importc: "LLVMInitializeX86AsmParser", dynlib: LLVMLib.}
 proc initializeX86AsmPrinter*() {.importc: "LLVMInitializeX86AsmPrinter", dynlib: LLVMLib.}
 proc initializeX86Disassembler*() {.importc: "LLVMInitializeX86Disassembler", dynlib: LLVMLib.}
@@ -49,7 +50,9 @@ include llvm/BitReader
 include llvm/BitWriter
 include llvm/IRReader
 include llvm/Linker
+include llvm/Target
 include llvm/TargetMachine
+include llvm/Transforms/PassManagerBuilder
 
 # A few helpers to make things more smooth
 
