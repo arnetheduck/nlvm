@@ -666,7 +666,7 @@ proc llStructType(g: LLGen, typ: PType): llvm.TypeRef =
   if typ == nil:
     return
 
-  var typ = typ.skipTypes(abstractInst)
+  var typ = typ.skipTypes(abstractPtrs)
   if typ.kind == tyString:
     typ = magicsys.getCompilerProc("NimStringDesc").typ
 
@@ -1406,7 +1406,7 @@ proc mtypeIndex(typ: PType): seq[llvm.ValueRef] =
 
   while t.kind == tyObject and t.sons[0] != nil:
     result = result & @[zero]
-    t = skipTypes(t.sons[0], typedescInst)
+    t = skipTypes(t.sons[0], abstractPtrs)
 
   if not t.hasTypeField():
     # TODO why is this check in the generator???
@@ -4929,6 +4929,7 @@ proc genExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of nkChckRange: result = g.genChckRangeExpr(n, "chckRange")
   of nkStringToCString: result = g.genStringToCStringExpr(n)
   of nkCStringToString: result = g.genToStrExpr(n, "cstrToNimstr")
+  of nkPragmaBlock: result = g.genExpr(n.lastSon, load)
   of nkIfStmt: result = g.genIfExpr(n, load) # if in case! see tcaststm.nim
   of nkWhenStmt: result = g.genWhenExpr(n, load)
   of nkCaseStmt: result = g.genCaseExpr(n, load)  # Sometimes seen as expression!
@@ -4963,6 +4964,7 @@ proc genStmt(g: LLGen, n: PNode) =
     if {sfExportc, sfCompilerProc} * s.flags == {sfExportc} or
         s.kind == skMethod:
       g.genProcStmt(n)
+  of nkPragmaBlock: g.genStmt(n.lastSon)
   of nkIfStmt: g.genIfStmt(n)
   of nkWhenStmt: g.genWhenStmt(n)
   of nkWhileStmt: g.genWhileStmt(n)
