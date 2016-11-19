@@ -11,9 +11,11 @@ import llgen
 import
   compiler/commands,
   compiler/condsyms,
+  compiler/idents,
   compiler/lexer,
   compiler/lists,
   compiler/llstream,
+  compiler/modulegraphs,
   compiler/modules,
   compiler/msgs,
   compiler/nimconf,
@@ -22,13 +24,13 @@ import
   compiler/sem,
   compiler/service
 
-proc commandLL() =
+proc commandLL(graph: ModuleGraph; cache: IdentCache) =
   registerPass(sem.semPass)
   registerPass(llgen.llgenPass)
 
-  modules.compileProject()
+  modules.compileProject(graph, cache)
 
-proc commandScan =
+proc commandScan(cache: IdentCache) =
   var f = addFileExt(mainCommandArg(), NimExt)
   var stream = llStreamOpen(f, fmRead)
   if stream != nil:
@@ -36,7 +38,7 @@ proc commandScan =
       L: TLexer
       tok: TToken
     initToken(tok)
-    openLexer(L, f, stream)
+    openLexer(L, f, stream, cache)
     while true:
       rawGetTok(L, tok)
       printTok(tok)
@@ -50,7 +52,7 @@ proc mainCommand() =
 
   case options.command.normalize
   # Take over the default compile command
-  of "c", "cc", "compile", "compiletoc": commandLL()
+  of "c", "cc", "compile", "compiletoc": commandLL(newModuleGraph(), newIdentCache())
   of "dump":
     msgWriteln("-- list of currently defined symbols --")
     for s in definedSymbolNames(): msgWriteln(s)
@@ -61,7 +63,7 @@ proc mainCommand() =
   of "scan":
     gCmd = cmdScan
     wantMainModule()
-    commandScan()
+    commandScan(newIdentCache())
 
   else: msgs.rawMessage(errInvalidCommandX, options.command)
 

@@ -16,8 +16,10 @@ import
   compiler/cgmeth,
   compiler/ccgutils,
   compiler/extccomp,
+  compiler/idents,
   compiler/lowerings,
   compiler/magicsys,
+  compiler/modulegraphs,
   compiler/msgs,
   compiler/nimsets,
   compiler/options,
@@ -281,13 +283,12 @@ proc llName(typ: PType): string =
     else:
       result = "TY_" & $typ.id
 
+proc `$`(t: PType): string
+
 proc `$`(n: PSym): string =
   if n == nil: return "PSym(nil)"
-  result = n.llName & " " & $n.kind & " " & $n.magic & " " & $n.flags & " " & $n.loc.flags & " " & $n.info.line
-  if n.typ != nil:
-    result = result & " type " & $n.typ.kind
-    if n.typ.sym != nil:
-      result &= " " & n.typ.sym.name.s
+  result = n.llName & " " & $n.kind & " " & $n.magic & " " & $n.flags & " " &
+    $n.loc.flags & " " & $n.info.line & " " & $n.typ
 
 proc `$`(t: PType): string =
   if t == nil: return "PType(nil)"
@@ -305,6 +306,9 @@ proc `$`(t: PType): string =
 
   if t.kind == tyProc:
     result &= " " & $t.callConv
+
+  if t.n != nil:
+    result &= " " & $t.n.kind
 
 proc `$`(n: PNode): string =
   if n == nil: return "PNode(nil)"
@@ -954,7 +958,7 @@ proc genMarkerProc(g: LLGen, typ: PType): llvm.ValueRef =
   if result != nil:
     return
 
-  let ft = llvm.functionType(llvm.voidType(), @[llVoidPtrType, llvm.int8Type()], false)
+  let ft = llvm.functionType(llvm.voidType(), @[llVoidPtrType, llIntType], false)
 
   result = g.m.addFunction(name, ft)
 
@@ -5059,11 +5063,11 @@ proc runOptimizers(g: LLGen) =
   if optOptimizeSize in gOptions:
     pmb.passManagerBuilderSetOptLevel(2)
     pmb.passManagerBuilderSetSizeLevel(2)
-    pmb.passManagerBuilderUseInlinerWithThreshold(25)
+    # pmb.passManagerBuilderUseInlinerWithThreshold(25)
   else:
     pmb.passManagerBuilderSetOptLevel(3)
     pmb.passManagerBuilderSetSizeLevel(0)
-    pmb.passManagerBuilderUseInlinerWithThreshold(275)
+    # pmb.passManagerBuilderUseInlinerWithThreshold(275)
 
   let fpm = g.m.createFunctionPassManagerForModule()
   let mpm = llvm.createPassManager()
@@ -5208,10 +5212,10 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
 
   result = n
 
-proc myOpenCached(s: PSym, rd: PRodReader): PPassContext =
+proc myOpenCached(graph: ModuleGraph, s: PSym, rd: PRodReader): PPassContext =
   result = nil
 
-proc myOpen(s: PSym): PPassContext =
+proc myOpen(graph: ModuleGraph, s: PSym, cache: IdentCache): PPassContext =
   # In the C generator, a separate C file is generated for every module,
   # but the rules governing what goes into which module are shrouded by a
   # layer of globals and conditionals.

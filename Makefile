@@ -4,6 +4,10 @@ NLVMC=nlvm/nlvm
 
 LLVMPATH=$(shell realpath ../llvm-3.9.0.src/build/lib)
 
+NIMFLAGS=--gc:markandsweep --opt:size
+
+LLVMLIBS="-l:-lLLVM-3.9" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=$(LLVMPATH)'"
+
 .PHONY: all
 all: $(NLVMC)
 
@@ -14,16 +18,16 @@ $(NIMC): Nim/koch Nim/compiler/*.nim
 	cd Nim && ./koch boot -d:release
 
 $(NLVMC): $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim
-	cd nlvm && time ../$(NIMC) --debuginfo c -d:release "-l:-lLLVM-3.9" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=$(LLVMPATH)'" nlvm
+	cd nlvm && time ../$(NIMC) --debuginfo $(NIMFLAGS) $(LLVMLIBS) c nlvm
 
 nlvm/nimcache/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim
-	cd nlvm && time ./nlvm -d:release -o:nimcache/nlvm.ll -c c nlvm
+	cd nlvm && time ./nlvm $(NIMFLAGS) -o:nimcache/nlvm.ll -c c nlvm
 
 nlvm/nlvm.self: $(NLVMC)
-	cd nlvm && time ./nlvm -o:nlvm.self "-l:-lLLVM-3.9" "--clibdir:$(LLVMPATH)" "-l:-Xlinker '-rpath=$(LLVMPATH)'" c nlvm
+	cd nlvm && time ./nlvm -o:nlvm.self $(NIMFLAGS) $(LLVMLIBS) c nlvm
 
 nlvm/nimcache/nlvm.self.ll: nlvm/nlvm.self
-	cd nlvm && time ./nlvm.self -d:release -c -o:nimcache/nlvm.self.ll c nlvm
+	cd nlvm && time ./nlvm.self -c $(NIMFLAGS) -o:nimcache/nlvm.self.ll c nlvm
 
 .PHONY: compare
 compare: nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
@@ -33,7 +37,7 @@ Nim/tests/testament/tester: $(NIMC) Nim/tests/testament/*.nim
 	cd Nim && bin/nim c tests/testament/tester
 
 .PHONY: test
-test: Nim/tests/testament/tester $(NIMC)
+test: Nim/tests/testament/tester $(NLVMC)
 	cp compiler/nim Nim/compiler
 	cd Nim && time tests/testament/tester --targets:c all
 	cd Nim && tests/testament/tester html

@@ -15,6 +15,7 @@
 @EEXIST = linkonce_odr constant i32 17
 @EINTR = linkonce_odr constant i32 4
 @ENOENT = linkonce_odr constant i32 2
+@ERANGE = linkonce_odr constant i32 34
 
 ; fcntl.h
 @O_RDONLY = linkonce_odr constant i32 0
