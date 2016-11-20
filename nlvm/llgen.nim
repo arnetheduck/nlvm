@@ -105,13 +105,19 @@ type LLGenObj = object of TPassContext
   b: llvm.BuilderRef
   f: LLFunc
 
+  values: Table[int, llvm.ValueRef]
+  markers: Table[int, llvm.ValueRef]
+  nodeInfos: Table[int, llvm.ValueRef]
+  typeInfos: Table[int, llvm.ValueRef]
+  types: Table[int, llvm.TypeRef]
+
   depth: int
 
   init: llvm.ValueRef
 
   syms: seq[PSym]
 
-  markers: seq[tuple[v: llvm.ValueRef, typ: PType]]  # Markers looking for a body
+  markerBody: seq[tuple[v: llvm.ValueRef, typ: PType]]  # Markers looking for a body
 
 type LLGen = ref LLGenObj
 
@@ -247,24 +253,18 @@ proc llName(s: PSym): string =
     result = s.name.s
   elif s.kind in {skType, skModule, skResult}:
     result = s.name.s
+  elif sfGlobal in s.flags:
+    result = s.originatingModule.name.s & '.' & s.name.s.toLower
   else:
     result = s.name.s.toLower
-    result &= "_"
-    result &= $s.id
 
 proc llName(typ: PType): string =
   if typ.sym != nil:
     let s = typ.sym
     if sfImportc in s.flags or sfExportc in s.flags:
       result = $s.loc.r
-    elif sfCompilerProc in s.flags:
-      result = s.name.s
-    elif s.magic != mNone:
-      result = s.name.s
     else:
-      result = s.name.s
-      result &= "_"
-      result &= $typ.id
+      result = s.originatingModule.name.s & '.' & s.name.s
   else:
     case typ.kind
     of tyEmpty: result = "empty_" & $typ.id
@@ -287,12 +287,12 @@ proc `$`(t: PType): string
 
 proc `$`(n: PSym): string =
   if n == nil: return "PSym(nil)"
-  result = n.llName & " " & $n.kind & " " & $n.magic & " " & $n.flags & " " &
+  result = n.llName & " " & $n.id & " " & $n.kind & " " & $n.magic & " " & $n.flags & " " &
     $n.loc.flags & " " & $n.info.line & " " & $n.typ
 
 proc `$`(t: PType): string =
   if t == nil: return "PType(nil)"
-  result = $t.kind & " " & $t.flags & " "
+  result = $t.kind & " " & $t.flags & " "& $t.id & " "
   if t.sons != nil:
     result &= $t.sonsLen
   else:
@@ -537,9 +537,14 @@ proc llType(g: LLGen, typ: PType): llvm.TypeRef =
     result = llvm.pointerType(g.llType(et))
   of tySequence:  # TODO generate from nim types
     let name = typ.llName
-    var st = g.m.getTypeByName(name)
-    if st == nil:
-      st = structCreateNamed(llctxt, name)  # TODO ends up in module?
+    var st: llvm.TypeRef
+
+    if typ.id in g.types:
+      st = g.types[typ.id]
+    else:
+      st = structCreateNamed(llctxt, name)
+      g.types[typ.id] = st
+
       if typ.elemType.kind == tyEmpty:
         st.structSetBody([llGenericSeqType])
       else:
@@ -637,6 +642,9 @@ proc headerType(g: LLGen, name: string): llvm.TypeRef =
       llvm.int64Type(),  # __syscall_slong_t __glibc_reserved[3];
       llvm.int64Type(),  # __syscall_slong_t __glibc_reserved[3];
       ])
+  of "TGenericSeq": result = llGenericSeqType
+  of "NimStringDesc": result = llNimStringDesc
+  of "jmp_buf": result = llJmpbuf
   else: result = nil
 
 proc headerTypeIndex(typ: PType, sym: PSym): seq[int] =
@@ -672,21 +680,23 @@ proc llStructType(g: LLGen, typ: PType): llvm.TypeRef =
 
   var typ = typ.skipTypes(abstractPtrs)
   if typ.kind == tyString:
-    typ = magicsys.getCompilerProc("NimStringDesc").typ
+    return llNimStringDescPtr
+
+  if typ.id in g.types:
+    return g.types[typ.id]
 
   let name = typ.llName
-  result = g.m.getTypeByName(name)
-  if result != nil:
-    return
 
   result = g.headerType(name)
   if result != nil:
+    g.types[typ.id] = result
     return
 
-  p("llStructType " & (if typ.sym != nil: $typ.sym else: "nil"), typ, g.depth)
+  p("llStructType " & $typ, typ, g.depth)
 
   # Create struct before setting body in case it's recursive
   result = structCreateNamed(llctxt, name)
+  g.types[typ.id] = result
 
   var elements = newSeq[TypeRef]()
 
@@ -707,13 +717,14 @@ proc llTupleType(g: LLGen, typ: PType): llvm.TypeRef =
   if typ == nil:
     return
 
+  if typ.id in g.types:
+    return g.types[typ.id]
+
   let name = typ.llName
-  result = g.m.getTypeByName(name)
-  if result != nil:
-    return
 
   # Create struct before setting body in case it's recursive
   result = structCreateNamed(llctxt, name)
+  g.types[typ.id] = result
 
   var elements = newSeq[TypeRef]()
   for t in typ.sons:
@@ -952,33 +963,32 @@ proc genMarkerProc(g: LLGen, typ: PType): llvm.ValueRef =
   if gSelectedGC < gcMarkAndSweep:
     return
 
-  let name = ".marker." & typ.llName
+  if typ.id in g.markers:
+    return g.markers[typ.id]
 
-  result = g.m.getNamedFunction(name)
-  if result != nil:
-    return
+  let name = ".marker." & typ.llName
 
   let ft = llvm.functionType(llvm.voidType(), @[llVoidPtrType, llIntType], false)
 
   result = g.m.addFunction(name, ft)
+  g.markers[typ.id] = result
 
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
 
   # Can't generate body yet - some magics might not yet exist
-  g.markers.add((result, typ))
+  g.markerBody.add((result, typ))
 
 proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
+  if sym.id in g.markers:
+    return g.markers[sym.id]
+
   let name = ".marker.g." & sym.llName
-
-  result = g.m.getNamedFunction(name)
-  if result != nil:
-    return
-
   let typ = sym.typ.skipTypes(abstractInst)
 
   let ft = llvm.functionType(llvm.voidType(), @[], false)
   result = g.m.addFunction(name, ft)
+  g.markers[sym.id] = result
 
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
@@ -1153,14 +1163,15 @@ proc genObjectNodeInfoInit(g: LLGen, t: PType, n: PNode, suffix: string): llvm.V
   else: internalError(n.info, "genObjectNodeInfoInit")
 
 proc genObjectNodeInfo(g: LLGen, t: PType, n: PNode, suffix: string): llvm.ValueRef =
-  let name = ".nodeinfo." & t.llName & suffix
-  result = g.m.getNamedGlobal(name)
-  if result != nil:
-    return
+  if t.id in g.nodeInfos and len(suffix) == 0:
+    return g.nodeInfos[t.id]
 
+  let name = ".nodeinfo." & t.llName & suffix
   let tnn = g.llMagicType("TNimNode")
 
   result = g.m.addPrivateConstant(tnn, name)
+  if len(suffix) == 0:
+    g.nodeInfos[t.id] = result
   result.setInitializer(g.genObjectNodeInfoInit(t, n, suffix))
 
 proc genTupleNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
@@ -1184,14 +1195,14 @@ proc genTupleNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
   result = g.constNimNodeList(fields)
 
 proc genTupleNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  let name = ".nodeinfo." & t.llName
-  result = g.m.getNamedGlobal(name)
-  if result != nil:
-    return
+  if t.id in g.nodeInfos:
+    return g.nodeInfos[t.id]
 
+  let name = ".nodeinfo." & t.llName
   let tnn = g.llMagicType("TNimNode")
 
   result = g.m.addPrivateConstant(tnn, name)
+  g.nodeInfos[t.id] = result
   result.setInitializer(g.genTupleNodeInfoInit(t))
 
 proc genEnumNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
@@ -1221,28 +1232,28 @@ proc genEnumNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
   # TODO c gen sets ntfEnumHole as well on TNimType after generating TNimNode.. odd.
 
 proc genEnumNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  let name = ".nodeinfo." & t.llName
-  result = g.m.getNamedGlobal(name)
-  if result != nil:
-    return
+  if t.id in g.nodeInfos:
+    return g.nodeInfos[t.id]
 
+  let name = ".nodeinfo." & t.llName
   let tnn = g.llMagicType("TNimNode")
 
   result = g.m.addPrivateConstant(tnn, name)
+  g.nodeInfos[t.id] = result
   result.setInitializer(g.genEnumNodeInfoInit(t))
 
 proc genSetNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
   result = g.constNimNodeNone(firstOrd(t).int)
 
 proc genSetNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  let name = ".nodeinfo." & t.llName
-  result = g.m.getNamedGlobal(name)
-  if result != nil:
-    return
+  if t.id in g.nodeInfos:
+    return g.nodeInfos[t.id]
 
+  let name = ".nodeinfo." & t.llName
   let tnn = g.llMagicType("TNimNode")
 
   result = g.m.addPrivateConstant(tnn, name)
+  g.nodeInfos[t.id] = result
   result.setInitializer(g.genSetNodeInfoInit(t))
 
 proc fakeClosureType(owner: PSym): PType =
@@ -1281,10 +1292,10 @@ proc genTypeInfoBase(g: LLGen, t: PType): llvm.ValueRef =
 proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
   var t = t.skipTypes({tyDistinct, tyGenericBody, tyGenericParam, tyGenericInst})
 
+  if t.id in g.typeInfos:
+    return g.typeInfos[t.id]
+
   let name = ".typeinfo." & t.llName
-  result = g.m.getNamedGlobal(name)
-  if result != nil:
-    return
 
   p("genTypeInfo", t, g.depth + 1)
 
@@ -1294,6 +1305,7 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
     els = ntlt.getStructElementTypes()
 
   result = g.m.addPrivateConstant(ntlt, name)
+  g.typeInfos[t.id] = result
 
   var finalizerVar, markerVar, deepcopyVar: llvm.ValueRef
   let baseVar = g.genTypeInfoBase(t)
@@ -1483,28 +1495,30 @@ proc externGlobal(g: LLGen, s: PSym): llvm.ValueRef =
   case name
   of "errno": result = g.callErrno()
   else:
-    result = g.m.getNamedGlobal(name)
-    if result != nil: return
+    if s.id in g.values:
+      return g.values[s.id]
     result = g.m.addGlobal(t, name)
+    g.values[s.id] = result
 
 proc genGlobal(g: LLGen, s: PSym): llvm.ValueRef =
-  let name = s.llName
-  result = g.m.getNamedGlobal(name)
-  if result == nil:
-    let t = g.llType(s.typ.skipTypes(abstractInst))
-    result = g.m.addGlobal(t, s.llName)
+  if s.id in g.values:
+    return g.values[s.id]
 
-    if sfImportc in s.flags:
-      result.setLinkage(llvm.ExternalLinkage)
-    elif sfExportc in s.flags:
-      result.setLinkage(llvm.CommonLinkage)
-      result.setInitializer(llvm.constNull(t))
-    else:
-      result.setLinkage(llvm.PrivateLinkage)
-      result.setInitializer(llvm.constNull(t))
+  let t = g.llType(s.typ.skipTypes(abstractInst))
+  result = g.m.addGlobal(t, s.llName)
+  g.values[s.id] = result
 
-    if sfThread in s.flags and optThreads in gGlobalOptions:
-      result.setThreadLocal(llvm.True)
+  if sfImportc in s.flags:
+    result.setLinkage(llvm.ExternalLinkage)
+  elif sfExportc in s.flags:
+    result.setLinkage(llvm.CommonLinkage)
+    result.setInitializer(llvm.constNull(t))
+  else:
+    result.setLinkage(llvm.PrivateLinkage)
+    result.setInitializer(llvm.constNull(t))
+
+  if sfThread in s.flags and optThreads in gGlobalOptions:
+    result.setThreadLocal(llvm.True)
 
 proc callCompilerProc(g: LLGen, name: string, args: openarray[llvm.ValueRef]): llvm.ValueRef =
   let sym = magicsys.getCompilerProc(name)
@@ -1723,16 +1737,24 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
     return true
 
 proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
-  let name = s.llName
-  result = g.m.getNamedFunction(name)
+  if s.id in g.values:
+    return g.values[s.id]
 
-  if result != nil:
-    return
+  let name = s.llName
+
+  var s = s
+  # Some compiler proc's have two syms essentially, because of an importc trick
+  # in system.nim...
+  if sfImportc in s.flags and s.magic notin {mNone, mExit}:
+    var s = magicsys.getCompilerProc(name)
+    if s.id in g.values:
+      return g.values[s.id]
 
   let typ = s.typ.skipTypes(abstractInst)
 
   let ft = g.llProcType(typ, typ.callConv == ccClosure)
   let f = g.m.addFunction(name, ft)
+  g.values[s.id] = f
 
   if sfNoReturn in s.flags:
     f.addFunctionAttr(llvm.NoReturnAttribute)
@@ -5017,8 +5039,13 @@ proc newLLGen(s: PSym): LLGen =
 
   result.m = llvm.moduleCreateWithName(name)
   result.b = llvm.createBuilder()
+  result.values = initTable[int, llvm.ValueRef]()
+  result.markers = initTable[int, llvm.ValueRef]()
+  result.nodeInfos = initTable[int, llvm.ValueRef]()
+  result.typeInfos = initTable[int, llvm.ValueRef]()
+  result.types = initTable[int, llvm.TypeRef]()
   result.syms = @[]
-  result.markers = @[]
+  result.markerBody = @[]
 
 proc genMain(g: LLGen) =
   let f = g.m.addFunction("main", llMainType)
@@ -5168,9 +5195,9 @@ proc myClose(b: PPassContext, n: PNode): PNode =
   if sfCompileToCpp in s.getModule().flags:
     internalError("Compile-to-c++ not supported (did you use importcpp?)")
 
-  for m in g.markers:
+  for m in g.markerBody:
     g.genMarkerProcBody(m[0], m[1])
-  g.markers.setLen(0)
+  g.markerBody.setLen(0)
 
   if sfMainModule notin s.flags: return n
 

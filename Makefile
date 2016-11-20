@@ -34,7 +34,7 @@ compare: nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
 	diff -u nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
 
 Nim/tests/testament/tester: $(NIMC) Nim/tests/testament/*.nim
-	cd Nim && bin/nim c tests/testament/tester
+	cd Nim && bin/nim -d:release c tests/testament/tester
 
 .PHONY: test
 test: Nim/tests/testament/tester $(NLVMC)
