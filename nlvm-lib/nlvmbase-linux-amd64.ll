@@ -125,6 +125,14 @@ define linkonce_odr i1 @WIFEXITED(i32 %m) {
   ret i1 %2
 }
 
+define linkonce_odr i1 @WIFSIGNALED(i32 %m) {
+  %1 = shl i32 %m, 24
+  %2 = and i32 %1, 2130706432
+  %3 = add nuw i32 %2, 16777216
+  %4 = ashr i32 %3, 25
+  %5 = icmp sgt i32 %4, 0
+  ret i1 %5
+}
 ; nimbase.h
 
 declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i32, i1)

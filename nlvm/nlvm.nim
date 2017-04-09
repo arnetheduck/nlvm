@@ -58,7 +58,7 @@ proc mainCommand() =
     for s in definedSymbolNames(): msgWriteln(s)
     msgWriteln("-- end of list --")
 
-    for it in iterSearchPath(searchPaths): msgWriteln(it)
+    for it in searchPaths: msgWriteln(it)
 
   of "scan":
     gCmd = cmdScan
