@@ -159,6 +159,10 @@ proc buildGEP*(b: BuilderRef; pointer: ValueRef; indices: openarray[ValueRef];
                name: cstring = ""): ValueRef =
   asRaw(indices, buildGEP(b, pointer, p, n, name))
 
+proc buildInBoundsGEP*(b: BuilderRef; pointer: ValueRef; indices: openarray[ValueRef];
+               name: cstring = ""): ValueRef =
+  asRaw(indices, buildInBoundsGEP(b, pointer, p, n, name))
+
 proc buildCall*(a2: BuilderRef; fn: ValueRef; args: openarray[ValueRef];
                 name: cstring = ""): ValueRef =
   asRaw(args, buildCall(a2, fn, p, n, name))

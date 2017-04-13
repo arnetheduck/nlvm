@@ -13,7 +13,6 @@ import
   compiler/condsyms,
   compiler/idents,
   compiler/lexer,
-  compiler/lists,
   compiler/llstream,
   compiler/modulegraphs,
   compiler/modules,
@@ -48,7 +47,7 @@ proc commandScan(cache: IdentCache) =
     rawMessage(errCannotOpenFile, f)
 
 proc mainCommand() =
-  lists.appendStr(searchPaths, options.libpath)
+  searchPaths.add(options.libpath)
 
   case options.command.normalize
   # Take over the default compile command

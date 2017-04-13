@@ -12,7 +12,12 @@ LLVMLIBS="-l:-lLLVM-3.9" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=$(LLVMPAT
 all: $(NLVMC)
 
 Nim/koch:
-	cd Nim && sh ./bootstrap.sh
+	cd Nim ;\
+	[[ -d csources ]] || git clone --depth 1 https://github.com/nim-lang/csources.git ;\
+	cd csources ;\
+	git pull ;\
+	sh build.sh
+	cd Nim ; bin/nim c koch
 
 $(NIMC): Nim/koch Nim/compiler/*.nim
 	cd Nim && ./koch boot -d:release

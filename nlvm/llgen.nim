@@ -107,7 +107,8 @@ type LLGenObj = object of TPassContext
   f: LLFunc
 
   values: Table[int, llvm.ValueRef]
-  markers: Table[int, llvm.ValueRef]
+  gmarkers: Table[int, llvm.ValueRef]
+  markers: Table[SigHash, llvm.ValueRef]
   nodeInfos: Table[SigHash, llvm.ValueRef]
   typeInfos: Table[SigHash, llvm.ValueRef]
   types: Table[SigHash, llvm.TypeRef]
@@ -289,7 +290,7 @@ proc llName(s: PSym): string =
 
 const
   irrelevantForBackend = {tyGenericBody, tyGenericInst, tyGenericInvocation,
-                          tyDistinct, tyRange, tyStatic, tyAlias}
+                          tyDistinct, tyRange, tyStatic, tyAlias, tyInferred}
 
 proc llName(typ: PType, sig: SigHash): string =
   # getTypeName from ccgtypes.nim
@@ -528,7 +529,11 @@ proc buildLoadValue(b: BuilderRef, v: llvm.ValueRef): llvm.ValueRef =
     result = b.buildLoad(v, nn("load", v))
 
 proc buildNot(b: BuilderRef, v: llvm.ValueRef): llvm.ValueRef =
-  b.buildXor(v, llvm.constInt(v.typeOf(), (-1).culonglong, llvm.False), nn("not", v))
+  result = b.buildICmp(llvm.IntEQ, v, llvm.constInt(v.typeOf(), 0, llvm.False), nn("not", v))
+  result = b.buildZExt(result, v.typeOf(), nn("zext", result))
+
+proc buildBitnot(b: BuilderRef, v: llvm.ValueRef): llvm.ValueRef =
+  b.buildXor(v, llvm.constInt(v.typeOf(), (-1).culonglong, llvm.False), nn("bitnot", v))
 
 proc buildStoreNull(g: LLGen, v: llvm.ValueRef) =
   let t = v.typeOf()
@@ -549,7 +554,7 @@ proc llType(g: LLGen, typ: PType): llvm.TypeRef =
   of tyChar: result = llCharType
   of tyNil: result = llVoidPtrType
   of tyGenericInst: result = g.llType(typ.lastSon)
-  of tyDistinct: result = g.llType(typ.lastSon)
+  of tyDistinct, tyAlias, tyInferred: result = g.llType(typ.lastSon)
   of tyEnum: result = llvm.intType(getSize(typ).cuint * 8)
   of tyArray:
     let et = g.llType(typ.elemType)
@@ -998,16 +1003,16 @@ proc genMarkerProc(g: LLGen, typ: PType): llvm.ValueRef =
   if gSelectedGC < gcMarkAndSweep:
     return
 
-  if typ.id in g.markers:
-    return g.markers[typ.id]
-
   let sig = hashType(typ)
+  if sig in g.markers:
+    return g.markers[sig]
+
   let name = ".marker." & typ.llName(sig)
 
   let ft = llvm.functionType(llvm.voidType(), @[llVoidPtrType, llIntType], false)
 
   result = g.m.addFunction(name, ft)
-  g.markers[typ.id] = result
+  g.markers[sig] = result
 
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
@@ -1016,15 +1021,15 @@ proc genMarkerProc(g: LLGen, typ: PType): llvm.ValueRef =
   g.markerBody.add((result, typ))
 
 proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
-  if sym.id in g.markers:
-    return g.markers[sym.id]
+  if sym.id in g.gmarkers:
+    return g.gmarkers[sym.id]
 
   let name = ".marker.g." & sym.llName
   let typ = sym.typ.skipTypes(abstractInst)
 
   let ft = llvm.functionType(llvm.voidType(), @[], false)
   result = g.m.addFunction(name, ft)
-  g.markers[sym.id] = result
+  g.gmarkers[sym.id] = result
 
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
@@ -1335,8 +1340,8 @@ proc genTypeInfoBase(g: LLGen, t: PType): llvm.ValueRef =
     result = g.llMagicType("TNimType").pointerType().constNull()
 
 proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  var t = t.skipTypes({tyDistinct, tyGenericBody, tyGenericParam, tyGenericInst})
-
+  var t = t.skipTypes(
+    {tyDistinct, tyAlias, tyInferred, tyGenericBody, tyGenericParam, tyGenericInst})
 
   let sig = hashType(t)
   if sig in g.typeInfos:
@@ -1393,7 +1398,7 @@ proc llProcParamType(g: LLGen, t: PType): llvm.TypeRef =
   of tyProc:
     result = if typ.callConv == ccClosure: llvm.pointerType(g.llType(t))
              else: g.llType(t)
-  of tyDistinct: result = g.llProcParamType(t.lastSon)
+  of tyDistinct, tyAlias, tyInferred: result = g.llProcParamType(t.lastSon)
   else: result = g.llType(t)
 
 proc llPassAsPtr(g: LLGen, t: PType): bool =
@@ -2787,6 +2792,11 @@ proc genNotExpr(g: LLGen, n: PNode): llvm.ValueRef =
 
   result = g.b.buildNot(ax)
 
+proc genBitnotExpr(g: LLGen, n: PNode): llvm.ValueRef =
+  let ax = g.genExpr(n[1], true)
+
+  result = g.b.buildBitnot(ax)
+
 proc genUnaryMinusF64Expr(g: LLGen, n: PNode): llvm.ValueRef =
   let ax = g.genExpr(n[1], true)
 
@@ -2895,7 +2905,7 @@ proc genSetCmpExpr(g: LLGen, strict: bool, n: PNode): llvm.ValueRef =
     size = getSize(typ)
 
   if size <= 8:
-    let b = g.b.buildNot(bx)
+    let b = g.b.buildBitnot(bx)
     let ab = g.b.buildAnd(ax, b, nn("setcmp.ab"))
     let le = g.b.buildICmp(
       llvm.IntEQ, ab, llvm.constInt(ab.typeOf(), 0, llvm.False), nn("setcmp.le", n))
@@ -2937,7 +2947,7 @@ proc genSetCmpExpr(g: LLGen, strict: bool, n: PNode): llvm.ValueRef =
 
     let al = g.b.buildLoad(g.b.buildGEP(ax, [il]), nn("setcmp.al", n))
     let bl = g.b.buildLoad(g.b.buildGEP(bx, [il]), nn("setcmp.bl", n))
-    let b = g.b.buildNot(bl)
+    let b = g.b.buildBitnot(bl)
 
     var cont: llvm.ValueRef
     let ab = g.b.buildAnd(al, b, nn("setcmp.ab", n))
@@ -3038,7 +3048,7 @@ proc genSetBinOpExpr(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): llvm.Va
     let
       a = ax
       b = bx
-    let s = if invert: g.b.buildNot(b)
+    let s = if invert: g.b.buildBitnot(b)
             else: b
     result = g.b.buildBinOp(op, a, s, nn("setbo.res"))
   else:
@@ -3070,7 +3080,7 @@ proc genSetBinOpExpr(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): llvm.Va
     let a = g.b.buildLoad(g.b.buildGEP(ax, [il]), nn("setbo.al", n))
     let b = g.b.buildLoad(g.b.buildGEP(bx, [il]), nn("setbo.bl", n))
 
-    let s = if invert: g.b.buildNot(b) else: b
+    let s = if invert: g.b.buildBitnot(b) else: b
     let o = g.b.buildBinOp(op, a, s, nn("setbo.op", n))
 
     let p = g.b.buildGEP(tmp, [gep0, il])
@@ -3367,7 +3377,7 @@ proc genMagicExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of mUnaryMinusI, mUnaryMinusI64: result = g.genUnaryMinusExpr(n)
   of mAbsI: result = g.genAbsIExpr(n)
   of mNot: result = g.genNotExpr(n)
-  of mBitnotI: result = g.genNotExpr(n)
+  of mBitnotI: result = g.genBitnotExpr(n)
   of mUnaryMinusF64: result = g.genUnaryMinusF64Expr(n)
   of mAbsF64: result = g.genAbsF64Expr(n)
   of mZe8ToI..mZeIToI64: result = g.genZeExpr(n)
@@ -3530,7 +3540,7 @@ proc genObjConstrExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   for i in 1 .. <n.len:
     let s = n[i]
     let ind = fieldIndex(typ, s[0].sym)
-    let gep = g.b.buildGEP(result, (@[0] & ind).map(constGEPIdx))
+    let gep = g.b.buildInBoundsGEP(result, (@[0] & ind).map(constGEPIdx))
     g.genAssignment(s[1], gep, s[1].typ) # TODO should be dest typ
 
   if load and not isRef:
@@ -3719,7 +3729,7 @@ proc genDotExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
   let typ = skipTypes(n[0].typ, abstractInst)
   let i = fieldIndex(typ, n[1].sym)
-  result = g.b.buildGEP(v, (@[0] & i).map(constGEPIdx), nn("dot.gep", n))
+  result = g.b.buildInBoundsGEP(v, (@[0] & i).map(constGEPIdx), nn("dot.gep", n))
 
   if load:
     result = g.b.buildLoadValue(result)
@@ -4157,7 +4167,7 @@ proc genExclStmt(g: LLGen, n: PNode) =
 
   if size <= 8:
     let b = g.b.buildSetMask(ax.typeOf().getElementType(), g.setElemIndex(typ, bx), size)
-    let res = g.b.buildAnd(g.b.buildLoad(ax, ""), g.b.buildNot(b), "")
+    let res = g.b.buildAnd(g.b.buildLoad(ax, ""), g.b.buildBitnot(b), "")
     discard g.b.buildStore(res, ax)
   else:
     let
@@ -4166,7 +4176,7 @@ proc genExclStmt(g: LLGen, n: PNode) =
 
     let (gep, mask) = g.b.buildSetGEPMask(ax, g.setElemIndex(typ, bx))
     let a = g.b.buildLoad(gep, "")
-    let res = g.b.buildAnd(a, g.b.buildNot(mask), "")
+    let res = g.b.buildAnd(a, g.b.buildBitnot(mask), "")
     discard g.b.buildStore(res, gep)
 
 proc genGCref(g: LLGen, n: PNode) =
@@ -4422,7 +4432,8 @@ proc genIdentDefsStmt(g: LLGen, n: PNode) =
 proc genVarTupleStmt(g: LLGen, n: PNode) =
   for s in n.sons[0..n.sonsLen - 3]:
     if s.kind != nkSym:
-      internalError("Expected nkSym: " & $s)
+      g.genStmt(lowerTupleUnpacking(n, g.syms[^1]))
+      return
 
   let t = g.genExpr(n.lastSon, false)
 
@@ -4459,11 +4470,20 @@ proc genFastAsgnStmt(g: LLGen, n: PNode) =
   g.genAssignment(n[1], ax, n[0].typ, false)
 
 proc genProcStmt(g: LLGen, n: PNode) =
-  if n[genericParamsPos].kind != nkEmpty:
-    return
+  if n.sons[genericParamsPos].kind != nkEmpty: return
 
-  let s = n[namePos].sym
-  discard g.genFunctionWithBody(s)
+  var s = n.sons[namePos].sym
+
+  if s.skipGenericOwner.kind != skModule or sfCompileTime in s.flags: return
+
+  if s.getBody.kind == nkEmpty and lfDynamicLib notin s.loc.flags: return
+
+  if (optDeadCodeElim notin gGlobalOptions and
+      sfDeadCodeElim notin getModule(s).flags) or
+      ({sfExportc, sfCompilerProc} * s.flags == {sfExportc}) or
+      (sfExportc in s.flags and lfExportLib in s.loc.flags) or
+      (s.kind == skMethod):
+    discard g.genFunctionWithBody(s)
 
 proc genIfStmt(g: LLGen, n: PNode) =
   let pre = g.b.getInsertBlock()
@@ -5039,11 +5059,7 @@ proc genStmt(g: LLGen, n: PNode) =
   of nkVarTuple: g.genVarTupleStmt(n)
   of nkAsgn: g.genAsgnStmt(n)
   of nkFastAsgn: g.genFastAsgnStmt(n)
-  of nkProcDef, nkMethodDef, nkConverterDef:
-    var s = n[namePos].sym
-    if {sfExportc, sfCompilerProc} * s.flags == {sfExportc} or
-        s.kind == skMethod:
-      g.genProcStmt(n)
+  of nkProcDef, nkMethodDef, nkConverterDef: g.genProcStmt(n)
   of nkPragmaBlock: g.genStmt(n.lastSon)
   of nkIfStmt: g.genIfStmt(n)
   of nkWhenStmt: g.genWhenStmt(n)
@@ -5094,7 +5110,8 @@ proc newLLGen(s: PSym): LLGen =
   result.m = llvm.moduleCreateWithName(name)
   result.b = llvm.createBuilder()
   result.values = initTable[int, llvm.ValueRef]()
-  result.markers = initTable[int, llvm.ValueRef]()
+  result.gmarkers = initTable[int, llvm.ValueRef]()
+  result.markers = initTable[SigHash, llvm.ValueRef]()
   result.nodeInfos = initTable[SigHash, llvm.ValueRef]()
   result.typeInfos = initTable[SigHash, llvm.ValueRef]()
   result.types = initTable[SigHash, llvm.TypeRef]()
@@ -5245,7 +5262,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
 
   g.genStmt(n)
 
-  let s = g.syms.pop()
+  let s = g.syms[^1]
 
   if sfCompileToCpp in s.getModule().flags:
     internalError("Compile-to-c++ not supported (did you use importcpp?)")
@@ -5254,7 +5271,12 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     g.genMarkerProcBody(m[0], m[1])
   g.markerBody.setLen(0)
 
-  if sfMainModule notin s.flags: return n
+  if sfMainModule notin s.flags:
+    for m in g.markerBody:
+      g.genMarkerProcBody(m[0], m[1])
+    g.markerBody.setLen(0)
+    discard g.syms.pop()
+    return n
 
   # return from nlvmInit
 
@@ -5275,10 +5297,15 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   for i in 0..<disp.sonsLen:
     discard g.genFunctionWithBody(disp[i].sym)
 
+  for m in g.markerBody:
+    g.genMarkerProcBody(m[0], m[1])
+  g.markerBody.setLen(0)
+
   g.loadBase()
   g.writeOutput(changeFileExt(gProjectFull, ""))
 
   result = n
+  discard g.syms.pop()
 
   g.m.disposeModule()
   uglyGen = nil
