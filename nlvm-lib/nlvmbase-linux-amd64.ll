@@ -10,10 +10,118 @@
 @_IOFBF = linkonce_odr constant i32 0
 @_IOLBF = linkonce_odr constant i32 1
 @_IONBF = linkonce_odr constant i32 2
+@L_ctermid = linkonce_odr constant i32 9
+
+; sys/ioctl.h
+@TIOCGWINSZ = linkonce_odr constant i32 21523
 
 ; time.h
 @CLOCK_REALTIME = linkonce_odr constant i32 0
 @CLOCKS_PER_SEC = linkonce_odr constant i64 1000000
+
+; termios.h
+@VINTR = linkonce_odr constant i32 0
+@VQUIT = linkonce_odr constant i32 1
+@VERASE = linkonce_odr constant i32 2
+@VKILL = linkonce_odr constant i32 3
+@VEOF = linkonce_odr constant i32 4
+@VTIME = linkonce_odr constant i32 5
+@VMIN = linkonce_odr constant i32 6
+@VSTART = linkonce_odr constant i32 8
+@VSTOP = linkonce_odr constant i32 9
+@VSUSP = linkonce_odr constant i32 10
+@VEOL = linkonce_odr constant i32 11
+@IGNBRK = linkonce_odr constant i32 1
+@BRKINT = linkonce_odr constant i32 2
+@IGNPAR = linkonce_odr constant i32 4
+@PARMRK = linkonce_odr constant i32 8
+@INPCK = linkonce_odr constant i32 16
+@ISTRIP = linkonce_odr constant i32 32
+@INLCR = linkonce_odr constant i32 64
+@IGNCR = linkonce_odr constant i32 128
+@ICRNL = linkonce_odr constant i32 256
+@IUCLC = linkonce_odr constant i32 512
+@IXON = linkonce_odr constant i32 1024
+@IXANY = linkonce_odr constant i32 2048
+@IXOFF = linkonce_odr constant i32 4096
+@OPOST = linkonce_odr constant i32 1
+@ONLCR = linkonce_odr constant i32 4
+@OCRNL = linkonce_odr constant i32 8
+@ONOCR = linkonce_odr constant i32 16
+@ONLRET = linkonce_odr constant i32 32
+@OFILL = linkonce_odr constant i32 64
+@OFDEL = linkonce_odr constant i32 128
+@NLDLY = linkonce_odr constant i32 256
+@NL0 = linkonce_odr constant i32 0
+@NL1 = linkonce_odr constant i32 256
+@CRDLY = linkonce_odr constant i32 1536
+@CR0 = linkonce_odr constant i32 0
+@CR1 = linkonce_odr constant i32 512
+@CR2 = linkonce_odr constant i32 1024
+@CR3 = linkonce_odr constant i32 1536
+@TABDLY = linkonce_odr constant i32 6144
+@TAB0 = linkonce_odr constant i32 0
+@TAB1 = linkonce_odr constant i32 2048
+@TAB2 = linkonce_odr constant i32 4096
+@TAB3 = linkonce_odr constant i32 6144
+@BSDLY = linkonce_odr constant i32 8192
+@BS0 = linkonce_odr constant i32 0
+@BS1 = linkonce_odr constant i32 8192
+@FFDLY = linkonce_odr constant i32 32768
+@FF0 = linkonce_odr constant i32 0
+@FF1 = linkonce_odr constant i32 32768
+@VTDLY = linkonce_odr constant i32 16384
+@VT0 = linkonce_odr constant i32 0
+@VT1 = linkonce_odr constant i32 16384
+@B0 = linkonce_odr constant i32 0
+@B50 = linkonce_odr constant i32 1
+@B75 = linkonce_odr constant i32 2
+@B110 = linkonce_odr constant i32 3
+@B134 = linkonce_odr constant i32 4
+@B150 = linkonce_odr constant i32 5
+@B200 = linkonce_odr constant i32 6
+@B300 = linkonce_odr constant i32 7
+@B600 = linkonce_odr constant i32 8
+@B1200 = linkonce_odr constant i32 9
+@B1800 = linkonce_odr constant i32 10
+@B2400 = linkonce_odr constant i32 11
+@B4800 = linkonce_odr constant i32 12
+@B9600 = linkonce_odr constant i32 13
+@B19200 = linkonce_odr constant i32 14
+@B38400 = linkonce_odr constant i32 15
+@EXTA = linkonce_odr constant i32 14
+@EXTB = linkonce_odr constant i32 15
+@CSIZE = linkonce_odr constant i32 48
+@CS5 = linkonce_odr constant i32 0
+@CS6 = linkonce_odr constant i32 16
+@CS7 = linkonce_odr constant i32 32
+@CS8 = linkonce_odr constant i32 48
+@CSTOPB = linkonce_odr constant i32 64
+@CREAD = linkonce_odr constant i32 128
+@PARENB = linkonce_odr constant i32 256
+@PARODD = linkonce_odr constant i32 512
+@HUPCL = linkonce_odr constant i32 1024
+@CLOCAL = linkonce_odr constant i32 2048
+@ISIG = linkonce_odr constant i32 1
+@ICANON = linkonce_odr constant i32 2
+@ECHO = linkonce_odr constant i32 8
+@ECHOE = linkonce_odr constant i32 16
+@ECHOK = linkonce_odr constant i32 32
+@ECHONL = linkonce_odr constant i32 64
+@NOFLSH = linkonce_odr constant i32 128
+@TOSTOP = linkonce_odr constant i32 256
+@IEXTEN = linkonce_odr constant i32 32768
+@TCOOFF = linkonce_odr constant i32 0
+@TCOON = linkonce_odr constant i32 1
+@TCIOFF = linkonce_odr constant i32 2
+@TCION = linkonce_odr constant i32 3
+@TCIFLUSH = linkonce_odr constant i32 0
+@TCOFLUSH = linkonce_odr constant i32 1
+@TCIOFLUSH = linkonce_odr constant i32 2
+@TCSANOW = linkonce_odr constant i32 0
+@TCSADRAIN = linkonce_odr constant i32 1
+@TCSAFLUSH = linkonce_odr constant i32 2
+
 
 ; unistd.h
 define linkonce_odr i1 @S_ISDIR(i32 %m) {
@@ -86,7 +194,7 @@ define linkonce_odr i1 @unlikely(i1 %a) {
 
 declare i32 @llvm.bswap.i32(i32)
 
-define zeroext i1 @IN6_IS_ADDR_UNSPECIFIED(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i1 @IN6_IS_ADDR_UNSPECIFIED(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = icmp eq i32 %3, 0
@@ -119,7 +227,7 @@ define zeroext i1 @IN6_IS_ADDR_UNSPECIFIED(i8* nocapture readonly) local_unnamed
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define zeroext i1 @IN6_IS_ADDR_LOOPBACK(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i1 @IN6_IS_ADDR_LOOPBACK(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = icmp eq i32 %3, 0
@@ -153,7 +261,7 @@ define zeroext i1 @IN6_IS_ADDR_LOOPBACK(i8* nocapture readonly) local_unnamed_ad
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define zeroext i1 @IN6_IS_ADDR_LINKLOCAL(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i1 @IN6_IS_ADDR_LINKLOCAL(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = tail call i32 @llvm.bswap.i32(i32 -4194304)
@@ -164,7 +272,7 @@ define zeroext i1 @IN6_IS_ADDR_LINKLOCAL(i8* nocapture readonly) local_unnamed_a
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define zeroext i1 @IN6_IS_ADDR_SITELOCAL(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i1 @IN6_IS_ADDR_SITELOCAL(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = tail call i32 @llvm.bswap.i32(i32 -4194304)
@@ -175,7 +283,7 @@ define zeroext i1 @IN6_IS_ADDR_SITELOCAL(i8* nocapture readonly) local_unnamed_a
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define zeroext i1 @IN6_IS_ADDR_V4MAPPED(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i1 @IN6_IS_ADDR_V4MAPPED(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = icmp eq i32 %3, 0
@@ -202,7 +310,7 @@ define zeroext i1 @IN6_IS_ADDR_V4MAPPED(i8* nocapture readonly) local_unnamed_ad
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define zeroext i1 @IN6_IS_ADDR_V4COMPAT(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i1 @IN6_IS_ADDR_V4COMPAT(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = icmp eq i32 %3, 0
@@ -236,7 +344,7 @@ define zeroext i1 @IN6_IS_ADDR_V4COMPAT(i8* nocapture readonly) local_unnamed_ad
 }
 
 ; Function Attrs: norecurse nounwind optsize readonly uwtable
-define zeroext i1 @IN6_ARE_ADDR_EQUAL(i8* nocapture readonly, i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i1 @IN6_ARE_ADDR_EQUAL(i8* nocapture readonly, i8* nocapture readonly) local_unnamed_addr {
   %3 = bitcast i8* %0 to i32*
   %4 = load i32, i32* %3, align 4
   %5 = bitcast i8* %1 to i32*

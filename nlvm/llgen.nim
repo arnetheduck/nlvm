@@ -135,7 +135,7 @@ proc newLLFunc(ret: llvm.BasicBlockRef): LLFunc
 proc llType(g: LLGen, typ: PType): llvm.TypeRef
 proc fieldIndex(typ: PType, sym: PSym): seq[int]
 proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef)
-proc callErrno(g: LLGen): llvm.ValueRef
+proc callErrno(g: LLGen, prefix: string): llvm.ValueRef
 proc callCompilerProc(g: LLGen, name: string, args: openarray[llvm.ValueRef]): llvm.ValueRef
 
 proc genFunction(g: LLGen, s: PSym): llvm.ValueRef
@@ -286,7 +286,14 @@ proc mangleName(g: LLGen; s: PSym): Rope =
     s.loc.r = result
 
 proc llName(s: PSym): string =
-  return $s.loc.r
+  result = $s.loc.r
+
+  # NCSTRING is a char*, so functions that return const char* need this ugly
+  # cast in their importc to be rid of the const.. *sigh*
+  if result.startsWith("(char*)"):
+    result = result[7..^1]
+  elif result.startsWith("(char *)"):
+   result = result[8..^1]
 
 const
   irrelevantForBackend = {tyGenericBody, tyGenericInst, tyGenericInvocation,
@@ -318,7 +325,8 @@ proc `$`(t: PType): string
 
 proc `$`(n: PSym): string =
   if n == nil: return "PSym(nil)"
-  result = n.llName & " " & $n.id & " " & $n.kind & " " & $n.magic & " " & $n.flags & " " &
+  let name = if n.loc.r == nil: n.name.s else: $n.loc.r
+  result = name & " " & $n.id & " " & $n.kind & " " & $n.magic & " " & $n.flags & " " &
     $n.loc.flags & " " & $n.info.line & " " & $n.typ
 
 proc `$`(t: PType): string =
@@ -1377,7 +1385,7 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
     nodeVar, finalizerVar, markerVar, deepcopyVar))
 
 iterator procParams(typ: PType): PNode =
-  for a in typ.n.sons[1..<typ.n.sonsLen]:
+  for a in typ.n.sons[1..^1]:
     let param = a.sym
     if isCompileTimeOnly(param.typ): continue
     yield a
@@ -1545,12 +1553,22 @@ proc externGlobal(g: LLGen, s: PSym): llvm.ValueRef =
     t = g.llType(s.typ)
 
   case name
-  of "errno": result = g.callErrno()
+  of "errno": result = g.callErrno("")
+  of "h_errno": result = g.callErrno("h_")
   else:
     if s.id in g.values:
       return g.values[s.id]
     result = g.m.addGlobal(t, name)
     g.values[s.id] = result
+
+proc genLocal(g: LLGen, s: PSym): llvm.ValueRef =
+  if s.loc.k == locNone:
+    fillLoc(s.loc, locLocalVar, s.typ, s.name.s.mangle.rope, OnStack)
+    if s.kind == skLet: incl(s.loc.flags, lfNoDeepCopy)
+
+  let t = g.llType(s.typ)
+  result = g.b.localAlloca(t, s.llName)
+  g.f.scopePut(s.id, result)
 
 proc genGlobal(g: LLGen, s: PSym): llvm.ValueRef =
   if s.id in g.values:
@@ -1600,6 +1618,15 @@ proc callCompilerProc(g: LLGen, name: string, args: openarray[llvm.ValueRef]): l
     if f.typeOf().getElementType().getReturnType().getTypeKind() == llvm.VoidTypeKind: ""
     else: nn("call.cp." & name))
 
+proc callBSwap(g: LLGen, v: llvm.ValueRef, n: cuint): llvm.ValueRef =
+  let it = llvm.intType(n)
+  let fty = llvm.functionType(it, [it])
+
+  let
+    f = g.m.getOrInsertFunction("llvm.bswap." & $n, fty)
+
+  result = g.b.buildCall(f, [v])
+
 proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef) =
   let
     f = g.m.getOrInsertFunction("llvm.memset.p0i8.i64", llMemsetType)
@@ -1623,11 +1650,11 @@ proc callCtpop(g: LLGen, v: llvm.ValueRef, size: BiggestInt): llvm.ValueRef =
 
   result = g.b.buildCall(f, [v])
 
-proc callErrno(g: LLGen): llvm.ValueRef =
+proc callErrno(g: LLGen, prefix: string): llvm.ValueRef =
   # on linux errno is a function, so we call it here. not at all portable.
-  let f = g.m.getOrInsertFunction("__errno_location", llErrnoType)
+  let f = g.m.getOrInsertFunction("__" & prefix & "errno_location", llErrnoType)
 
-  result = g.b.buildCall(f, [], nn("errno"))
+  result = g.b.buildCall(f, [], nn(prefix & "errno"))
 
 proc callWithOverflow(g: LLGen, op: string, a, b: llvm.ValueRef, name: string): llvm.ValueRef =
   let t = a.typeOf()
@@ -1835,6 +1862,9 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
   if sfForward in s.flags:
     return
 
+  if sfImportc in s.flags:
+    return
+
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
 
@@ -1866,6 +1896,9 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
           return
       let param = s.typ.n[i]
 
+      fillLoc(param.sym.loc, locParam, param.sym.typ, param.sym.name.s.mangle.rope,
+              OnUnknown)  # TODO sometimes OnStack
+
       p("a", param, g.depth + 1)
       p("a", param.typ, g.depth + 2)
       if lastIsArr:
@@ -1885,30 +1918,27 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
     # Scope for local variables
     g.f.scopePush(s.ast, g.f.ret)
 
+    var ret: llvm.ValueRef
+    if sfPure notin s.flags and s.typ.sons[0] != nil:
+      let res = s.ast[resultPos].sym
+      if sfNoInit in s.flags: incl(res.flags, sfNoInit)
+      ret = g.genLocal(res)
+      g.buildStoreNull(ret)
+
     if tfCapturesEnv in s.typ.flags:
       let ls = lastSon(s.ast[paramsPos])
-      let lx = g.b.buildBitCast(g.f.scopeGet(-1), g.llType(ls.sym.typ), nn("ClEnvX"))
-
+      let lt = g.llType(ls.sym.typ)
+      let lx = g.b.buildBitCast(g.f.scopeGet(-1), lt, nn("ClEnvX"))
       g.f.scopePut(ls.sym.id, lx)
 
-    let rt = ft.getReturnType()
-    if rt.getTypeKind() != llvm.VoidTypeKind:
-      let res = g.b.localAlloca(rt, nn("result"))
-      g.buildStoreNull(res)
-      let resSym = s.ast.sons[resultPos].sym
-      g.f.scopePut(resSym.id, res)
-      g.genStmt(s.ast.sons[bodyPos])
+    g.genStmt(s.getBody())
 
-      g.b.buildBrFallthrough(g.f.ret)
-      g.b.positionAndMoveToEnd(g.f.ret)
+    g.b.buildBrFallthrough(g.f.ret)
+    g.b.positionAndMoveToEnd(g.f.ret)
 
-      discard g.b.buildRet(g.b.buildLoad(res, nn("load.result")))
+    if ret != nil:
+      discard g.b.buildRet(g.b.buildLoad(ret, nn("load.result")))
     else:
-      g.genStmt(s.ast.sons[bodyPos])
-
-      g.b.buildBrFallthrough(g.f.ret)
-      g.b.positionAndMoveToEnd(g.f.ret)
-
       discard g.b.buildRetVoid()
 
     g.b.finalize(g.f)
@@ -1965,6 +1995,18 @@ proc genFakeCall(g: LLGen, n: PNode, o: var llvm.ValueRef): bool =
         llvm.AtomicOrderingSequentiallyConsistent, llvm.False)
       o = g.b.buildI8(g.b.buildExtractValue(o, 1.cuint, nn("cas.b", n)))
       return true
+  elif s.originatingModule().name.s == "endians":
+    case $s.loc.r
+    of "__builtin_bswap16":
+      o = g.callBSwap(g.genExpr(n[1], true), 16)
+      return true
+    of "__builtin_bswap32":
+      o = g.callBSwap(g.genExpr(n[1], true), 32)
+      return true
+    of "__builtin_bswap64":
+      o = g.callBSwap(g.genExpr(n[1], true), 64)
+      return true
+
 
 proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.ValueRef] =
   var args: seq[ValueRef] = @[]
@@ -1979,7 +2021,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
       # parameterless function, and then adds statements as child nodes where
       # the parameter value expressions would normally go - decidedly, odd -
       # see tautoproc.nim
-      if v != nil:
+      if v != nil and v.typeOf().getTypeKind() != llvm.VoidTypeKind:
         args.add(v)
       continue
 
@@ -2018,6 +2060,8 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
         case pr.typ.skipTypes(abstractVar).kind
         of tyString, tySequence:
           v = g.genExpr(pr, true)
+          if pr.typ.skipTypes(abstractInst).kind == tyVar:
+            v = g.b.buildLoad(v, "")
           len = g.b.buildNimSeqLenGEP(v)
           len = g.b.buildLoad(len, nn("call.seq.len", n))
           len = g.b.buildZExt(len, llIntType, nn("call.seq.len.ext", n))
@@ -2134,7 +2178,9 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 proc genMagicCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let s = n[namePos].sym
   if lfNoDecl notin s.loc.flags:
-    discard g.genFunctionWithBody(magicsys.getCompilerProc($s.loc.r))
+    let m = magicsys.getCompilerProc($s.loc.r)
+    if m == nil: internalError(n.info, "Missing magic: " & $s.loc.r)
+    discard g.genFunctionWithBody(m)
 
   result = g.genCall(n, load)
 
@@ -2469,6 +2515,13 @@ proc genOrdExpr(g: LLGen, n: PNode): llvm.ValueRef =
     ax = g.b.buildAnd(ax, llvm.constInt(ax.typeOf(), 1.cuint, llvm.False),
       nn("ord.bool", n))
   result = g.b.buildTruncOrExt(ax, g.llType(n.typ), n[1].typ)
+
+proc genNewSeqOfCapExpr(g: LLGen, n: PNode): llvm.ValueRef =
+  let seqtype = n.typ.skipTypes(abstractVarRange)
+  let ax = g.genExpr(n[1], true)
+  let ti =  g.genTypeInfo(seqtype)
+
+  result = g.callCompilerProc("nimNewSeqOfCap", [ti, ax])
 
 proc genLengthOpenArrayExpr(g: LLGen, n: PNode): llvm.ValueRef =
   # openarray must be a parameter so we should find it in the scope
@@ -3317,6 +3370,7 @@ proc genMagicExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of mOf: result = g.genOfExpr(n)
   of mUnaryLt: result = g.genUnaryLtExpr(n)
   of mOrd: result = g.genOrdExpr(n)
+  of mNewSeqOfCap: result = g.genNewSeqOfCapExpr(n)
   of mLengthOpenArray: result = g.genLengthExpr(n)
   of mLengthStr: result = g.genLengthExpr(n)
   of mLengthArray: result = g.genLengthExpr(n)
@@ -3435,7 +3489,8 @@ proc genSymExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     var toload = s.kind != skParam or g.llPassAsPtr(n.typ)
     if toload and load and v.typeOf().getTypeKind() == llvm.PointerTypeKind:
       result = g.b.buildLoadValue(v)
-    elif not load and s.kind == skParam and not g.llPassAsPtr(s.typ) and s.typ.kind notin {tyPtr, tyVar, tyRef, tyPointer}:
+    elif not load and s.kind == skParam and not g.llPassAsPtr(s.typ) and
+        s.typ.kind notin {tyPtr, tyVar, tyRef, tyPointer}:
       # Someone wants an address, but all we have is a value...
       result = g.b.localAlloca(v.typeOf(), nn("sym.prc.addr", n))
       discard g.b.buildStore(v, result)
@@ -3481,15 +3536,13 @@ proc genStrLitExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     s.setInitializer(init)
     result = constBitCast(s, llCStringType)
 
-proc genNilLitExpr(g: LLGen, n: PNode): llvm.ValueRef =
-  if n.typ.kind == tyProc:
-    if n.typ.callConv == ccClosure:
-      let t = g.llType(n.typ)
-      result = g.m.addPrivateConstant(t, nn("nil", n))
-      result.setInitializer(llvm.constNull(t))
-      return
-
-  result = llvm.constNull(g.llType(n.typ))
+proc genNilLitExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+  let t = g.llType(n.typ)
+  if load:
+    result = llvm.constNull(t)
+  else:
+    result = g.m.addPrivateConstant(t, nn("nil", n))
+    result.setInitializer(llvm.constNull(t))
 
 proc genCallExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let nf = n[namePos]
@@ -4375,59 +4428,59 @@ proc genCallStmt(g: LLGen, n: PNode) =
 
   discard g.genCall(n, false)
 
-proc genIdentDefsStmt(g: LLGen, n: PNode) =
-  for s in n.sons: p("genIdentDefsStmt", s, g.depth + 1)
+proc genSingleVar(g: LLGen, n: PNode) =
+  let v = n[0].sym
+
+  if sfCompileTime in v.flags: return
+  if sfGoto in v.flags: internalError(n.info, "Goto vars not supported")
+
   var x: llvm.ValueRef
-  var local = false
 
   let init = n[2]
+  if sfGlobal in v.flags:
+    if v.flags * {sfImportc, sfExportc} == {sfImportc} and
+        n[2].kind == nkEmpty and
+        v.loc.flags * {lfHeader, lfNoDecl} != {}:
+      return
 
-  var typ: PType
-  if n[0].kind == nkSym:
-    let v = n[0].sym
-    typ = v.typ
-    local = sfGlobal notin v.flags
-    if lfNoDecl in v.loc.flags: return
+    x = g.genGlobal(v)
 
-    if sfGlobal in v.flags:
-      x = g.genGlobal(v)
+    if v.kind == skLet or g.f.loopNesting == 0:
+      if init.isDeepConstExprLL(true):
+        let i = g.genConstInitializer(init)
+        if i != nil:
+          x.setInitializer(i)
+          return
 
-      if sfImportc in v.flags:
-        return
+    g.genObjectInit(v.typ, x)
+    g.registerGcRoot(v, x)
 
-      if v.kind == skLet or g.f.loopNesting == 0:
-        if init.isDeepConstExprLL(true):
-          let i = g.genConstInitializer(init)
-          if i != nil:
-            x.setInitializer(i)
-            return
-
-      g.genObjectInit(v.typ, x)
-      g.registerGcRoot(v, x)
-
-      # oddly, variables in a loop in the global scope are tagged "global" even
-      # though they're local to the looping block
-      if g.f.loopNesting > 0:
-        discard g.callCompilerProc("genericReset", [x, g.genTypeInfo(v.typ)])
-    else:
-      let t = g.llType(v.typ)
-      x = g.b.localAlloca(t, v.llName)
-
-      # Some initializers expect value to be null, so we always set it so
-      g.buildStoreNull(x)
-      g.genObjectInit(v.typ, x)
+    # oddly, variables in a loop in the global scope are tagged "global" even
+    # though they're local to the looping block
+    if g.f.loopNesting > 0:
+      discard g.callCompilerProc("genericReset", [x, g.genTypeInfo(v.typ)])
   else:
-    typ = n[0].typ
-    # Closure...
-    x = g.genExpr(n[0], false)
+    x = g.genLocal(v)
+
+    # Some initializers expect value to be null, so we always set it so
+    g.buildStoreNull(x)
+    g.genObjectInit(v.typ, x)
 
   if init.kind != nkEmpty:
-    g.genAssignment(init, x, typ)
+    g.genAssignment(init, x, v.typ)
 
-  # Put in scope only once init is finished (init might refence
-  # a var with the same name)
-  if local:
-    g.f.scopePut(n[0].sym.id, x)
+proc genClosureVar(g: LLGen, n: PNode) =
+  if n[2].kind == nkEmpty: return
+
+  let x = g.genExpr(n[0], false)
+  g.genAssignment(n[2], x, n[0].typ)
+
+proc genIdentDefsStmt(g: LLGen, n: PNode) =
+  for s in n.sons: p("genIdentDefsStmt", s, g.depth + 1)
+  if n[0].kind == nkSym:
+    g.genSingleVar(n)
+  else:
+    g.genClosureVar(n)
 
 proc genVarTupleStmt(g: LLGen, n: PNode) =
   for s in n.sons[0..n.sonsLen - 3]:
@@ -4445,21 +4498,16 @@ proc genVarTupleStmt(g: LLGen, n: PNode) =
 
     if sfGlobal in v.flags:
       x = g.genGlobal(v)
+      g.genObjectInit(v.typ, x)
       g.registerGcRoot(v, x)
     else:
-      let t = g.llType(v.typ)
-      x = g.b.localAlloca(t, v.llName)
+      x = g.genLocal(v)
       g.buildStoreNull(x)
       g.genObjectInit(v.typ, x)
 
     let tv = g.b.buildGEP(t, [gep0, constGEPIdx(i)], nn("vartuple." & $i, s))
 
     g.genAsgnFromRef(tv, x, s.typ)
-
-    if sfGlobal notin v.flags:
-      # Put in scope only once init is finished (init might refence
-      # a var with the same name)
-      g.f.scopePut(v.id, x)
 
 proc genAsgnStmt(g: LLGen, n: PNode) =
   let ax = g.genExpr(n[0], false)
@@ -4474,8 +4522,9 @@ proc genProcStmt(g: LLGen, n: PNode) =
 
   var s = n.sons[namePos].sym
 
+  if s.typ == nil: return
+  if sfBorrow in s.flags: return
   if s.skipGenericOwner.kind != skModule or sfCompileTime in s.flags: return
-
   if s.getBody.kind == nkEmpty and lfDynamicLib notin s.loc.flags: return
 
   if (optDeadCodeElim notin gGlobalOptions and
@@ -5006,7 +5055,7 @@ proc genExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of nkCharLit..nkUInt64Lit: result = g.genIntLitExpr(n)
   of nkFloatLit..nkFloat128Lit: result = g.genFloatLitExpr(n)
   of nkStrLit..nkTripleStrLit: result = g.genStrLitExpr(n, load)
-  of nkNilLit: result = g.genNilLitExpr(n)
+  of nkNilLit: result = g.genNilLitExpr(n, load)
   of nkCallKinds: result = g.genCallExpr(n, load)
   of nkExprColonExpr: result = g.genExpr(n[1], load)
   of nkPar: result = g.genParExpr(n, load)
@@ -5042,8 +5091,6 @@ proc genExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       return
     internalError(n.info, "Unhandled expression: " & $n.kind & " " & $n.typ)
   g.depth -= 1
-
-  if result == nil: internalError(n.info, "nil return in genExpr: " & $n.kind)
 
 proc genSons(g: LLGen, n: PNode) =
   for s in n: g.genStmt(s)

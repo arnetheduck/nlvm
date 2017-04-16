@@ -106,6 +106,9 @@ proc handleCmdLine() =
     # disallowed-in-signal-handler-stuff
     defineSymbol("noSignalHandler")
 
+    # lib/pure/bitops.num
+    defineSymbol("noIntrinsicsBitOpts")
+
     mainCommand()
 
 # Beautiful...
