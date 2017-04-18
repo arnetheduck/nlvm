@@ -2,9 +2,13 @@ NIMC=Nim/bin/nim
 
 NLVMC=nlvm/nlvm
 
-LLVMPATH=$(shell realpath ../llvm-3.9.0.src/build/lib)
+LLVMPATH=ext
 
-NIMFLAGS=--gc:markandsweep --opt:size
+#NIMFLAGS=--opt:speed --gc:markandsweep
+#NIMFLAGS=-d:release
+NIMFLAGS=--opt:speed
+
+NLVMFLAGS=--opt:speed --gc:markandsweep
 
 LLVMLIBS="-l:-lLLVM-3.9" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=$(LLVMPATH)'"
 
@@ -26,13 +30,13 @@ $(NLVMC): $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim
 	cd nlvm && time ../$(NIMC) --debuginfo $(NIMFLAGS) $(LLVMLIBS) c nlvm
 
 nlvm/nimcache/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim
-	cd nlvm && time ./nlvm $(NIMFLAGS) -o:nimcache/nlvm.ll -c c nlvm
+	cd nlvm && time ./nlvm $(NLVMFLAGS) -o:nimcache/nlvm.ll -c c nlvm
 
 nlvm/nlvm.self: $(NLVMC)
-	cd nlvm && time ./nlvm -o:nlvm.self $(NIMFLAGS) $(LLVMLIBS) c nlvm
+	cd nlvm && time ./nlvm -o:nlvm.self $(NLVMFLAGS) $(LLVMLIBS) c nlvm
 
 nlvm/nimcache/nlvm.self.ll: nlvm/nlvm.self
-	cd nlvm && time ./nlvm.self -c $(NIMFLAGS) -o:nimcache/nlvm.self.ll c nlvm
+	cd nlvm && time ./nlvm.self -c $(NLVMFLAGS) -o:nimcache/nlvm.self.ll c nlvm
 
 .PHONY: compare
 compare: nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll

@@ -2,5 +2,7 @@ nlvm/nlvm
 nimcache
 *.s
 /nlvm/nlvm.self
+/nlvm/nlvm.ll
 /testament.db
 *.ndb
+ext

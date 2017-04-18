@@ -1,0 +1,18 @@
+sudo: false
+language: c++
+os:
+  - linux
+dist: trusty
+cache: ccache
+
+addons:
+  apt:
+    packages:
+    - libcurl4-openssl-dev
+    - libsdl1.2-dev
+    - libgc-dev
+
+before_script:
+  - sh make-llvm.sh
+script:
+  - make test

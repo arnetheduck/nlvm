@@ -46,26 +46,15 @@ Start with a clone:
     git clone https://github.com/arnetheduck/nlvm.git
     cd nlvm && git submodule update --init
 
-Compile LLVM shared library - while LLVM is normally linked statically, this
-keeps link times of NLVM itself down, and is convenient for development:
+`nlvm` links to `libLLVM-x.y.so` during its build, and the build assumes such
+a shared library is available under `ext`. The easiest way for that to happen
+is to use the supplied helper is to run the build helper, though if you have
+one handy, you can also symlink it in.
 
-    cd $SRC
-    wget http://llvm.org/releases/3.9.0/llvm-3.9.0.src.tar.xz
-    tar xvf llvm-3.9.0.src.tar.xz
-    cd llvm-3.9.0.src
-    mkdir build
-    cd build
-    cmake -G 'Ninja' -DCMAKE_BUILD_TYPE=Debug -DLLVM_BUILD_LLVM_DYLIB=1 -DLLVM_OPTIMIZED_TABLEGEN=1 -DLLVM_TARGETS_TO_BUILD=X86 ..
-    nice ninja-build
+    sh ./make-llvm.sh
 
-Compile nim:
+Compile NLVM (this will also build nim):
 
-    cd $SRC/nlvm/Nim
-    sh ./bootstrap.sh
-
-Compile NLVM:
-
-    cd $SRC/nlvm
     make
 
 Compile with itself and compare:
@@ -117,3 +106,6 @@ compatibility found library in `nlvm-lib/`.
   large parts of the standard library don't work with nlvm.
 * nlvm should work on any `x86_64` linux, but there is no support for other
   platforms (int size, calling conventions etc) - patches welcome
+* In the default setup, we use a release version of `libLLVM-xx.so`, but
+  if you're working on the compiler, a debug build of llvm is really useful
+  for tracking down certain kinds of errors
