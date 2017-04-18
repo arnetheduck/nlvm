@@ -1,5 +1,6 @@
 #!/bin/sh
 
+mkdir -p ext
 cd ext
 
 [[ -f libLLVM-3.9.so ]] && exit 0
