@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 mkdir -p ext
 cd ext
@@ -13,7 +13,7 @@ mkdir -p rel
 cd rel
 cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_BUILD_LLVM_DYLIB=1 -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=1 ..
 
-make -j$(nproc) || exit 1
+make || exit 1
 
 cd ..
 cd ..
