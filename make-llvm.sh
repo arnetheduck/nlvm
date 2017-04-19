@@ -13,7 +13,10 @@ mkdir -p rel
 cd rel
 cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_BUILD_LLVM_DYLIB=1 -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=1 ..
 
+cd tools/llvm-shlib
 make || exit 1
+
+cd ../..
 
 cd ..
 cd ..
