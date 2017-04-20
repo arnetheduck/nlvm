@@ -18,4 +18,4 @@ make -j$(nproc)
 cd ..
 cd ..
 
-ln -s llvm-3.9.0.src/rel/lib/libLLVM-3.9.so .
+ln -s llvm-3.9.0.src/rel/lib/*.so .

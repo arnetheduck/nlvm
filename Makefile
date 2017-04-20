@@ -2,7 +2,7 @@ NIMC=Nim/bin/nim
 
 NLVMC=nlvm/nlvm
 
-LLVMPATH=ext
+LLVMPATH=../ext
 
 #NIMFLAGS=--opt:speed --gc:markandsweep
 #NIMFLAGS=-d:release
