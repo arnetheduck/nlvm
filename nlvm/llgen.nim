@@ -608,6 +608,7 @@ proc llType(g: LLGen, typ: PType): llvm.TypeRef =
   of tyInt..tyUInt64: result = llNumTypes[typ.kind]
   of tyTypeDesc: result = g.llType(typ.lastSon)
   of tyStatic: result = g.llType(typ.lastSon)
+  of tyUserTypeClasses: result = g.llType(typ.lastSon)
   else:
     internalError("Unhandled type " & $typ.kind)
 
@@ -2592,7 +2593,7 @@ proc genLengthSeqExpr(g: LLGen, n: PNode): llvm.ValueRef =
   result = phi
 
 proc genLengthExpr(g: LLGen, n: PNode): llvm.ValueRef =
-  let typ = skipTypes(n[1].typ, abstractVar)
+  let typ = skipTypes(n[1].typ, abstractVar + tyUserTypeClasses)
   case typ.kind
   of tyOpenArray, tyVarargs: result = g.genLengthOpenArrayExpr(n)
   of tyCString: result = g.genLengthStrExpr(n)
@@ -3766,7 +3767,7 @@ proc genBracketTupleExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     result = g.b.buildLoad(result, nn("bra.tup.load", n))
 
 proc genBracketExprExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  var typ = skipTypes(n[0].typ, abstractInst)
+  var typ = skipTypes(n[0].typ, abstractInst + tyUserTypeClasses)
   if typ.kind in {tyRef, tyPtr}: typ = typ.lastSon
   case typ.kind
   of tyArray: result = g.genBracketArrayExpr(n, load)
