@@ -2,7 +2,7 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-const LLVMLib = "libLLVM-3.9.so"
+const LLVMLib = "libLLVM-4.0.so"
 
 # Includes and helpers for generated code
 type
@@ -166,3 +166,12 @@ proc buildInBoundsGEP*(b: BuilderRef; pointer: ValueRef; indices: openarray[Valu
 proc buildCall*(a2: BuilderRef; fn: ValueRef; args: openarray[ValueRef];
                 name: cstring = ""): ValueRef =
   asRaw(args, buildCall(a2, fn, p, n, name))
+
+template getEnumAttrKind(x: expr): expr = getEnumAttributeKindForName(x, x.len)
+
+let
+  attrNoReturn* = getEnumAttrKind("noreturn")
+  attrNoInline* = getEnumAttrKind("noinline")
+
+proc addFuncAttribute*(f: ValueRef, v: AttributeRef) =
+  addAttributeAtIndex(f, cast[AttributeIndex](AttributeFunctionIndex), v)

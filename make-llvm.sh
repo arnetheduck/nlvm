@@ -3,12 +3,15 @@
 mkdir -p ext
 cd ext
 
-[[ -f libLLVM-3.9.so ]] && exit 0
+VER="4.0"
+VER2="$VER.0"
 
-[[ -f llvm-3.9.0.src.tar.xz ]] || wget http://llvm.org/releases/3.9.0/llvm-3.9.0.src.tar.xz || exit 1
+[[ -f libLLVM-$VER.so ]] && exit 0
 
-tar xf llvm-3.9.0.src.tar.xz || exit 1
-cd llvm-3.9.0.src
+[[ -f llvm-$VER2.src.tar.xz ]] || wget http://releases.llvm.org/$VER2/llvm-$VER2.src.tar.xz || exit 1
+
+tar xf llvm-$VER2.src.tar.xz || exit 1
+cd llvm-$VER2.src
 mkdir -p rel
 cd rel
 cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_BUILD_LLVM_DYLIB=1 -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=1 ..
@@ -18,4 +21,4 @@ make -j$(nproc)
 cd ..
 cd ..
 
-ln -s llvm-3.9.0.src/rel/lib/*.so .
+ln -s llvm-$VER2.src/rel/lib/*.so .

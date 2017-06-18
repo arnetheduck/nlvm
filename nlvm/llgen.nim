@@ -72,11 +72,12 @@ var
   llJmpbuf = llvm.structCreateNamed(llctxt, "jmp_buf")
   llJmpbufp = llvm.pointerType(llJmpbuf)
   llSetjmpType = llvm.functionType(llCIntType, [llJmpbufp])
-  llLongjmpType = llvm.functionType(llvm.voidType(), [llJmpbufp, llCIntType])
   llFabsType = llvm.functionType(llvm.doubleType(), [llvm.doubleType()])
   llMemsetType = llvm.functionType(llvm.voidType(), [llVoidPtrType, llvm.int8Type(), llvm.int64Type(), llvm.int32Type(), llvm.int1Type()])
   llMemcpyType = llvm.functionType(llvm.voidType(), [llVoidPtrType, llVoidPtrType, llvm.int64Type(), llvm.int32Type(), llvm.int1Type()])
   llErrnoType = llvm.functionType(llvm.pointerType(llCIntType), [])
+  llAttrNoReturn = llvm.getGlobalContext().createEnumAttribute(llvm.attrNoReturn, 0)
+  llAttrNoInline = llvm.getGlobalContext().createEnumAttribute(llvm.attrNoInline, 0)
 
 llvm.structSetBody(llJmpbuf, [llvm.arrayType(llvm.int64Type(), 8), llvm.int32Type(), llvm.arrayType(llvm.int64Type(), 16)])
 llvm.structSetBody(llGenericSeqType, [llIntType, llIntType])
@@ -186,10 +187,6 @@ proc scopeIdx(f: LLFunc, sym: PSym): int =
       return f.scope.len - 1 - i
 
   return -1
-
-proc scopeFind(f: LLFunc, sym: PSym): LLScope =
-  let idx = f.scopeIdx(sym)
-  result = if idx == -1: nil else: f.scope[idx]
 
 proc scopePop(f: LLFunc): LLScope {.discardable.} =
   f.scope.pop
@@ -1844,10 +1841,10 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
   g.values[s.id] = f
 
   if sfNoReturn in s.flags:
-    f.addFunctionAttr(llvm.NoReturnAttribute)
+    f.addFuncAttribute(llAttrNoReturn)
 
   if typ.callConv == ccNoInline:
-    f.addFunctionAttr(llvm.NoInlineAttribute)
+    f.addFuncAttribute(llAttrNoInline)
 
   if g.genFakeImpl(s, f):
     f.setLinkage(llvm.InternalLinkage)
@@ -3088,7 +3085,7 @@ proc genEqSetExpr(g: LLGen, n: PNode): llvm.ValueRef =
     # continue at the end
     g.b.positionBuilderAtEnd(rdone)
 
-    result = g.b.buildPHI(int1Type(), nn("set.eq", n))
+    result = g.b.buildPHI(llBoolType, nn("set.eq", n))
     result.addIncoming([constNimBool(false), constNimBool(true)], [rne, rcmp])
 
 proc genSetBinOpExpr(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): llvm.ValueRef =

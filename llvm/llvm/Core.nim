@@ -42,18 +42,6 @@
 ## # 
 
 type                          ## # Terminator Instructions 
-  Attribute* {.size: sizeof(cint).} = enum
-    ZExtAttribute = 1 shl 0, SExtAttribute = 1 shl 1, NoReturnAttribute = 1 shl 2,
-    InRegAttribute = 1 shl 3, StructRetAttribute = 1 shl 4, NoUnwindAttribute = 1 shl 5,
-    NoAliasAttribute = 1 shl 6, ByValAttribute = 1 shl 7, NestAttribute = 1 shl 8,
-    ReadNoneAttribute = 1 shl 9, ReadOnlyAttribute = 1 shl 10,
-    NoInlineAttribute = 1 shl 11, AlwaysInlineAttribute = 1 shl 12,
-    OptimizeForSizeAttribute = 1 shl 13, StackProtectAttribute = 1 shl 14,
-    StackProtectReqAttribute = 1 shl 15, Alignment = 31 shl 16,
-    NoCaptureAttribute = 1 shl 21, NoRedZoneAttribute = 1 shl 22,
-    NoImplicitFloatAttribute = 1 shl 23, NakedAttribute = 1 shl 24,
-    InlineHintAttribute = 1 shl 25, StackAlignment = 7 shl 26, ReturnsTwice = 1 shl 29,
-    UWTable = 1 shl 30, NonLazyBind = 1 shl 31
   Opcode* {.size: sizeof(cint).} = enum
     Ret = 1, Br = 2, Switch = 3, IndirectBr = 4, Invoke = 5, ## # removed 6 due to API changes 
     Unreachable = 7,            ## # Standard Binary Operators 
@@ -1675,6 +1663,8 @@ proc constFMul*(lHSConstant: ValueRef; rHSConstant: ValueRef): ValueRef {.
     importc: "LLVMConstFMul", dynlib: LLVMLib.}
 proc constUDiv*(lHSConstant: ValueRef; rHSConstant: ValueRef): ValueRef {.
     importc: "LLVMConstUDiv", dynlib: LLVMLib.}
+proc constExactUDiv*(lHSConstant: ValueRef; rHSConstant: ValueRef): ValueRef {.
+    importc: "LLVMConstExactUDiv", dynlib: LLVMLib.}
 proc constSDiv*(lHSConstant: ValueRef; rHSConstant: ValueRef): ValueRef {.
     importc: "LLVMConstSDiv", dynlib: LLVMLib.}
 proc constExactSDiv*(lHSConstant: ValueRef; rHSConstant: ValueRef): ValueRef {.
@@ -1990,8 +1980,6 @@ proc setGC*(fn: ValueRef; name: cstring) {.importc: "LLVMSetGC", dynlib: LLVMLib
 ## #  @see llvm::Function::addAttribute()
 ## # 
 
-proc addFunctionAttr*(fn: ValueRef; pa: Attribute) {.importc: "LLVMAddFunctionAttr",
-    dynlib: LLVMLib.}
 proc addAttributeAtIndex*(f: ValueRef; idx: AttributeIndex; a: AttributeRef) {.
     importc: "LLVMAddAttributeAtIndex", dynlib: LLVMLib.}
 proc getAttributeCountAtIndex*(f: ValueRef; idx: AttributeIndex): cuint {.
@@ -2015,20 +2003,6 @@ proc removeStringAttributeAtIndex*(f: ValueRef; idx: AttributeIndex; k: cstring;
 
 proc addTargetDependentFunctionAttr*(fn: ValueRef; a: cstring; v: cstring) {.
     importc: "LLVMAddTargetDependentFunctionAttr", dynlib: LLVMLib.}
-## #*
-## #  Obtain an attribute from a function.
-## # 
-## #  @see llvm::Function::getAttributes()
-## # 
-
-proc getFunctionAttr*(fn: ValueRef): Attribute {.importc: "LLVMGetFunctionAttr",
-    dynlib: LLVMLib.}
-## #*
-## #  Remove an attribute from a function.
-## # 
-
-proc removeFunctionAttr*(fn: ValueRef; pa: Attribute) {.
-    importc: "LLVMRemoveFunctionAttr", dynlib: LLVMLib.}
 ## #*
 ## #  @defgroup LLVMCCoreValueFunctionParameters Function Parameters
 ## # 
@@ -2115,28 +2089,6 @@ proc getNextParam*(arg: ValueRef): ValueRef {.importc: "LLVMGetNextParam",
 ## # 
 
 proc getPreviousParam*(arg: ValueRef): ValueRef {.importc: "LLVMGetPreviousParam",
-    dynlib: LLVMLib.}
-## #*
-## #  Add an attribute to a function argument.
-## # 
-## #  @see llvm::Argument::addAttr()
-## # 
-
-proc addAttribute*(arg: ValueRef; pa: Attribute) {.importc: "LLVMAddAttribute",
-    dynlib: LLVMLib.}
-## #*
-## #  Remove an attribute from a function argument.
-## # 
-## #  @see llvm::Argument::removeAttr()
-## # 
-
-proc removeAttribute*(arg: ValueRef; pa: Attribute) {.importc: "LLVMRemoveAttribute",
-    dynlib: LLVMLib.}
-## #*
-## #  Get an attribute from a function argument.
-## # 
-
-proc getAttribute*(arg: ValueRef): Attribute {.importc: "LLVMGetAttribute",
     dynlib: LLVMLib.}
 ## #*
 ## #  Set the alignment for a function parameter.
@@ -2614,10 +2566,6 @@ proc setInstructionCallConv*(instr: ValueRef; cc: cuint) {.
 
 proc getInstructionCallConv*(instr: ValueRef): cuint {.
     importc: "LLVMGetInstructionCallConv", dynlib: LLVMLib.}
-proc addInstrAttribute*(instr: ValueRef; index: cuint; a4: Attribute) {.
-    importc: "LLVMAddInstrAttribute", dynlib: LLVMLib.}
-proc removeInstrAttribute*(instr: ValueRef; index: cuint; a4: Attribute) {.
-    importc: "LLVMRemoveInstrAttribute", dynlib: LLVMLib.}
 proc setInstrParamAlignment*(instr: ValueRef; index: cuint; align: cuint) {.
     importc: "LLVMSetInstrParamAlignment", dynlib: LLVMLib.}
 proc addCallSiteAttribute*(c: ValueRef; idx: AttributeIndex; a: AttributeRef) {.
@@ -3011,6 +2959,8 @@ proc buildFMul*(a2: BuilderRef; lhs: ValueRef; rhs: ValueRef; name: cstring): Va
     importc: "LLVMBuildFMul", dynlib: LLVMLib.}
 proc buildUDiv*(a2: BuilderRef; lhs: ValueRef; rhs: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildUDiv", dynlib: LLVMLib.}
+proc buildExactUDiv*(a2: BuilderRef; lhs: ValueRef; rhs: ValueRef; name: cstring): ValueRef {.
+    importc: "LLVMBuildExactUDiv", dynlib: LLVMLib.}
 proc buildSDiv*(a2: BuilderRef; lhs: ValueRef; rhs: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildSDiv", dynlib: LLVMLib.}
 proc buildExactSDiv*(a2: BuilderRef; lhs: ValueRef; rhs: ValueRef; name: cstring): ValueRef {.

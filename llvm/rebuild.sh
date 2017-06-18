@@ -1,5 +1,5 @@
-LLVM_HOME=../../llvm-3.9.0.src/build/
-LLVM_INC=../../llvm-3.9.0.src/include
+LLVM_HOME=../../llvm-4.0.0.src/rel/
+LLVM_INC=../../llvm-4.0.0.src/include
 
 C2NIM="../../c2nim/c2nim"
 C2NIMFLAGS="--nep1 --skipinclude --prefix:LLVM --dynlib:LLVMLib"

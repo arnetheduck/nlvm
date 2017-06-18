@@ -10,7 +10,7 @@ NIMFLAGS=--opt:speed
 
 NLVMFLAGS=--opt:speed --gc:markandsweep
 
-LLVMLIBS="-l:-lLLVM-3.9" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=$(LLVMPATH)'"
+LLVMLIBS="-l:-lLLVM-4.0" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=\$$ORIGIN/$(LLVMPATH)'"
 
 .PHONY: all
 all: $(NLVMC)
