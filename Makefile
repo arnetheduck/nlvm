@@ -47,8 +47,7 @@ Nim/tests/testament/tester: $(NIMC) Nim/tests/testament/*.nim
 
 .PHONY: test
 test: Nim/tests/testament/tester $(NLVMC)
-	cp compiler/nim Nim/compiler
-	cd Nim && time tests/testament/tester --targets:c all
+	cd Nim && time tests/testament/tester --targets:c "--nim:../nlvm/nlvm "  all
 	cd Nim && tests/testament/tester html
 
 .PHONY: t2
