@@ -60,4 +60,4 @@ self: nlvm/nlvm.self
 
 .PHONY: clean
 clean:
-	rm -rf $(NLVMC) nlvm/nimcache/nlvm.ll nlvm/nlvm.self nlvm/nimcache/nlvm.self.ll Nim/tests/testament/tester
+	rm -rf $(NLVMC) nlvm/nimcache nlvm/nlvm.self Nim/tests/testament/tester
