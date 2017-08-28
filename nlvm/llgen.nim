@@ -2680,6 +2680,21 @@ proc genBinOpExpr(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
   let bo = g.b.buildBinOp(op, ax, bx, nn("binop." & $op, n))
   result = g.b.buildTrunc(bo, g.llType(n.typ), nn("binop.trunc", n))
 
+proc genShrExpr(g: LLGen, n: PNode): llvm.ValueRef =
+  var
+    ax = g.genExpr(n[1], true)
+    bx = g.genExpr(n[2], true)
+
+  # right shifts are always logical in nim, apparently
+
+  if ax.typeOf().getIntTypeWidth() != bx.typeOf().getIntTypeWidth():
+
+    # This seems to happen with unsigned ints for example, see
+    # https://github.com/nim-lang/Nim/issues/4176
+    bx = g.b.buildTruncOrExt(bx, ax.typeOf(), true)
+
+  result = g.b.buildBinOp(llvm.LShr, ax, bx, nn("binop." & $llvm.LShr, n))
+
 proc genBinOpOverflowExpr(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
   if optOverflowCheck notin g.f.options:
     return g.genBinOpExpr(n, op)
@@ -3386,7 +3401,7 @@ proc genMagicExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of mSubF64: result = g.genFBinOpExpr(n, llvm.FSub)
   of mMulF64: result = g.genFBinOpExpr(n, llvm.FMul)
   of mDivF64: result = g.genFBinOpExpr(n, llvm.FDiv)
-  of mShrI: result = g.genBinOpExpr(n, llvm.LShr) # TODO verify
+  of mShrI: result = g.genShrExpr(n)
   of mShlI: result = g.genBinOpExpr(n, llvm.Shl)
   of mBitandI: result = g.genBinOpExpr(n, llvm.And)
   of mBitorI: result = g.genBinOpExpr(n, llvm.Or)
