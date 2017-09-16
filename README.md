@@ -24,15 +24,26 @@ Jacek Sieka (arnetheduck on gmail point com)
 # Status
 
 NLVM can currently:
-* compile itself (on linux) and many other Nim apps
-* pass ~90% of all upstream test cases
+* compile many nim programs, including itself
+* pass ~90% of all upstream test cases - many failures can be traced to
+  the standard library and compiler relying on C implementation details
+
+Compared to upstream, NLVM:
+* is stand-alone - no C compiler needed
+* has native debug support that works with GDB
+* typically has better compile times
 
 In some distant future, it would be nice if (in no particular order):
-
-* it implemented more core Nim features (threads, stack traces, debug info)
 * it had fewer bugs than the reference Nim compiler
+* cross-platform support was better (linux `x86_64` only for now)
 * someone found it useful
 * earth survived humans
+
+NLVM does not:
+* understand C - as a consequence, `header`, `emit` and similar pragmas
+  will not wor
+* support all nim compiler flags and features - do file bugs for anything
+  useful that's missing
 
 # Compile instructions
 
@@ -97,15 +108,12 @@ compatibility found library in `nlvm-lib/`.
 * Upstream is pinned using a submodule - nlvm relies heavily on internals
   that keep changing - it's unlikely that it works with any other versions,
   patches welcome to update it
-* The upstream test suite runs `compiler/nim` to compile the test code.
-  `make test` uses a trick where nlvm is copied to that location, so as to
-  fool the test runner
-* nlvm doesn't understand C
 * The nim standard library likes to import C headers directly which works
   because the upstream nim compiler uses a C compiler underneath - ergo,
   large parts of the standard library don't work with nlvm.
 * nlvm should work on any `x86_64` linux, but there is no support for other
   platforms (int size, calling conventions etc) - patches welcome
-* In the default setup, we use a release version of `libLLVM-xx.so`, but
-  if you're working on the compiler, a debug build of llvm is really useful
-  for tracking down certain kinds of errors
+* `make-llvm.sh` will compile llvm in `Release` mode with assertions turned
+  _on_ - this is a convenient compromise when doing compiler development
+  with llvm, but better performance can be had by turning them off
+
