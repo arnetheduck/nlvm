@@ -1624,7 +1624,7 @@ proc genTupleNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
   var fields: seq[ValueRef] = @[]
 
   let sig = hashType(t)
-  let prefix = ".nideinfo." & t.llName(sig) & "."
+  let prefix = ".nodeinfo." & t.llName(sig) & "."
 
   let l = t.sonsLen
   for i in 0..<l:
@@ -2186,7 +2186,7 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
       let gep = g.b.buildGEP(f.getParam(0), [gep0, gep1])
       let p = g.b.buildLoad(gep, "")
       let ax = g.b.buildBitCast(p, llIntType.pointerType(), "")
-      let a = g.b.buildLoad(ax, "")
+      let a = g.b.buildLoad(g.b.buildGEP(ax, [gep1]), "")
       let cmp = g.b.buildI8(g.b.buildICmp(llvm.IntSLT, a, ni0, ""))
       discard g.b.buildRet(cmp)
     return true
@@ -2537,39 +2537,45 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     let prc = g.b.buildExtractValue(fx, 0, nn("call.clo.prc.ptr", n))
     let env = g.b.buildExtractValue(fx, 1, nn("call.clo.env.ptr", n))
 
-    let pre = g.b.getInsertBlock()
-    let f = pre.getBasicBlockParent()
+    if tfIterator in typ.flags:
+      let cft = g.llProcType(typ, true).pointerType()
+      let cfx = g.b.buildBitCast(prc, cft, nn("call.iter.prc", n))
+      let clargs = args & @[env]
+      callres = g.b.buildCall(cfx, clargs)
+    else:
+      let pre = g.b.getInsertBlock()
+      let f = pre.getBasicBlockParent()
 
-    let clonil = f.appendBasicBlock(nn("call.clo.noenv", n))
-    let cloenv = f.appendBasicBlock(nn("call.clo.env", n))
-    let cloend = f.appendBasicBlock(nn("call.clo.end", n))
+      let clonil = f.appendBasicBlock(nn("call.clo.noenv", n))
+      let cloenv = f.appendBasicBlock(nn("call.clo.env", n))
+      let cloend = f.appendBasicBlock(nn("call.clo.end", n))
 
-    let cmp = g.b.buildICmp(
-      llvm.IntEQ, env, llvm.constNull(env.typeOf()), nn("call.clo.noenv", n))
-    discard g.b.buildCondBr(cmp, clonil, cloenv)
+      let cmp = g.b.buildICmp(
+        llvm.IntEQ, env, llvm.constNull(env.typeOf()), nn("call.clo.noenv", n))
+      discard g.b.buildCondBr(cmp, clonil, cloenv)
 
-    g.b.positionBuilderAtEnd(clonil)
+      g.b.positionBuilderAtEnd(clonil)
 
-    fx = g.b.buildBitCast(prc, nft, nn("call.clo.prc.noenv", n))
+      fx = g.b.buildBitCast(prc, nft, nn("call.clo.prc.noenv", n))
 
-    let res = g.b.buildCall(fx, args)
-    discard g.b.buildBr(cloend)
+      let res = g.b.buildCall(fx, args)
+      discard g.b.buildBr(cloend)
 
-    g.b.positionBuilderAtEnd(cloenv)
+      g.b.positionBuilderAtEnd(cloenv)
 
-    let cft = g.llProcType(typ, true).pointerType()
-    let cfx = g.b.buildBitCast(prc, cft, nn("call.clo.prc", n))
+      let cft = g.llProcType(typ, true).pointerType()
+      let cfx = g.b.buildBitCast(prc, cft, nn("call.clo.prc", n))
 
-    let clargs = args & @[env]
-    let cres = g.b.buildCall(cfx, clargs)
+      let clargs = args & @[env]
+      let cres = g.b.buildCall(cfx, clargs)
 
-    discard g.b.buildBr(cloend)
+      discard g.b.buildBr(cloend)
 
-    g.b.positionBuilderAtEnd(cloend)
+      g.b.positionBuilderAtEnd(cloend)
 
-    if retty.getTypeKind() != llvm.VoidTypeKind:
-      callres = g.b.buildPHI(res.typeOf(), nn("call.clo.res", n))
-      callres.addIncoming([res, cres], [clonil, cloenv])
+      if retty.getTypeKind() != llvm.VoidTypeKind:
+        callres = g.b.buildPHI(res.typeOf(), nn("call.clo.res", n))
+        callres.addIncoming([res, cres], [clonil, cloenv])
   else:
     if fx.typeOf().getElementType().getTypeKind() != llvm.FunctionTypeKind:
       fx = g.b.buildBitCast(fx, nft, nn("call.fx", n))
@@ -2693,7 +2699,7 @@ proc genAssignment(
 
   let tet = tt.getElementType()
 
-  let ty = typ.skipTypes(abstractRange)
+  let ty = typ.skipTypes(abstractRange + tyUserTypeClasses)
   case ty.kind
   of tyRef:
     g.genRefAssign(g.genNode(v, true), t)
@@ -4205,7 +4211,8 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     if lfHeader in s.loc.flags or lfNoDecl in s.loc.flags:
       v = g.externGlobal(s)
     elif sfGlobal in s.flags or
-        (s.kind == skConst and n.sym.ast.isDeepConstExprLL(true)):
+        (s.kind == skConst and (n.sym.ast.isDeepConstExprLL(true) or
+        s.typ.kind notin ConstantDataTypes)):
       v = g.genGlobal(s)
     else:
       v = g.f.scopeGet(s.id)
@@ -4583,8 +4590,8 @@ proc genNodeBracketExprTuple(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     result = g.b.buildLoad(result, nn("bra.tup.load", n))
 
 proc genNodeBracketExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  var typ = skipTypes(n[0].typ, abstractInst + tyUserTypeClasses)
-  if typ.kind in {tyRef, tyPtr}: typ = typ.lastSon
+  var typ = skipTypes(n[0].typ, abstractVarRange + tyUserTypeClasses)
+  if typ.kind in {tyRef, tyPtr}: typ = typ.lastSon.skipTypes(abstractVarRange)
   case typ.kind
   of tyArray: result = g.genNodeBracketExprArray(n, load)
   of tyOpenArray, tyVarargs: result = g.genNodeBracketExprOpenArray(n, load)
@@ -5341,7 +5348,7 @@ proc genNodeState(g: LLGen, n: PNode) =
       break
 
 proc genNodeBreakState(g: LLGen, n: PNode) =
-  # TODO C code casts to int* and reads first value.. uh, I guess we should be
+  # TODO C code casts to int* and reads second value.. uh, I guess we should be
   # able to do better
   var ax: llvm.ValueRef
   if n[0].kind == nkClosure:
@@ -5352,7 +5359,7 @@ proc genNodeBreakState(g: LLGen, n: PNode) =
 
   ax = g.b.buildLoad(ax, nn("load.state.break", n))
   ax = g.b.buildBitCast(ax, llIntType.pointerType(), nn("state.break.intptr", n))
-  let s = g.b.buildLoad(ax, nn("state.break.s", n))
+  let s = g.b.buildLoad(g.b.buildGEP(ax, [gep1]), nn("state.break.s", n))
   let cmp = g.b.buildICmp(llvm.IntSLT, s, ni0, nn("state.break.cmp", n))
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
