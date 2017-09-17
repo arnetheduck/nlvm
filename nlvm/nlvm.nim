@@ -102,6 +102,9 @@ proc handleCmdLine() =
     nimconf.loadConfigs(DefaultConfig)
     service.processCmdLine(passCmd2, "")
 
+    #gSelectedGC = gcMarkAndSweep
+    #defineSymbol("gcmarkandsweep")
+
     # default signal handler does memory allocations and all kinds of
     # disallowed-in-signal-handler-stuff
     defineSymbol("noSignalHandler")

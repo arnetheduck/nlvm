@@ -4,6 +4,11 @@
 
 const LLVMLib = "libLLVM-4.0.so"
 
+{.passC: "-I../ext/llvm-4.0.0.src/include".}
+{.passC: "-I../ext/llvm-4.0.0.src/rel/include".}
+
+{.compile: "wrapper.cc".}
+
 # Includes and helpers for generated code
 type
   OpaqueMemoryBuffer = object
@@ -53,6 +58,100 @@ include llvm/Linker
 include llvm/Target
 include llvm/TargetMachine
 include llvm/Transforms/PassManagerBuilder
+
+# Our wrapper
+
+type
+  DIBuilder{.pure, final.} = object
+  OpaqueNimMetadata{.pure, final.} = object
+
+  NimDIBuilderRef* = ptr DIBuilder
+  NimMetadataRef* = ptr OpaqueNimMetadata
+
+# http://www.dwarfstd.org/doc/DWARF4.pdf
+const
+  DW_ATE_address* = 0x01.cuint
+  DW_ATE_boolean* = 0x02.cuint
+  DW_ATE_complex_float* = 0x03.cuint
+  DW_ATE_float* = 0x04.cuint
+  DW_ATE_signed* = 0x05.cuint
+  DW_ATE_signed_char* = 0x06.cuint
+  DW_ATE_unsigned* = 0x07.cuint
+  DW_ATE_unsigned_char* = 0x08.cuint
+  DW_ATE_imaginary_float* = 0x09.cuint
+  DW_ATE_packed_decimal* = 0x0a.cuint
+  DW_ATE_numeric_string* = 0x0b.cuint
+  DW_ATE_edited* = 0x0c.cuint
+  DW_ATE_signed_fixed* = 0x0d.cuint
+  DW_ATE_unsigned_fixed* = 0x0e.cuint
+  DW_ATE_decimal_float* = 0x0f.cuint
+  DW_ATE_UTF* = 0x10.cuint
+  DW_ATE_lo_user* = 0x80.cuint
+  DW_ATE_hi_user* = 0xff.cuint
+
+proc nimDebugMetadataVersion*(): uint32 {.importc: "LLVMNimDebugMetadataVersion".}
+proc nimAddModuleFlag*(m: ModuleRef, name: cstring, value: uint32) {.importc: "LLVMNimAddModuleFlag".}
+
+proc nimDIBuilderCreate*(m: ModuleRef): NimDIBuilderRef {.importc: "LLVMNimDIBuilderCreate".}
+proc nimDIBuilderDispose*(d: NimDIBuilderRef) {.importc: "LLVMNimDIBuilderDispose".}
+proc nimDIBuilderFinalize*(d: NimDIBuilderRef) {.importc: "LLVMNimDIBuilderFinalize".}
+proc nimDIBuilderCreateCompileUnit*(
+  d: NimDIBuilderRef, lang: cuint,
+  fileRef: NimMetadataRef, producer: cstring, isOptimized: bool,
+  flags: cstring, runtimeVer: cuint, splitName: cstring): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateCompileUnit".}
+proc nimDIBuilderCreateSubroutineType*(
+  d: NimDIBuilderRef, parameterTypes: NimMetadataRef): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateSubroutineType".}
+proc nimDIBuilderCreateFile*(
+  d: NimDIBuilderRef, filename: cstring,
+  directory: cstring): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateFile".}
+proc nimDIBuilderCreateFunction*(d: NimDIBuilderRef, scope: NimMetadataRef,
+  name: cstring, linkageName: cstring, file: NimMetadataRef, lineNo: cuint,
+  ty: NimMetadataRef, isLocalToUnit: bool, isDefinition: bool, scopeLine: cuint,
+  flags: cuint, isOptimized: bool, fn: llvm.ValueRef, tparam: NimMetadataRef,
+  decl: NimMetadataRef): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateFunction".}
+proc nimDIBuilderCreateBasicType*(
+  d: NimDIBuilderRef, name: cstring, bits: uint64,
+  encoding: cuint): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateBasicType".}
+proc nimDIBuilderCreatePointerType*(
+  d: NimDIBuilderRef, pointeeTy: NimMetadataRef, bits: uint64, align: uint32,
+  name: cstring): NimMetadataRef {.importc: "LLVMNimDIBuilderCreatePointerType".}
+proc nimDIBuilderCreateStructType*(
+  d: NimDIBuilderRef, scope: NimMetadataRef, name: cstring,
+  file: NimMetadataRef, lineNumber: cuint, sizeBits: uint64,
+  alignBits: uint32, flags: cuint, derivedFrom: NimMetadataRef,
+  elements: NimMetadataRef, runtimeLang: cuint, vtableHolder: NimMetadataRef,
+  uniqueId: cstring): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateStructType".}
+proc nimDIBuilderCreateMemberType*(
+  d: NimDIBuilderRef, scope: NimMetadataRef, name: cstring,
+  file: NimMetadataRef, lineNo: cuint, sizeBits: uint64, alignBits: uint32,
+  offsetBits: uint64, flags: cuint,
+  ty: NimMetadataRef): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateMemberType".}
+proc nimDIBuilderCreateStaticVariable*(
+  d: NimDIBuilderRef, context: NimMetadataRef, name: cstring,
+  linkageName: cstring, file: NimMetadataRef, lineNo: cuint, ty: NimMetadataRef,
+  isLocalToUnit: bool, v: ValueRef, decl: NimMetadataRef,
+  alignBits: uint32): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateStaticVariable".}
+proc nimDIBuilderCreateVariable*(
+  d: NimDIBuilderRef, tag: cuint, scope: NimMetadataRef, name: cstring,
+  file: NimMetadataRef, lineNo: cuint, ty: NimMetadataRef, alwaysPreserve: bool,
+  flags: cuint, argNo: cuint, alignBits: uint32): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateVariable".}
+proc nimDIBuilderCreateArrayType*(
+  d: NimDIBuilderRef, size: uint64, alignBits: uint32, ty: NimMetadataRef,
+  subscripts: NimMetadataRef): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateArrayType".}
+proc nimDIBuilderCreateSubrange*(
+  d: NimDIBuilderRef, lo, count: int64): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateSubrange".}
+proc nimDIBuilderGetOrCreateArray*(d: NimDIBuilderRef, p: ptr NimMetadataRef,
+  count: cuint): NimMetadataRef {.importc: "LLVMNimDIBuilderGetOrCreateArray".}
+proc nimDIBuilderInsertDeclareAtEnd*(
+  d: NimDIBuilderRef, v: ValueRef, varInfo: NimMetadataRef, addrOps: ptr int64,
+  addrOpsCount: cuint, dl: ValueRef,
+  insertAtEnd: BasicBlockRef): ValueRef {.importc: "LLVMNimDIBuilderInsertDeclareAtEnd".}
+proc nimDICompositeTypeSetTypeArray*(
+  d: NimDIBuilderRef, compositeTy: NimMetadataRef,
+  tyArray: NimMetadataRef) {.importc: "LLVMNimDICompositeTypeSetTypeArray".}
+proc nimDIBuilderCreateDebugLocation*(
+  ctx: ContextRef, line: cuint, column: cuint, scope: NimMetadataRef,
+  inlinedAt: NimMetadataRef): ValueRef {.importc: "LLVMNimDIBuilderCreateDebugLocation".}
 
 # A few helpers to make things more smooth
 
@@ -166,6 +265,12 @@ proc buildInBoundsGEP*(b: BuilderRef; pointer: ValueRef; indices: openarray[Valu
 proc buildCall*(a2: BuilderRef; fn: ValueRef; args: openarray[ValueRef];
                 name: cstring = ""): ValueRef =
   asRaw(args, buildCall(a2, fn, p, n, name))
+
+proc nimDIBuilderGetOrCreateArray*(
+  d: NimDIBuilderRef, elems: openarray[NimMetadataRef]): NimMetadataRef =
+  var tmp = @elems
+  var p = if tmp.len > 0: addr(tmp[0]) else: nil
+  d.nimDIBuilderGetOrCreateArray(p, tmp.len.cuint)
 
 template getEnumAttrKind(x: expr): expr = getEnumAttributeKindForName(x, x.len)
 
