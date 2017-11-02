@@ -965,7 +965,8 @@ template withBlock(b: llvm.BuilderRef, bb: llvm.BasicBlockRef, body: untyped) =
     b.positionBuilderAtEnd(bb)
     body
     b.positionBuilderAtEnd(pre)
-    b.setCurrentDebugLocation(db)
+    if optCDebug in gGlobalOptions:
+      b.setCurrentDebugLocation(db)
 
 proc finalize(b: llvm.BuilderRef, llf: LLFunc) =
   if llf.init == nil: return
@@ -3105,6 +3106,14 @@ proc genMagicLength(g: LLGen, n: PNode): llvm.ValueRef =
   of tyArray: result = constNimInt(lengthOrd(typ).int)
   else: internalError(n.info, "genMagicLength " & $n[1].typ)
 
+
+proc genMagicXLen(g: LLGen, n: PNode): llvm.ValueRef =
+  let v = g.genNode(n[1], true)
+
+  # load length if v is not nil
+  let gep = g.b.buildNimSeqLenGEP(v)
+  result = g.b.buildLoad(gep, nn("seq.len.load", n))
+
 proc genMagicIncl(g: LLGen, n: PNode) =
   let
     ax = g.genNode(n[1], false)
@@ -4094,6 +4103,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of mLengthStr: result = g.genMagicLength(n)
   of mLengthArray: result = g.genMagicLength(n)
   of mLengthSeq: result = g.genMagicLength(n)
+  of mXLenStr, mXLenSeq: result = g.genMagicXLen(n)
   of mIncl: g.genMagicIncl(n)
   of mExcl: g.genMagicExcl(n)
   of mCard: result = g.genMagicCard(n)
