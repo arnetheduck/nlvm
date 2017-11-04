@@ -271,12 +271,13 @@ proc idOrSig(g: LLGen; s: PSym): Rope =
       result.add "_" & rope(counter+1)
     g.sigConflicts.inc(sig)
 
-proc fillLoc(a: var TLoc, k: TLocKind, typ: PType, r: Rope, s: TStorageLoc) =
-  # from cgen
+# from c gen
+proc fillLoc(a: var TLoc, k: TLocKind, lode: PNode, r: Rope, s: TStorageLoc) =
+  # fills the loc if it is not already initialized
   if a.k == locNone:
     a.k = k
-    a.t = typ
-    a.s = s
+    a.lode = lode
+    a.storage = s
     if a.r == nil: a.r = r
 
 proc mangleName(g: LLGen; s: PSym): Rope =
@@ -1955,9 +1956,10 @@ proc externGlobal(g: LLGen, s: PSym): llvm.ValueRef =
     result = g.m.addGlobal(t, name)
     g.values[s.id] = result
 
-proc genLocal(g: LLGen, s: PSym): llvm.ValueRef =
+proc genLocal(g: LLGen, n: PNode): llvm.ValueRef =
+  let s = n.sym
   if s.loc.k == locNone:
-    fillLoc(s.loc, locLocalVar, s.typ, s.name.s.mangle.rope, OnStack)
+    fillLoc(s.loc, locLocalVar, n, s.name.s.mangle.rope, OnStack)
     if s.kind == skLet: incl(s.loc.flags, lfNoDeepCopy)
 
   let t = g.llType(s.typ)
@@ -1965,12 +1967,13 @@ proc genLocal(g: LLGen, s: PSym): llvm.ValueRef =
   g.f.scopePut(s.id, result)
   g.debugVariable(s, result)
 
-proc genGlobal(g: LLGen, s: PSym): llvm.ValueRef =
+proc genGlobal(g: LLGen, n: PNode): llvm.ValueRef =
+  let s = n.sym
   if s.id in g.values:
     return g.values[s.id]
 
   if s.loc.k == locNone:
-    fillLoc(s.loc, locGlobalVar, s.typ, g.mangleName(s), OnHeap)
+    fillLoc(s.loc, locGlobalVar, n, g.mangleName(s), OnHeap)
 
   let t = g.llType(s.typ.skipTypes(abstractInst))
   result = g.m.addGlobal(t, s.llName)
@@ -2219,7 +2222,7 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
     return g.values[s.id]
 
   if s.loc.k == locNone:
-    fillLoc(s.loc, locProc, s.typ, g.mangleName(s), OnStack)
+    fillLoc(s.loc, locProc, s.ast[namePos], g.mangleName(s), OnStack)
 
   let name = s.llName
 
@@ -2249,6 +2252,13 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
     f.setLinkage(llvm.InternalLinkage)
 
   result = f
+
+proc paramStorageLoc(param: PSym): TStorageLoc =
+  if param.typ.skipTypes({tyVar, tyTypeDesc}).kind notin {
+          tyArray, tyOpenArray, tyVarargs}:
+    result = OnStack
+  else:
+    result = OnUnknown
 
 proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
   result = g.genFunction(s)
@@ -2299,8 +2309,8 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
           return
       let param = typ.n[i]
 
-      fillLoc(param.sym.loc, locParam, param.sym.typ, param.sym.name.s.mangle.rope,
-              OnUnknown)  # TODO sometimes OnStack
+      fillLoc(param.sym.loc, locParam, param, param.sym.name.s.mangle.rope,
+              param.sym.paramStorageLoc)  # TODO sometimes OnStack
 
       p("a", param, g.depth + 1)
       p("a", param.typ, g.depth + 2)
@@ -2332,9 +2342,10 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
 
     var ret: llvm.ValueRef
     if sfPure notin s.flags and typ.sons[0] != nil:
-      let res = s.ast[resultPos].sym
+      let resNode = s.ast[resultPos]
+      let res = resNode.sym
       if sfNoInit in s.flags: incl(res.flags, sfNoInit)
-      ret = g.genLocal(res)
+      ret = g.genLocal(resNode)
       g.buildStoreNull(ret)
 
     if tfCapturesEnv in typ.flags:
@@ -2921,30 +2932,13 @@ proc genMagicOf(g: LLGen, n: PNode): llvm.ValueRef =
 proc genMagicEcho(g: LLGen, n: PNode) =
   let b = n[1].skipConv
 
-  var nilStr = g.m.getNamedGlobal("echo.nil")
-  if nilStr == nil:
-    nilStr = g.b.buildGlobalStringPtr("nil", "echo.nil")
-  else:
-    nilStr = g.b.buildBitCast(nilStr, llCStringType, nn("echo.nil", n))
+  if b.len == 0:
+    let t = llNimStringDescPtr.pointerType()
+    discard g.callCompilerProc("echoBinSafe", [constNull(t), constNimInt(0)])
 
-  proc getCStr(v: llvm.ValueRef): llvm.ValueRef =
-    let cmp = g.b.buildICmp(llvm.IntEQ, v, constNull(v.typeOf()), nn("echo.isnil", n))
-    result = g.b.buildSelect(cmp, nilStr, g.b.buildNimSeqDataGEP(v), nn("echo.s", n))
-
-  let args = b.sons.
-    mapIt(llvm.ValueRef, g.genNode(it, true)).
-    mapIt(llvm.ValueRef, getCStr(it))
-
-  var v = g.m.getNamedGlobal("echo." & $args.len)
-  if v == nil:
-    let arg0 = "%s".repeat(args.len) & "\n"
-    v = g.b.buildGlobalStringPtr(arg0, "echo." & $args.len)
-  else:
-    v = g.b.buildBitCast(v, llCStringType, nn("echo." & $args.len, n))
-
-  let f = g.m.getOrInsertFunction("printf", llPrintfType)
-
-  discard g.b.buildCall(f, v & args)
+  let x = g.genNode(b, true)
+  let y = constNimInt(b.len)
+  discard g.callCompilerProc("echoBinSafe", [x, y])
 
 proc genMagicUnaryLt(g: LLGen, n: PNode): llvm.ValueRef =
   let
@@ -4223,7 +4217,7 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     elif sfGlobal in s.flags or
         (s.kind == skConst and (n.sym.ast.isDeepConstExprLL(true) or
         s.typ.kind notin ConstantDataTypes)):
-      v = g.genGlobal(s)
+      v = g.genGlobal(n)
     else:
       v = g.f.scopeGet(s.id)
 
@@ -4311,7 +4305,8 @@ proc genNodeCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   result = g.genCall(n, load)
 
 proc genSingleVar(g: LLGen, n: PNode) =
-  let v = n[0].sym
+  let vn = n[0]
+  let v = vn.sym
 
   if sfCompileTime in v.flags: return
   if sfGoto in v.flags: internalError(n.info, "Goto vars not supported")
@@ -4325,7 +4320,7 @@ proc genSingleVar(g: LLGen, n: PNode) =
         v.loc.flags * {lfHeader, lfNoDecl} != {}:
       return
 
-    x = g.genGlobal(v)
+    x = g.genGlobal(vn)
 
     if v.kind == skLet or g.f.loopNesting == 0:
       if init.isDeepConstExprLL(true):
@@ -4342,7 +4337,7 @@ proc genSingleVar(g: LLGen, n: PNode) =
     if g.f.loopNesting > 0:
       discard g.callCompilerProc("genericReset", [x, g.genTypeInfo(v.typ)])
   else:
-    x = g.genLocal(v)
+    x = g.genLocal(vn)
 
     # Some initializers expect value to be null, so we always set it so
     g.buildStoreNull(x)
@@ -4373,23 +4368,23 @@ proc genNodeVarTuple(g: LLGen, n: PNode) =
   let t = g.genNode(n.lastSon, false)
 
   for i in 0..n.sonsLen - 3:
-    let s = n[i]
-    let v = s.sym
+    let vn = n[i]
+    let v = vn.sym
 
     var x: llvm.ValueRef
 
     if sfGlobal in v.flags:
-      x = g.genGlobal(v)
+      x = g.genGlobal(vn)
       g.genObjectInit(v.typ, x)
       g.registerGcRoot(v, x)
     else:
-      x = g.genLocal(v)
+      x = g.genLocal(vn)
       g.buildStoreNull(x)
       g.genObjectInit(v.typ, x)
 
-    let tv = g.b.buildGEP(t, [gep0, constGEPIdx(i)], nn("vartuple." & $i, s))
+    let tv = g.b.buildGEP(t, [gep0, constGEPIdx(i)], nn("vartuple." & $i, vn))
 
-    g.genAsgnFromRef(tv, x, s.typ)
+    g.genAsgnFromRef(tv, x, vn.typ)
 
 proc genNodePar(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if n.isDeepConstExprLL(true):
@@ -5015,7 +5010,8 @@ proc genNodeConstDef(g: LLGen, n: PNode) =
   # TODO generate lazily
   for s in n.sons: p("genConstDefStmt", s, g.depth + 1)
 
-  let v = n[0].sym
+  let vn = n[0]
+  let v = vn.sym
 
   if v.typ.containsCompileTimeOnly: return
   if lfNoDecl in v.loc.flags: return
@@ -5027,7 +5023,7 @@ proc genNodeConstDef(g: LLGen, n: PNode) =
     let ci = g.genConstInitializer(init)
     if ci == nil: internalError(n.info, "Unable to generate const initializer: " & $init)
 
-    let x = g.genGlobal(v)
+    let x = g.genGlobal(vn)
     x.setGlobalConstant(llvm.True)
 
     # TODO when enabled, ptr equality checks (for example in isObj) get
@@ -5044,7 +5040,7 @@ proc genNodeConstDef(g: LLGen, n: PNode) =
 
   var x: llvm.ValueRef
   if sfGlobal in v.flags:
-    x = g.genGlobal(v)
+    x = g.genGlobal(vn)
     g.registerGcRoot(v, x)
   else:
     x = g.b.localAlloca(g.llType(v.typ), v.llName)
