@@ -1463,7 +1463,7 @@ proc genTypeInfoInit(g: LLGen, t: PType, ntlt, lt: llvm.TypeRef,
     if t.kind == tyObject and not t.hasTypeField(): tyPureObject
     elif t.kind == tyProc and t.callConv == ccClosure: tyTuple
     else: t.kind
-  let kindVar = constInt8(ord(kind))
+  let kindVar = constInt8(int8(ord(kind)))
 
   var flags = 0'i8
   if not containsGarbageCollectedRef(t): flags = flags or 1
@@ -1933,7 +1933,7 @@ proc preCast(
     return
 
   if ltk == IntegerTypeKind and atk == IntegerTypeKind and
-      at.getIntTypeWidth() < lt.getIntTypeWidth():
+      at.getIntTypeWidth() != lt.getIntTypeWidth():
     result = g.b.buildTruncOrExt(ax, lt, unsigned)
     return
   result = ax
@@ -2783,9 +2783,14 @@ proc genAssignment(
   of tyPtr, tyPointer, tyChar, tyBool, tyEnum, tyCString,
      tyInt..tyUInt64, tyRange, tyVar:
     let x = g.genNode(v, true)
-    discard g.b.buildStore(g.b.buildBitCast(x, tet, nn("asgn.c", v)), t)
+    let pc = g.preCast(typ.isUnsigned(), x, typ, tet)
+    discard g.b.buildStore(pc, t)
 
-  else: internalError(v.info, "genAssignment: " & $ty.kind)
+  of tyNil:
+    discard g.b.buildStore(constNull(tet), t)
+
+  else:
+    internalError(v.info, "genAssignment: " & $ty.kind)
 
 proc isDeepConstExprLL(n: PNode, strict: bool): bool =
   # strict means that anything involving a separate constant and a cast is
@@ -2891,11 +2896,13 @@ proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef =
       for i in 0..<vals.len:
         vals[i] = llvm.constNull(t.structGetTypeAtIndex(i.cuint))
       for i in 1..<n.len:
+        let s = n[i]
+        let ind = fieldIndex(n.typ, s[0].sym)[0]
         if n[i].isSeqLike():
           # Need pointer for string literals
-          vals[i-1] = g.genNode(n[i], true)
+          vals[ind] = g.genNode(n[i], true)
         else:
-          vals[i-1] = g.genConstInitializer(n[i])
+          vals[ind] = g.genConstInitializer(n[i])
       result = constNamedStruct(t, vals)
     else:
       result = nil
@@ -4286,6 +4293,10 @@ proc genNodeStrLit(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     result = constBitCast(s, llCStringType)
 
 proc genNodeNilLit(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+  # proc x() = nil
+  if n.typ.isEmptyType:
+    return nil
+
   let t = g.llType(n.typ)
   if load:
     result = llvm.constNull(t)
