@@ -4297,7 +4297,7 @@ proc genNodeNilLit(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if n.typ.isEmptyType:
     return nil
 
-  let t = g.llType(n.typ)
+  let t = g.llType(n.typ.skipTypes(abstractVarRange))
   if load:
     result = llvm.constNull(t)
   else:
@@ -4921,14 +4921,14 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
 
-  let isString = skipTypes(n[0].typ, abstractInst).kind == tyString
+  let isString = skipTypes(n[0].typ, abstractVarRange).kind == tyString
 
   let ax = g.genNode(n[0], true)
 
   let caseend = f.appendBasicBlock(nn("case.end", n))
 
   if not n.typ.isEmptyType():
-    result = g.b.localAlloca(g.llType(n[0].typ), nn("case.res", n))
+    result = g.b.localAlloca(g.llType(n.typ), nn("case.res", n))
     g.buildStoreNull(result)
 
   for i in 1..<n.sonsLen:
