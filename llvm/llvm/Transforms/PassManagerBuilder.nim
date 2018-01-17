@@ -1,74 +1,74 @@
-## #===-- llvm-c/Transform/PassManagerBuilder.h - PMB C Interface ---*- C -*-===*\
-## #|*                                                                            *|
-## #|*                     The LLVM Compiler Infrastructure                       *|
-## #|*                                                                            *|
-## #|* This file is distributed under the University of Illinois Open Source      *|
-## #|* License. See LICENSE.TXT for details.                                      *|
-## #|*                                                                            *|
-## #|*===----------------------------------------------------------------------===*|
-## #|*                                                                            *|
-## #|* This header declares the C interface to the PassManagerBuilder class.      *|
-## #|*                                                                            *|
-## #\*===----------------------------------------------------------------------===
+## ===-- llvm-c/Transform/PassManagerBuilder.h - PMB C Interface ---*- C -*-===*\
+## |*                                                                            *|
+## |*                     The LLVM Compiler Infrastructure                       *|
+## |*                                                                            *|
+## |* This file is distributed under the University of Illinois Open Source      *|
+## |* License. See LICENSE.TXT for details.                                      *|
+## |*                                                                            *|
+## |*===----------------------------------------------------------------------===*|
+## |*                                                                            *|
+## |* This header declares the C interface to the PassManagerBuilder class.      *|
+## |*                                                                            *|
+## \*===----------------------------------------------------------------------===
 
 type
   PassManagerBuilderRef* = ptr OpaquePassManagerBuilder
 
-## #*
-## #  @defgroup LLVMCTransformsPassManagerBuilder Pass manager builder
-## #  @ingroup LLVMCTransforms
-## # 
-## #  @{
-## # 
-## #* See llvm::PassManagerBuilder. 
+## *
+##  @defgroup LLVMCTransformsPassManagerBuilder Pass manager builder
+##  @ingroup LLVMCTransforms
+## 
+##  @{
+## 
+## * See llvm::PassManagerBuilder.
 
 proc passManagerBuilderCreate*(): PassManagerBuilderRef {.
     importc: "LLVMPassManagerBuilderCreate", dynlib: LLVMLib.}
 proc passManagerBuilderDispose*(pmb: PassManagerBuilderRef) {.
     importc: "LLVMPassManagerBuilderDispose", dynlib: LLVMLib.}
-## #* See llvm::PassManagerBuilder::OptLevel. 
+## * See llvm::PassManagerBuilder::OptLevel.
 
 proc passManagerBuilderSetOptLevel*(pmb: PassManagerBuilderRef; optLevel: cuint) {.
     importc: "LLVMPassManagerBuilderSetOptLevel", dynlib: LLVMLib.}
-## #* See llvm::PassManagerBuilder::SizeLevel. 
+## * See llvm::PassManagerBuilder::SizeLevel.
 
 proc passManagerBuilderSetSizeLevel*(pmb: PassManagerBuilderRef; sizeLevel: cuint) {.
     importc: "LLVMPassManagerBuilderSetSizeLevel", dynlib: LLVMLib.}
-## #* See llvm::PassManagerBuilder::DisableUnitAtATime. 
+## * See llvm::PassManagerBuilder::DisableUnitAtATime.
 
 proc passManagerBuilderSetDisableUnitAtATime*(pmb: PassManagerBuilderRef;
     value: Bool) {.importc: "LLVMPassManagerBuilderSetDisableUnitAtATime",
                  dynlib: LLVMLib.}
-## #* See llvm::PassManagerBuilder::DisableUnrollLoops. 
+## * See llvm::PassManagerBuilder::DisableUnrollLoops.
 
 proc passManagerBuilderSetDisableUnrollLoops*(pmb: PassManagerBuilderRef;
     value: Bool) {.importc: "LLVMPassManagerBuilderSetDisableUnrollLoops",
                  dynlib: LLVMLib.}
-## #* See llvm::PassManagerBuilder::DisableSimplifyLibCalls 
+## * See llvm::PassManagerBuilder::DisableSimplifyLibCalls
 
 proc passManagerBuilderSetDisableSimplifyLibCalls*(pmb: PassManagerBuilderRef;
     value: Bool) {.importc: "LLVMPassManagerBuilderSetDisableSimplifyLibCalls",
                  dynlib: LLVMLib.}
-## #* See llvm::PassManagerBuilder::Inliner. 
+## * See llvm::PassManagerBuilder::Inliner.
 
 proc passManagerBuilderUseInlinerWithThreshold*(pmb: PassManagerBuilderRef;
     threshold: cuint) {.importc: "LLVMPassManagerBuilderUseInlinerWithThreshold",
                       dynlib: LLVMLib.}
-## #* See llvm::PassManagerBuilder::populateFunctionPassManager. 
+## * See llvm::PassManagerBuilder::populateFunctionPassManager.
 
 proc passManagerBuilderPopulateFunctionPassManager*(pmb: PassManagerBuilderRef;
     pm: PassManagerRef) {.importc: "LLVMPassManagerBuilderPopulateFunctionPassManager",
                         dynlib: LLVMLib.}
-## #* See llvm::PassManagerBuilder::populateModulePassManager. 
+## * See llvm::PassManagerBuilder::populateModulePassManager.
 
 proc passManagerBuilderPopulateModulePassManager*(pmb: PassManagerBuilderRef;
     pm: PassManagerRef) {.importc: "LLVMPassManagerBuilderPopulateModulePassManager",
                         dynlib: LLVMLib.}
-## #* See llvm::PassManagerBuilder::populateLTOPassManager. 
+## * See llvm::PassManagerBuilder::populateLTOPassManager.
 
 proc passManagerBuilderPopulateLTOPassManager*(pmb: PassManagerBuilderRef;
     pm: PassManagerRef; internalize: Bool; runInliner: Bool) {.
     importc: "LLVMPassManagerBuilderPopulateLTOPassManager", dynlib: LLVMLib.}
-## #*
-## #  @}
-## # 
+## *
+##  @}
+## 

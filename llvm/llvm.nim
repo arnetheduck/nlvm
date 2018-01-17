@@ -2,10 +2,10 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-const LLVMLib = "libLLVM-4.0.so"
+const LLVMLib = "libLLVM-5.0.so"
 
-{.passC: "-I../ext/llvm-4.0.0.src/include".}
-{.passC: "-I../ext/llvm-4.0.0.src/rel/include".}
+{.passC: "-I../ext/llvm-5.0.1.src/include".}
+{.passC: "-I../ext/llvm-5.0.1.src/rel/include".}
 
 {.compile: "wrapper.cc".}
 
@@ -29,6 +29,8 @@ type
   OpaqueDiagnosticInfo{.pure, final.} = object
   OpaqueTargetMachine{.pure, final.} = object
   OpaquePassManagerBuilder{.pure, final.} = object
+  OpaqueMetaData{.pure, final.} = object
+  OpaqueDIBuilder{.pure, final.} = object
   target{.pure, final.} = object
 
   # Funny type names that came out of c2nim
