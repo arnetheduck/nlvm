@@ -4,6 +4,7 @@ os:
   - linux
 dist: trusty
 cache: ccache
+compiler: clang
 
 addons:
   apt:
