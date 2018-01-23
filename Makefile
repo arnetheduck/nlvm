@@ -6,11 +6,17 @@ LLVMPATH=../ext
 
 #NIMFLAGS=--opt:speed --gc:markandsweep
 #NIMFLAGS=-d:release
-NIMFLAGS=--opt:speed
+NIMFLAGS=
 
-NLVMFLAGS=--opt:speed --gc:markandsweep
+NLVMFLAGS=--gc:markandsweep
 
-LLVMLIBS="-l:-lLLVM-5.0" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=\$$ORIGIN/$(LLVMPATH)'"
+LLVMLIB=LLVM-5.0
+
+LLVMLIBS="-l:-l$(LLVMLIB)" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=\$$ORIGIN/$(LLVMPATH)'"
+
+ifeq (,$(wildcard ext/lib$(LLVMLIB).so))
+    $(error run make-llvm.sh before trying to build nlvm)
+endif
 
 .PHONY: all
 all: $(NLVMC)
@@ -60,3 +66,4 @@ self: nlvm/nlvm.self
 .PHONY: clean
 clean:
 	rm -rf $(NLVMC) nlvm/nimcache nlvm/nlvm.self Nim/tests/testament/tester
+
