@@ -22,5 +22,5 @@ before_script:
   - cd ..
   - PATH=$TRAVIS_BUILD_DIR/ext/cmake-3.8.0-Linux-x86_64/bin:$PATH bash make-llvm.sh || true
 script:
-  - "{ ! ls ext/libLLVM* >/dev/null 2>&1 } || make"
+  - make
   #  - make test || true
