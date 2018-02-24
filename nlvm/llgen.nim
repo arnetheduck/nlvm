@@ -101,12 +101,12 @@ type LLFunc = ref object
   loopNesting: int
   init: llvm.BasicBlockRef
 
-  ds: llvm.NimMetadataRef
+  ds: llvm.MetadataRef
 
 type LLGenObj = object of TPassContext
   m: llvm.ModuleRef
   b: llvm.BuilderRef
-  d: llvm.NimDIBuilderRef
+  d: llvm.DIBuilderRef
   f: LLFunc
 
   values: Table[int, llvm.ValueRef]
@@ -127,13 +127,13 @@ type LLGenObj = object of TPassContext
   sigConflicts: CountTable[SigHash]
 
   # Debug stuff
-  dfiles: Table[int, llvm.NimMetadataRef]
-  dscopes: Table[int, llvm.NimMetadataRef]
-  dtypes: array[TTypeKind, llvm.NimMetadataRef]
-  dstructs: Table[SigHash, llvm.NimMetadataRef]
+  dfiles: Table[int, llvm.MetadataRef]
+  dscopes: Table[int, llvm.MetadataRef]
+  dtypes: array[TTypeKind, llvm.MetadataRef]
+  dstructs: Table[SigHash, llvm.MetadataRef]
 
   # Compile unit
-  dcu: llvm.NimMetadataRef
+  dcu: llvm.MetadataRef
 
 type LLGen = ref LLGenObj
 
@@ -563,7 +563,7 @@ proc buildStoreNull(g: LLGen, v: llvm.ValueRef) =
   else:
     discard g.b.buildStore(constNull(et), v)
 
-proc debugGetFile(g: LLGen, idx: int32): llvm.NimMetadataRef =
+proc debugGetFile(g: LLGen, idx: int32): llvm.MetadataRef =
   if idx in g.dfiles: return g.dfiles[idx]
 
   let path = idx.toFullPath
@@ -572,11 +572,11 @@ proc debugGetFile(g: LLGen, idx: int32): llvm.NimMetadataRef =
 
   g.dfiles[idx] = result
 
-proc debugStructType(g: LLGen, typ: PType): llvm.NimMetadataRef
-proc debugTupleType(g: LLGen, typ: PType): llvm.NimMetadataRef
-proc debugMagicType(g: LLGen, name: string): llvm.NimMetadataRef
+proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef
+proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef
+proc debugMagicType(g: LLGen, name: string): llvm.MetadataRef
 
-proc debugType(g: LLGen, typ: PType): llvm.NimMetadataRef =
+proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
   if g.d == nil: return nil
 
   case typ.kind
@@ -609,7 +609,7 @@ proc debugType(g: LLGen, typ: PType): llvm.NimMetadataRef =
     result = g.d.nimDIBuilderCreatePointerType(
       g.debugType(typ.lastSon), 64, 64, "")
   of tySequence:
-    var st: llvm.NimMetadataRef
+    var st: llvm.MetadataRef
 
     let sig = hashType(typ)
 
@@ -674,7 +674,7 @@ proc align(address, alignment: int): int =
   result = (address + (alignment - 1)) and not (alignment - 1)
 
 proc debugStructFields(
-    g: LLGen, elements: var seq[NimMetadataRef], n: PNode, typ: PType,
+    g: LLGen, elements: var seq[MetadataRef], n: PNode, typ: PType,
     offset: var int) =
   case n.kind
   of nkRecList:
@@ -702,7 +702,7 @@ proc debugStructFields(
     elements.add(member)
   else: internalError(n.info, "debugStructFields")
 
-proc debugStructType(g: LLGen, typ: PType): llvm.NimMetadataRef =
+proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
   if typ == nil:
     return
 
@@ -732,7 +732,7 @@ proc debugStructType(g: LLGen, typ: PType): llvm.NimMetadataRef =
 
   g.dstructs[sig] = result
 
-  var elements = newSeq[NimMetadataRef]()
+  var elements = newSeq[MetadataRef]()
 
   var offset: int
 
@@ -766,7 +766,7 @@ proc debugStructType(g: LLGen, typ: PType): llvm.NimMetadataRef =
   g.d.nimDICompositeTypeSetTypeArray(
     result, g.d.nimDIBuilderGetOrCreateArray(elements))
 
-proc debugTupleType(g: LLGen, typ: PType): llvm.NimMetadataRef =
+proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
   if typ == nil:
     return
 
@@ -785,7 +785,7 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.NimMetadataRef =
 
   g.dstructs[sig] = result
 
-  var elements = newSeq[NimMetadataRef]()
+  var elements = newSeq[MetadataRef]()
   var offset: int
   for t in typ.sons:
     let size = getSize(t) * 8
@@ -798,10 +798,10 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.NimMetadataRef =
   g.d.nimDICompositeTypeSetTypeArray(
     result, g.d.nimDIBuilderGetOrCreateArray(elements))
 
-proc debugMagicType(g: LLGen, name: string): llvm.NimMetadataRef =
+proc debugMagicType(g: LLGen, name: string): llvm.MetadataRef =
   g.debugType(magicsys.getCompilerProc(name).typ)
 
-proc debugProcParamType(g: LLGen, t: PType): llvm.NimMetadataRef =
+proc debugProcParamType(g: LLGen, t: PType): llvm.MetadataRef =
   let typ = t.skipTypes(abstractInst)
   case typ.kind:
   of tyArray, tyOpenArray, tyVarargs, tyObject, tyTuple:
@@ -818,8 +818,8 @@ proc debugProcParamType(g: LLGen, t: PType): llvm.NimMetadataRef =
   of tyDistinct, tyAlias, tyInferred: result = g.debugProcParamType(t.lastSon)
   else: result = g.debugType(t)
 
-proc debugProcType(g: LLGen, typ: PType, closure: bool): llvm.NimMetadataRef =
-  var argTypes = newSeq[llvm.NimMetadataRef]()
+proc debugProcType(g: LLGen, typ: PType, closure: bool): llvm.MetadataRef =
+  var argTypes = newSeq[llvm.MetadataRef]()
 
   let retType = if typ.sons[0] == nil: nil
                 else: g.debugType(typ.sons[0])
@@ -838,7 +838,7 @@ proc debugProcType(g: LLGen, typ: PType, closure: bool): llvm.NimMetadataRef =
 
   result = g.d.nimDIBuilderGetOrCreateArray(argTypes)
 
-proc debugGetScope(g: LLGen, sym: PSym): llvm.NimMetadataRef =
+proc debugGetScope(g: LLGen, sym: PSym): llvm.MetadataRef =
   var sym = sym
   while sym != nil and sym.kind notin {skProc, skModule}:
     sym = sym.owner
@@ -891,8 +891,8 @@ proc debugGlobal(g: LLGen, sym: PSym, v: llvm.ValueRef, argNo = -1) =
     sym.info.line.cuint, dt, false, v, nil, 0)
 
 proc debugFunction(
-    g: LLGen, s: PSym, params: llvm.NimMetadataRef,
-    f: llvm.ValueRef): llvm.NimMetadataRef =
+    g: LLGen, s: PSym, params: llvm.MetadataRef,
+    f: llvm.ValueRef): llvm.MetadataRef =
   let st = g.d.nimDIBuilderCreateSubroutineType(params)
   let df = g.debugGetFile(if s == nil: gProjectMainIdx else: s.info.fileIndex)
   result = g.d.nimDIBuilderCreateFunction(
@@ -1339,7 +1339,7 @@ proc genMarkerSeq(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
 
 proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
   g.b.withBlock(llvm.appendBasicBlock(f, nn("entry"))):
-    var scope: llvm.NimMetadataRef
+    var scope: llvm.MetadataRef
 
     if g.d != nil:
       let arr = g.d.nimDIBuilderGetOrCreateArray(
@@ -5502,9 +5502,9 @@ proc newLLGen(s: PSym): LLGen =
   if optCDebug in gGlobalOptions:
     let d = nimDIBuilderCreate(result.m)
     result.d = d
-    result.dfiles = initTable[int, llvm.NimMetadataRef]()
-    result.dscopes = initTable[int, llvm.NimMetadataRef]()
-    result.dstructs = initTable[SigHash, llvm.NimMetadataRef]()
+    result.dfiles = initTable[int, llvm.MetadataRef]()
+    result.dscopes = initTable[int, llvm.MetadataRef]()
+    result.dstructs = initTable[SigHash, llvm.MetadataRef]()
     let df = result.debugGetFile(gProjectMainIdx)
     result.dcu = d.nimDIBuilderCreateCompileUnit(
       2, df, "", false, "", 0, "")

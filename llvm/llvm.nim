@@ -61,15 +61,6 @@ include llvm/Target
 include llvm/TargetMachine
 include llvm/Transforms/PassManagerBuilder
 
-# Our wrapper
-
-type
-  DIBuilder{.pure, final.} = object
-  OpaqueNimMetadata{.pure, final.} = object
-
-  NimDIBuilderRef* = ptr DIBuilder
-  NimMetadataRef* = ptr OpaqueNimMetadata
-
 # http://www.dwarfstd.org/doc/DWARF4.pdf
 const
   DW_ATE_address* = 0x01.cuint
@@ -94,66 +85,66 @@ const
 proc nimDebugMetadataVersion*(): uint32 {.importc: "LLVMNimDebugMetadataVersion".}
 proc nimAddModuleFlag*(m: ModuleRef, name: cstring, value: uint32) {.importc: "LLVMNimAddModuleFlag".}
 
-proc nimDIBuilderCreate*(m: ModuleRef): NimDIBuilderRef {.importc: "LLVMNimDIBuilderCreate".}
-proc nimDIBuilderDispose*(d: NimDIBuilderRef) {.importc: "LLVMNimDIBuilderDispose".}
-proc nimDIBuilderFinalize*(d: NimDIBuilderRef) {.importc: "LLVMNimDIBuilderFinalize".}
+proc nimDIBuilderCreate*(m: ModuleRef): DIBuilderRef {.importc: "LLVMNimDIBuilderCreate".}
+proc nimDIBuilderDispose*(d: DIBuilderRef) {.importc: "LLVMNimDIBuilderDispose".}
+proc nimDIBuilderFinalize*(d: DIBuilderRef) {.importc: "LLVMNimDIBuilderFinalize".}
 proc nimDIBuilderCreateCompileUnit*(
-  d: NimDIBuilderRef, lang: cuint,
-  fileRef: NimMetadataRef, producer: cstring, isOptimized: bool,
-  flags: cstring, runtimeVer: cuint, splitName: cstring): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateCompileUnit".}
+  d: DIBuilderRef, lang: cuint,
+  fileRef: MetadataRef, producer: cstring, isOptimized: bool,
+  flags: cstring, runtimeVer: cuint, splitName: cstring): MetadataRef {.importc: "LLVMNimDIBuilderCreateCompileUnit".}
 proc nimDIBuilderCreateSubroutineType*(
-  d: NimDIBuilderRef, parameterTypes: NimMetadataRef): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateSubroutineType".}
+  d: DIBuilderRef, parameterTypes: MetadataRef): MetadataRef {.importc: "LLVMNimDIBuilderCreateSubroutineType".}
 proc nimDIBuilderCreateFile*(
-  d: NimDIBuilderRef, filename: cstring,
-  directory: cstring): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateFile".}
-proc nimDIBuilderCreateFunction*(d: NimDIBuilderRef, scope: NimMetadataRef,
-  name: cstring, linkageName: cstring, file: NimMetadataRef, lineNo: cuint,
-  ty: NimMetadataRef, isLocalToUnit: bool, isDefinition: bool, scopeLine: cuint,
-  flags: cuint, isOptimized: bool, fn: llvm.ValueRef, tparam: NimMetadataRef,
-  decl: NimMetadataRef): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateFunction".}
+  d: DIBuilderRef, filename: cstring,
+  directory: cstring): MetadataRef {.importc: "LLVMNimDIBuilderCreateFile".}
+proc nimDIBuilderCreateFunction*(d: DIBuilderRef, scope: MetadataRef,
+  name: cstring, linkageName: cstring, file: MetadataRef, lineNo: cuint,
+  ty: MetadataRef, isLocalToUnit: bool, isDefinition: bool, scopeLine: cuint,
+  flags: cuint, isOptimized: bool, fn: llvm.ValueRef, tparam: MetadataRef,
+  decl: MetadataRef): MetadataRef {.importc: "LLVMNimDIBuilderCreateFunction".}
 proc nimDIBuilderCreateBasicType*(
-  d: NimDIBuilderRef, name: cstring, bits: uint64,
-  encoding: cuint): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateBasicType".}
+  d: DIBuilderRef, name: cstring, bits: uint64,
+  encoding: cuint): MetadataRef {.importc: "LLVMNimDIBuilderCreateBasicType".}
 proc nimDIBuilderCreatePointerType*(
-  d: NimDIBuilderRef, pointeeTy: NimMetadataRef, bits: uint64, align: uint32,
-  name: cstring): NimMetadataRef {.importc: "LLVMNimDIBuilderCreatePointerType".}
+  d: DIBuilderRef, pointeeTy: MetadataRef, bits: uint64, align: uint32,
+  name: cstring): MetadataRef {.importc: "LLVMNimDIBuilderCreatePointerType".}
 proc nimDIBuilderCreateStructType*(
-  d: NimDIBuilderRef, scope: NimMetadataRef, name: cstring,
-  file: NimMetadataRef, lineNumber: cuint, sizeBits: uint64,
-  alignBits: uint32, flags: cuint, derivedFrom: NimMetadataRef,
-  elements: NimMetadataRef, runtimeLang: cuint, vtableHolder: NimMetadataRef,
-  uniqueId: cstring): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateStructType".}
+  d: DIBuilderRef, scope: MetadataRef, name: cstring,
+  file: MetadataRef, lineNumber: cuint, sizeBits: uint64,
+  alignBits: uint32, flags: cuint, derivedFrom: MetadataRef,
+  elements: MetadataRef, runtimeLang: cuint, vtableHolder: MetadataRef,
+  uniqueId: cstring): MetadataRef {.importc: "LLVMNimDIBuilderCreateStructType".}
 proc nimDIBuilderCreateMemberType*(
-  d: NimDIBuilderRef, scope: NimMetadataRef, name: cstring,
-  file: NimMetadataRef, lineNo: cuint, sizeBits: uint64, alignBits: uint32,
+  d: DIBuilderRef, scope: MetadataRef, name: cstring,
+  file: MetadataRef, lineNo: cuint, sizeBits: uint64, alignBits: uint32,
   offsetBits: uint64, flags: cuint,
-  ty: NimMetadataRef): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateMemberType".}
+  ty: MetadataRef): MetadataRef {.importc: "LLVMNimDIBuilderCreateMemberType".}
 proc nimDIBuilderCreateStaticVariable*(
-  d: NimDIBuilderRef, context: NimMetadataRef, name: cstring,
-  linkageName: cstring, file: NimMetadataRef, lineNo: cuint, ty: NimMetadataRef,
-  isLocalToUnit: bool, v: ValueRef, decl: NimMetadataRef,
-  alignBits: uint32): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateStaticVariable".}
+  d: DIBuilderRef, context: MetadataRef, name: cstring,
+  linkageName: cstring, file: MetadataRef, lineNo: cuint, ty: MetadataRef,
+  isLocalToUnit: bool, v: ValueRef, decl: MetadataRef,
+  alignBits: uint32): MetadataRef {.importc: "LLVMNimDIBuilderCreateStaticVariable".}
 proc nimDIBuilderCreateVariable*(
-  d: NimDIBuilderRef, tag: cuint, scope: NimMetadataRef, name: cstring,
-  file: NimMetadataRef, lineNo: cuint, ty: NimMetadataRef, alwaysPreserve: bool,
-  flags: cuint, argNo: cuint, alignBits: uint32): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateVariable".}
+  d: DIBuilderRef, tag: cuint, scope: MetadataRef, name: cstring,
+  file: MetadataRef, lineNo: cuint, ty: MetadataRef, alwaysPreserve: bool,
+  flags: cuint, argNo: cuint, alignBits: uint32): MetadataRef {.importc: "LLVMNimDIBuilderCreateVariable".}
 proc nimDIBuilderCreateArrayType*(
-  d: NimDIBuilderRef, size: uint64, alignBits: uint32, ty: NimMetadataRef,
-  subscripts: NimMetadataRef): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateArrayType".}
+  d: DIBuilderRef, size: uint64, alignBits: uint32, ty: MetadataRef,
+  subscripts: MetadataRef): MetadataRef {.importc: "LLVMNimDIBuilderCreateArrayType".}
 proc nimDIBuilderCreateSubrange*(
-  d: NimDIBuilderRef, lo, count: int64): NimMetadataRef {.importc: "LLVMNimDIBuilderCreateSubrange".}
-proc nimDIBuilderGetOrCreateArray*(d: NimDIBuilderRef, p: ptr NimMetadataRef,
-  count: cuint): NimMetadataRef {.importc: "LLVMNimDIBuilderGetOrCreateArray".}
+  d: DIBuilderRef, lo, count: int64): MetadataRef {.importc: "LLVMNimDIBuilderCreateSubrange".}
+proc nimDIBuilderGetOrCreateArray*(d: DIBuilderRef, p: ptr MetadataRef,
+  count: cuint): MetadataRef {.importc: "LLVMNimDIBuilderGetOrCreateArray".}
 proc nimDIBuilderInsertDeclareAtEnd*(
-  d: NimDIBuilderRef, v: ValueRef, varInfo: NimMetadataRef, addrOps: ptr int64,
+  d: DIBuilderRef, v: ValueRef, varInfo: MetadataRef, addrOps: ptr int64,
   addrOpsCount: cuint, dl: ValueRef,
   insertAtEnd: BasicBlockRef): ValueRef {.importc: "LLVMNimDIBuilderInsertDeclareAtEnd".}
 proc nimDICompositeTypeSetTypeArray*(
-  d: NimDIBuilderRef, compositeTy: NimMetadataRef,
-  tyArray: NimMetadataRef) {.importc: "LLVMNimDICompositeTypeSetTypeArray".}
+  d: DIBuilderRef, compositeTy: MetadataRef,
+  tyArray: MetadataRef) {.importc: "LLVMNimDICompositeTypeSetTypeArray".}
 proc nimDIBuilderCreateDebugLocation*(
-  ctx: ContextRef, line: cuint, column: cuint, scope: NimMetadataRef,
-  inlinedAt: NimMetadataRef): ValueRef {.importc: "LLVMNimDIBuilderCreateDebugLocation".}
+  ctx: ContextRef, line: cuint, column: cuint, scope: MetadataRef,
+  inlinedAt: MetadataRef): ValueRef {.importc: "LLVMNimDIBuilderCreateDebugLocation".}
 
 # A few helpers to make things more smooth
 
@@ -269,7 +260,7 @@ proc buildCall*(a2: BuilderRef; fn: ValueRef; args: openarray[ValueRef];
   asRaw(args, buildCall(a2, fn, p, n, name))
 
 proc nimDIBuilderGetOrCreateArray*(
-  d: NimDIBuilderRef, elems: openarray[NimMetadataRef]): NimMetadataRef =
+  d: DIBuilderRef, elems: openarray[MetadataRef]): MetadataRef =
   var tmp = @elems
   var p = if tmp.len > 0: addr(tmp[0]) else: nil
   d.nimDIBuilderGetOrCreateArray(p, tmp.len.cuint)
