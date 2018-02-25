@@ -66,7 +66,6 @@ var
   llClosureType = llvm.structCreateNamed(llctxt, "llnim.Closure")
   llNimStringDescPtr = llNimStringDesc.pointerType()
   llInitFuncType = llvm.functionType(llvm.voidType(), [])
-  llPrintfType = llvm.functionType(llCIntType, [llCStringType], true)
   llStrlenType = llvm.functionType(llCSizeTType, [llCStringType])
   llJmpbuf = llvm.structCreateNamed(llctxt, "jmp_buf")
   llJmpbufp = llJmpbuf.pointerType()
@@ -458,9 +457,6 @@ proc constNimString(n: PNode): llvm.ValueRef =
 
 proc buildNimSeqLenGEP(b: BuilderRef, s: llvm.ValueRef): llvm.ValueRef =
   b.buildGEP(s, [gep0, gep0, gep0], nn("seq.len", s))
-
-proc buildNimSeqReservedGEP(b: BuilderRef, s: llvm.ValueRef): llvm.ValueRef =
-  b.buildGEP(s, [gep0, gep0, gep1], nn("seq.res", s))
 
 proc buildNimSeqDataGEP(b: BuilderRef, s: llvm.ValueRef, idx: llvm.ValueRef = nil): llvm.ValueRef =
   let idx = if idx == nil: gep0 else: idx
@@ -4432,7 +4428,7 @@ proc genNodeObjConstr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     g.buildStoreNull(result)
     g.genObjectInit(typ, result)
 
-  for i in 1 .. <n.len:
+  for i in 1 ..< n.len:
     let s = n[i]
     let ind = fieldIndex(typ, s[0].sym)
     let gep = g.b.buildInBoundsGEP(result, (@[0] & ind).map(constGEPIdx))

@@ -162,7 +162,7 @@ const
   False*: Bool = 0
   True*: Bool = 1
 
-template checkErr(body: expr): expr =
+template checkErr(body: untyped) =
   var err: cstring
   let e {.inject.} = cast[cstringArray](addr(err))
   let res = body
@@ -190,7 +190,7 @@ iterator params*(fn: ValueRef): ValueRef =
     it = it.getNextParam()
 
 # openArray -> pointer + len
-template asRaw(arr: expr, body: expr): expr =
+template asRaw(arr: untyped, body: untyped): untyped =
   var s = @arr
   let n {.inject.} = s.len.cuint
   let p {.inject.} = if s.len > 0: addr(s[0]) else: nil
@@ -265,7 +265,7 @@ proc nimDIBuilderGetOrCreateArray*(
   var p = if tmp.len > 0: addr(tmp[0]) else: nil
   d.nimDIBuilderGetOrCreateArray(p, tmp.len.cuint)
 
-template getEnumAttrKind(x: expr): expr = getEnumAttributeKindForName(x, x.len)
+template getEnumAttrKind(x: untyped): untyped = getEnumAttributeKindForName(x, x.len)
 
 let
   attrNoReturn* = getEnumAttrKind("noreturn")
