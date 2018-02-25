@@ -368,7 +368,7 @@ proc `$`(n: PNode): string =
   of nkStrLit..nkTripleStrLit: result &= (if n.strVal == nil: "" else: n.strVal)
   of nkSym: result &= $n.sym
   of nkIdent: result &= n.ident.s
-  of nkProcDef:
+  of nkProcDef, nkFuncDef:
     let s = n[namePos].sym
     result &= $s & " " & $n.sonsLen
   else: result &= $n.flags & " " & $n.sonslen
@@ -836,7 +836,7 @@ proc debugProcType(g: LLGen, typ: PType, closure: bool): llvm.MetadataRef =
 
 proc debugGetScope(g: LLGen, sym: PSym): llvm.MetadataRef =
   var sym = sym
-  while sym != nil and sym.kind notin {skProc, skModule}:
+  while sym != nil and sym.kind notin {skProc, skFunc, skModule}:
     sym = sym.owner
 
   if sym != nil and sym.id in g.dscopes: return g.dscopes[sym.id]
@@ -4255,7 +4255,7 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       result = g.genFunction(s)
     else:
       result = g.genFunctionWithBody(s)
-  of skProc, skConverter, skIterator:
+  of skProc, skConverter, skIterator, skFunc:
     if (lfNoDecl in s.loc.flags or s.magic != mNone or
          {sfImportc, sfInfixCall} * s.flags != {}) and
          lfImportCompilerProc notin s.loc.flags:
@@ -5434,7 +5434,7 @@ proc genNode(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of nkCStringToString: result = g.genMagicToStr(n, "cstrToNimstr")
   of nkAsgn: g.genNodeAsgn(n)
   of nkFastAsgn: g.genNodeFastAsgn(n)
-  of nkProcDef, nkMethodDef, nkConverterDef: g.genNodeProcDef(n)
+  of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef: g.genNodeProcDef(n)
   of nkPragma:
     for s in n:
       let p = whichPragma(s)
