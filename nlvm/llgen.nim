@@ -3834,12 +3834,12 @@ proc genMagicAppendSeqElem(g: LLGen, n: PNode) =
     lenp = g.b.buildNimSeqLenGEP(tgt)
     len = g.b.buildLoad(lenp, nn("load.seq.add.last", n))
 
-  g.genAssignment(n[2], g.b.buildNimSeqDataGEP(tgt, len), et)
-
   let newlen = g.b.buildAdd(
     len, llvm.constInt(len.typeOf(), 1, llvm.False), nn("seq.add.newlen", n))
   discard g.b.buildStore(newlen, lenp)
   discard g.b.buildStore(tgt, ax)
+
+  g.genAssignment(n[2], g.b.buildNimSeqDataGEP(tgt, len), et)
 
 # Here, we need to emulate the C compiler and generate comparisons instead of
 # sets, else we'll have crashes when out-of-range ints are compared against
@@ -4211,7 +4211,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
 # Nodes
 proc genNodeSym(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  var s = n.sym
+  let s = n.sym
   case s.kind
   of skConst, skVar, skLet, skTemp, skResult, skForVar:
     var v: llvm.ValueRef
@@ -4229,6 +4229,9 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
     if load and v.typeOf().getTypeKind() == llvm.PointerTypeKind:
       result = g.b.buildLoadValue(v)
+      if sfVolatile in s.flags:
+        # TODO writes...
+        result.setVolatile(llvm.True)
     else:
       result = v
   of skParam:
@@ -4277,7 +4280,7 @@ proc genNodeFloatLit(g: LLGen, n: PNode): llvm.ValueRef =
   llvm.constReal(g.llType(n.typ), n.floatVal)
 
 proc genNodeStrLit(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  if n.typ.skipTypes(abstractInst).kind == tyString:
+  if n.typ.skipTypes(abstractVarRange).kind == tyString:
     let ss = constNimString(n)
     let s = g.m.addPrivateConstant(ss.typeOf(), nn(".str", n))
     s.setInitializer(ss)
