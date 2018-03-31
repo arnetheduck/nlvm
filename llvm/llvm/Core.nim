@@ -1064,6 +1064,18 @@ proc labelTypeInContext*(c: ContextRef): TypeRef {.
 proc x86MMXTypeInContext*(c: ContextRef): TypeRef {.
     importc: "LLVMX86MMXTypeInContext", dynlib: LLVMLib.}
 ## *
+##  Create a token type in a context.
+## 
+
+proc tokenTypeInContext*(c: ContextRef): TypeRef {.
+    importc: "LLVMTokenTypeInContext", dynlib: LLVMLib.}
+## *
+##  Create a metadata type in a context.
+## 
+
+proc metadataTypeInContext*(c: ContextRef): TypeRef {.
+    importc: "LLVMMetadataTypeInContext", dynlib: LLVMLib.}
+## *
 ##  These are similar to the above functions except they operate on the
 ##  global context.
 ## 
@@ -1096,7 +1108,6 @@ proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 ##  the llvm::Value hierarchy.
 ## 
 ##  @{
-## 
 ## 
 ## #define LLVM_FOR_EACH_VALUE_SUBCLASS(macro) \
 ##   macro(Argument)                           \
@@ -1263,11 +1274,9 @@ proc isUndef*(val: ValueRef): Bool {.importc: "LLVMIsUndef", dynlib: LLVMLib.}
 ## 
 ##  @see llvm::dyn_cast_or_null<>
 ## 
-## 
-##  #define LLVM_DECLARE_VALUE_CAST(name) \
+## #define LLVM_DECLARE_VALUE_CAST(name) \
 ##   LLVMValueRef LLVMIsA##name(LLVMValueRef Val);
 ## LLVM_FOR_EACH_VALUE_SUBCLASS(LLVM_DECLARE_VALUE_CAST)
-## 
 
 proc isAMDNode*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDNode", dynlib: LLVMLib.}
 proc isAMDString*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDString",

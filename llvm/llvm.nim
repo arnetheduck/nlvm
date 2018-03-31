@@ -2,10 +2,10 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-const LLVMLib = "libLLVM-5.0.so"
+const LLVMLib = "libLLVM-6.0.so"
 
-{.passC: "-I../ext/llvm-5.0.1.src/include".}
-{.passC: "-I../ext/llvm-5.0.1.src/rel/include".}
+{.passC: "-I../ext/llvm-6.0.0.src/include".}
+{.passC: "-I../ext/llvm-6.0.0.src/rel/include".}
 
 {.compile: "wrapper.cc".}
 
@@ -53,6 +53,7 @@ proc initializeX86TargetInfo*() {.importc: "LLVMInitializeX86TargetInfo", dynlib
 proc initializeX86TargetMC*() {.importc: "LLVMInitializeX86TargetMC", dynlib: LLVMLib.}
 
 include llvm/Core
+include llvm/DebugInfo
 include llvm/BitReader
 include llvm/BitWriter
 include llvm/IRReader
@@ -82,16 +83,8 @@ const
   DW_ATE_lo_user* = 0x80.cuint
   DW_ATE_hi_user* = 0xff.cuint
 
-proc nimDebugMetadataVersion*(): uint32 {.importc: "LLVMNimDebugMetadataVersion".}
 proc nimAddModuleFlag*(m: ModuleRef, name: cstring, value: uint32) {.importc: "LLVMNimAddModuleFlag".}
 
-proc nimDIBuilderCreate*(m: ModuleRef): DIBuilderRef {.importc: "LLVMNimDIBuilderCreate".}
-proc nimDIBuilderDispose*(d: DIBuilderRef) {.importc: "LLVMNimDIBuilderDispose".}
-proc nimDIBuilderFinalize*(d: DIBuilderRef) {.importc: "LLVMNimDIBuilderFinalize".}
-proc nimDIBuilderCreateCompileUnit*(
-  d: DIBuilderRef, lang: cuint,
-  fileRef: MetadataRef, producer: cstring, isOptimized: bool,
-  flags: cstring, runtimeVer: cuint, splitName: cstring): MetadataRef {.importc: "LLVMNimDIBuilderCreateCompileUnit".}
 proc nimDIBuilderCreateSubroutineType*(
   d: DIBuilderRef, parameterTypes: MetadataRef): MetadataRef {.importc: "LLVMNimDIBuilderCreateSubroutineType".}
 proc nimDIBuilderCreateFile*(

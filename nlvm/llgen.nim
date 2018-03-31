@@ -5499,14 +5499,18 @@ proc newLLGen(s: PSym): LLGen =
   result.sigConflicts = initCountTable[SigHash]()
 
   if optCDebug in gGlobalOptions:
-    let d = nimDIBuilderCreate(result.m)
+    let d = llvm.createDIBuilder(result.m)
     result.d = d
     result.dfiles = initTable[int, llvm.MetadataRef]()
     result.dscopes = initTable[int, llvm.MetadataRef]()
     result.dstructs = initTable[SigHash, llvm.MetadataRef]()
     let df = result.debugGetFile(gProjectMainIdx)
-    result.dcu = d.nimDIBuilderCreateCompileUnit(
-      2, df, "", false, "", 0, "")
+    let isOptimized = False # TODO fetch from flags?
+    let flags = "" # TODO Compiler flags
+    let runtimeVer = 0.cuint # TODO not used for nim?
+    result.dcu = d.dIBuilderCreateCompileUnit(
+      DWARFSourceLanguageC99, df, "nlvm", 4, isOptimized, flags, len(flags),
+      runtimeVer, "", 0, DWARFEmissionFull, 0, False, False)
 
     var g = result
     proc add(ty: TTypeKind, n: cstring, sz: uint64, enc: cuint) =
@@ -5758,17 +5762,17 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   g.loadBase()
 
   if g.d != nil:
-    g.d.nimDIBuilderFinalize()
+    g.d.dIBuilderFinalize()
 
     # Magic string, see https://groups.google.com/forum/#!topic/llvm-dev/1O955wQjmaQ
-    g.m.nimAddModuleFlag("Debug Info Version", nimDebugMetadataVersion())
+    g.m.nimAddModuleFlag("Debug Info Version", llvm.debugMetadataVersion())
   g.writeOutput(changeFileExt(gProjectFull, ""))
 
   result = n
   discard g.syms.pop()
 
   if g.d != nil:
-    g.d.nimDIBuilderDispose()
+    g.d.disposeDIBuilder()
     g.d = nil
 
   g.m.disposeModule()

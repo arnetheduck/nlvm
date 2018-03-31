@@ -1,0 +1,4 @@
+---
+# Might as well use llvm style since all we have is a couple of llvm wrappers
+BasedOnStyle: LLVM
+
