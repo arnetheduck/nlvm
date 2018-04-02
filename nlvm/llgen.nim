@@ -93,8 +93,7 @@ type LLFunc = ref object
   scope: seq[LLScope]
   ret: llvm.BasicBlockRef
   options: TOptions
-  nestedTryStmts: seq[PNode]
-  inExceptBlock: int
+  nestedTryStmts*: seq[tuple[n: PNode, inExcept: bool]]
   finallySafePoints: seq[llvm.ValueRef]
   loopNesting: int
   init: llvm.BasicBlockRef
@@ -177,10 +176,14 @@ proc nn(s: string, v: llvm.ValueRef): string =
   if vn == nil: vn = ""
   result = s & "." & $vn
 
+proc inExceptBlockLen(p: LLFunc): int =
+  for x in p.nestedTryStmts:
+    if x.inExcept: result.inc
+
 proc scopePush(f: LLFunc, n: PNode, exit: llvm.BasicBlockRef) =
   f.scope.add(
     LLScope(n: n, exit: exit, nestedTryStmts: f.nestedTryStmts.len,
-      nestedExceptStmts: f.inExceptBlock))
+      nestedExceptStmts: f.inExceptBlockLen))
 
 proc scopeIdx(f: LLFunc, sym: PSym): int =
   for i in 0..f.scope.len - 1:
@@ -362,7 +365,10 @@ proc `$`(n: PNode): string =
   of nkProcDef, nkFuncDef:
     let s = n[namePos].sym
     result &= $s & " " & $n.sonsLen
-  else: result &= $n.flags & " " & $n.sonslen
+  else:
+    result &= $n.flags & " " & $n.sonslen
+    if n.typ != nil:
+      result &= " " & $n.typ.kind
 
 proc p(t: string, n: PNode, depth: int) =
   if gVerbosity == 2:
@@ -900,7 +906,11 @@ proc llType(g: LLGen, typ: PType): llvm.TypeRef =
   of tyEnum: result = llvm.intType(getSize(typ).cuint * 8)
   of tyArray:
     let et = g.llType(typ.elemType)
-    let n = if tfUncheckedArray in typ.flags: cuint(0) else: cuint(typ.lengthOrd())
+    # Even for unchecked arrays, we use lengthord here - echo for
+    # example generates unchecked arrays with correct length set, and
+    # if we skip length, there will be a local stack array of length
+    # 0 here!
+    let n = cuint(typ.lengthOrd())
     result = llvm.arrayType(et, n)
   of tyObject: result = g.llStructType(typ)
   of tyTuple: result = g.llTupleType(typ)
@@ -3863,12 +3873,13 @@ proc genMagicAppendSeqElem(g: LLGen, n: PNode) =
     lenp = g.b.buildNimSeqLenGEP(tgt)
     len = g.b.buildLoad(lenp, nn("load.seq.add.last", n))
 
-  let newlen = g.b.buildAdd(
-    len, llvm.constInt(len.typeOf(), 1, llvm.False), nn("seq.add.newlen", n))
-  discard g.b.buildStore(newlen, lenp)
   discard g.b.buildStore(tgt, ax)
 
   g.genAssignment(n[2], g.b.buildNimSeqDataGEP(tgt, len), et)
+
+  let newlen = g.b.buildAdd(
+    len, llvm.constInt(len.typeOf(), 1, llvm.False), nn("seq.add.newlen", n))
+  discard g.b.buildStore(newlen, lenp)
 
 # Here, we need to emulate the C compiler and generate comparisons instead of
 # sets, else we'll have crashes when out-of-range ints are compared against
@@ -4531,7 +4542,6 @@ proc genNodeCurly(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 proc genNodeBracket(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let typ = n.typ.skipTypes(abstractVarRange)
   let t = g.llType(typ)
-
   if n.isDeepConstExprLL(true):
     let init = g.genConstInitializer(n)
     let c = g.m.addPrivateConstant(init.typeOf(), nn("bracket.init", n))
@@ -5093,7 +5103,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode) =
   g.b.positionBuilderAtEnd(sjok)
 
   g.f.scopePush(nil, nil)
-  g.f.nestedTryStmts.add(n)
+  g.f.nestedTryStmts.add((n, false))
 
   g.genNode(n[0])
 
@@ -5107,7 +5117,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode) =
 
   discard g.callCompilerProc("popSafePoint", [])
 
-  inc g.f.inExceptBlock
+  g.f.nestedTryStmts[^1].inExcept = true
   var i = 1
   let length = n.sonsLen
   while (i < length) and (n[i].kind == nkExceptBranch):
@@ -5155,7 +5165,6 @@ proc genNodeTryStmt(g: LLGen, n: PNode) =
 
       g.b.positionBuilderAtEnd(sjnext)
 
-  dec g.f.inExceptBlock
   discard pop(g.f.nestedTryStmts)
   g.f.scopePop()
 
@@ -5189,8 +5198,8 @@ proc genNodeTryStmt(g: LLGen, n: PNode) =
   g.f.scopePop()
 
 proc genNodeRaiseStmt(g: LLGen, n: PNode) =
-  if g.f.inExceptBlock > 0:
-    let finallyBlock = g.f.nestedTryStmts[g.f.nestedTryStmts.len - 1].lastSon
+  if g.f.nestedTryStmts.len > 0 and g.f.nestedTryStmts[^1].inExcept:
+    let finallyBlock = g.f.nestedTryStmts[^1].n.lastSon
     if finallyBlock.kind == nkFinally:
       g.f.scopePush(nil, nil)
       g.genNode(finallyBlock.sons[0])
@@ -5206,19 +5215,16 @@ proc genNodeRaiseStmt(g: LLGen, n: PNode) =
     discard g.callCompilerProc("reraiseException", [])
 
 proc blockLeave(g: LLGen, howManyTrys, howManyExcepts: int) =
-  var stack: seq[PNode] = @[]
+  var stack = newSeq[tuple[n: PNode, inExcept: bool]](0)
 
-  var alreadyPoppedCnt = g.f.inExceptBlock
   for i in 1..howManyTrys:
-    if alreadyPoppedCnt > 0:
-      dec alreadyPoppedCnt
-    else:
+    let tryStmt = g.f.nestedTryStmts.pop
+    if not tryStmt.inExcept:
       discard g.callCompilerProc("popSafePoint", [])
 
-    let tryStmt = g.f.nestedTryStmts.pop
     stack.add(tryStmt)
 
-    let finallyStmt = lastSon(tryStmt)
+    let finallyStmt = lastSon(tryStmt.n)
     if finallyStmt.kind == nkFinally:
       g.genNode(finallyStmt[0])
 
@@ -5232,7 +5238,7 @@ proc genNodeReturnStmt(g: LLGen, n: PNode) =
   if (n[0].kind != nkEmpty):
     g.genNode(n[0])
 
-  g.blockLeave(g.f.nestedTryStmts.len, g.f.inExceptBlock)
+  g.blockLeave(g.f.nestedTryStmts.len, g.f.inExceptBlockLen)
 
   if (g.f.finallySafePoints.len > 0):
     let sp = g.f.finallySafePoints[g.f.finallySafePoints.len-1]
@@ -5275,7 +5281,7 @@ proc genNodeBreakStmt(g: LLGen, n: PNode) =
 
   g.blockLeave(
     g.f.nestedTryStmts.len - s.nestedTryStmts,
-    g.f.inExceptBlock - s.nestedExceptStmts)
+    g.f.inExceptBlockLen - s.nestedExceptStmts)
 
   # similar to return, there might be more stuff after a break that messes
   # things up - we add an extra block just in case
@@ -5331,7 +5337,7 @@ proc genNodeClosure(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let
     a = g.b.buildBitCast(ax, llVoidPtrType, nn("clox.ptr", n))
     b = g.b.buildBitCast(bx, llVoidPtrType, nn("clox.env", n))
-  result = g.b.localAlloca(llClosureType, nn("clox.res", n))
+  result = g.b.localAlloca(g.llType(n.typ), nn("clox.res", n))
 
   discard g.b.buildStore(a, g.b.buildGEP(result, [gep0, gep0]))
   discard g.b.buildStore(b, g.b.buildGEP(result, [gep0, gep1]))
@@ -5368,8 +5374,7 @@ proc genNodeBreakState(g: LLGen, n: PNode) =
     ax = g.b.buildGEP(ax, [gep0, gep1])
 
   ax = g.b.buildLoad(ax, nn("load.state.break", n))
-  ax = g.b.buildBitCast(ax, llIntType.pointerType(), nn("state.break.intptr", n))
-  let s = g.b.buildLoad(g.b.buildGEP(ax, [gep1]), nn("state.break.s", n))
+  let s = g.b.buildLoad(g.b.buildGEP(ax, [gep0, gep1]), nn("state.break.s", n))
   let cmp = g.b.buildICmp(llvm.IntSLT, s, ni0, nn("state.break.cmp", n))
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
