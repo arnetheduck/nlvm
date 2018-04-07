@@ -294,6 +294,14 @@ const
   irrelevantForBackend = {tyGenericBody, tyGenericInst, tyGenericInvocation,
                           tyDistinct, tyRange, tyStatic, tyAlias, tyInferred}
 
+proc typeName(typ: PType): Rope =
+  let typ = typ.skipTypes(irrelevantForBackend)
+  result =
+    if typ.sym != nil and typ.kind in {tyObject, tyEnum}:
+      rope($typ.kind & '_' & typ.sym.name.s.mangle)
+    else:
+      rope($typ.kind)
+
 proc llName(typ: PType, sig: SigHash): string =
   # getTypeName from ccgtypes.nim
   var t = typ
@@ -305,16 +313,15 @@ proc llName(typ: PType, sig: SigHash): string =
       t = t.lastSon
     else:
       break
-  let typ = if typ.kind == tyAlias: typ.lastSon else: typ
+  let typ = if typ.kind in {tyAlias, tySink}: typ.lastSon else: typ
   if typ.loc.r == nil:
-    let typ = typ.skipTypes(irrelevantForBackend)
-
-    let tn = if typ.sym != nil and typ.kind in {tyObject, tyEnum}:
-               ~typ.sym.name.s.mangle
-             else:
-               ~"TY"
-    typ.loc.r = tn & $sig
+    typ.loc.r = typ.typeName & $sig
+  else:
+    when defined(debugSigHashes):
+      # check consistency:
+      assert($typ.loc.r == $(typ.typeName & $sig))
   result = $typ.loc.r
+  if result == nil: internalError("getTypeName: " & $typ.kind)
 
 iterator procParams(typ: PType): PNode =
   for a in typ.n.sons[1..^1]:
@@ -575,7 +582,7 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
   case typ.kind
   of tyBool: result = g.dtypes[tyBool]
   of tyChar: result = g.dtypes[tyChar]
-  of tyNil: result = nil
+  of tyNil, tyStmt: result = nil
   of tyGenericInst: result = g.debugType(typ.lastSon)
   of tyDistinct, tyAlias, tyInferred: result = g.debugType(typ.lastSon)
   of tyEnum:
@@ -900,7 +907,9 @@ proc llType(g: LLGen, typ: PType): llvm.TypeRef =
   case typ.kind
   of tyBool: result = llBoolType
   of tyChar: result = llCharType
-  of tyNil: result = llVoidPtrType
+  of tyNil, tyStmt:
+    # tyStmt appears for example in `echo()` as the element type of the array
+    result = llVoidPtrType
   of tyGenericInst: result = g.llType(typ.lastSon)
   of tyDistinct, tyAlias, tyInferred: result = g.llType(typ.lastSon)
   of tyEnum: result = llvm.intType(getSize(typ).cuint * 8)
@@ -1219,7 +1228,8 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
   if typ == nil: return
 
   case typ.kind
-  of tyGenericInst, tyGenericBody, tyTypeDesc:
+  of tyGenericInst, tyGenericBody, tyTypeDesc, tyAlias, tyDistinct, tyInferred,
+     tySink:
     g.genMarker(typ.lastSon(), v, op)
   of tyArray:
     let arraySize = lengthOrd(typ.sons[0])
@@ -1382,15 +1392,14 @@ proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
 
     discard g.b.buildRetVoid()
 
-proc genMarkerProc(g: LLGen, typ: PType): llvm.ValueRef =
+proc genMarkerProc(g: LLGen, typ: PType, sig: SigHash): llvm.ValueRef =
   if gSelectedGC < gcMarkAndSweep:
     return
 
-  let sig = hashType(typ)
   if sig in g.markers:
     return g.markers[sig]
 
-  let name = ".marker." & typ.llName(sig)
+  let name = "Marker_" & typ.llName(sig)
 
   let pt =
     if typ.kind == tySequence: g.llType(typ)
@@ -1741,8 +1750,7 @@ proc genTypeInfoBase(g: LLGen, t: PType): llvm.ValueRef =
     result = g.llMagicType("TNimType").pointerType().constNull()
 
 proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  var t = t.skipTypes(
-    {tyDistinct, tyAlias, tyInferred, tyGenericBody, tyGenericParam, tyGenericInst})
+  var t = t.skipTypes(irrelevantForBackend + tyUserTypeClasses)
 
   let sig = hashType(t)
   if sig in g.typeInfos:
@@ -1774,7 +1782,7 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
   let nodeVar = g.genNodeInfo(t)
 
   if t.kind in {tySequence, tyRef}:
-    markerVar = g.genMarkerProc(t)
+    markerVar = g.genMarkerProc(t, sig)
 
   if finalizerVar == nil: finalizerVar = llvm.constNull(els[5])
   if markerVar == nil:
@@ -1798,7 +1806,8 @@ proc llProcParamType(g: LLGen, t: PType): llvm.TypeRef =
   of tyProc:
     result = if typ.callConv == ccClosure: g.llType(t).pointerType()
              else: g.llType(t)
-  of tyDistinct, tyAlias, tyInferred: result = g.llProcParamType(t.lastSon)
+  of tyDistinct, tyAlias, tyInferred, tyUserTypeClasses, tySink:
+    result = g.llProcParamType(t.lastSon)
   else: result = g.llType(t)
 
 proc llPassAsPtr(g: LLGen, t: PType): bool =
@@ -1810,7 +1819,7 @@ proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
   var argTypes = newSeq[llvm.TypeRef]()
 
   for param in typ.procParams():
-    let t = param.sym.typ.skipTypes({tyGenericInst})
+    let t = param.sym.typ.skipTypes({tyGenericInst, tyAlias, tySink})
     let at = g.llProcParamType(t)
     argTypes.add(at)
 
@@ -1845,7 +1854,7 @@ proc fieldIndexRecs(n: PNode, sym: PSym, start: var int): seq[int] =
   return @[]
 
 proc fieldIndex(typ: PType, sym: PSym): seq[int] =
-  var typ = typ.skipTypes(skipPtrs)
+  var typ = typ.skipTypes(abstractInst + tyUserTypeClasses + skipPtrs)
 
   result = headerTypeIndex(typ, sym)
   if result != nil: return
@@ -2705,7 +2714,7 @@ proc genAssignment(
 
   let tet = tt.getElementType()
 
-  let ty = typ.skipTypes(abstractRange + tyUserTypeClasses)
+  let ty = typ.skipTypes(abstractRange + tyUserTypeClasses + {tyStatic})
   case ty.kind
   of tyRef:
     g.genRefAssign(g.genNode(v, true), t)
@@ -4580,7 +4589,7 @@ proc genNodeBracketExprArray(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let
     ax = g.genNode(n[0], false)
     bx = g.genNode(n[1], true)
-    ty = skipTypes(skipTypes(n[0].typ, abstractVarRange), abstractPtrs)
+    ty = n[0].typ.skipTypes(abstractVarRange + abstractPtrs + tyUserTypeClasses)
     first = firstOrd(ty)
 
   assert bx.typeOf().getTypeKind() == llvm.IntegerTypeKind
@@ -4658,7 +4667,8 @@ proc genNodeDot(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   p("genDotExpr", n[1].sym, g.depth + 1)
   let v = g.genNode(n[0], false)
 
-  let typ = skipTypes(n[0].typ, abstractInst)
+  let typ = skipTypes(n[0].typ, abstractInst + tyUserTypeClasses)
+
   let i = fieldIndex(typ, n[1].sym)
   result = g.b.buildInBoundsGEP(v, (@[0] & i).map(constGEPIdx), nn("dot.gep", n))
 
@@ -4961,6 +4971,7 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let isString = skipTypes(n[0].typ, abstractVarRange).kind == tyString
 
   let ax = g.genNode(n[0], true)
+  let u = n[0].typ.isUnsigned()
 
   let caseend = f.appendBasicBlock(nn("case.end", n))
 
@@ -5003,12 +5014,14 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
         let isLast2 = j == s.sonsLen - 2
         let cond = s[j]
         if cond.kind == nkRange:
-          let bx = g.genNode(cond.sons[0], true)
-          let cx = g.genNode(cond.sons[1], true)
-
-          let cmpb = g.b.buildICmp(llvm.IntSGE, ax, bx, nn("case.cmpb", n))
-          let cmpc = g.b.buildICmp(llvm.IntSLE, ax, cx, nn("case.cmpc", n))
-          let cmp = g.b.buildI1(g.b.buildAnd(cmpb, cmpc, nn("case.cmp", n)))
+          let
+            bx = g.genNode(cond.sons[0], true)
+            cx = g.genNode(cond.sons[1], true)
+            ub = if u: llvm.IntUGE else: llvm.IntSGE
+            cmpb = g.b.buildICmp(ub, ax, bx, nn("case.cmpb", n))
+            uc = if u: llvm.IntULE else: llvm.IntSLE
+            cmpc = g.b.buildICmp(uc, ax, cx, nn("case.cmpc", n))
+            cmp = g.b.buildI1(g.b.buildAnd(cmpb, cmpc, nn("case.cmp", n)))
 
           let casenext =
             if isLast2: next
@@ -5069,10 +5082,14 @@ proc genNodeConstDef(g: LLGen, n: PNode) =
 
   discard g.genConst(ns)
 
-proc genNodeTryStmt(g: LLGen, n: PNode) =
+proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   # create safe point
   let tsp = magicsys.getCompilerProc("TSafePoint").typ
   let spt = g.llStructType(tsp)
+
+  if not n.typ.isEmptyType():
+    result = g.b.localAlloca(g.llType(n.typ), nn("case.res", n))
+    g.buildStoreNull(result)
 
   let sp = g.b.localAlloca(spt, nn("sp", n))
   g.buildStoreNull(sp)
@@ -5105,7 +5122,10 @@ proc genNodeTryStmt(g: LLGen, n: PNode) =
   g.f.scopePush(nil, nil)
   g.f.nestedTryStmts.add((n, false))
 
-  g.genNode(n[0])
+  if not n.typ.isEmptyType():
+    g.genAssignment(n[0], result, n.typ)
+  else:
+    g.genNode(n[0])
 
   discard g.callCompilerProc("popSafePoint", [])
   g.f.scopePop()
@@ -5128,7 +5148,10 @@ proc genNodeTryStmt(g: LLGen, n: PNode) =
     if blen == 1:
       # catch-all
       discard g.b.buildStore(ni0, statusP)
-      g.genNode(b[0])
+      if not n.typ.isEmptyType():
+        g.genAssignment(b[0], result, n.typ)
+      else:
+        g.genNode(b[0])
 
       discard g.callCompilerProc("popCurrentException", [])
       discard g.b.buildBr(sjend)
@@ -5158,7 +5181,10 @@ proc genNodeTryStmt(g: LLGen, n: PNode) =
 
       g.b.positionBuilderAtEnd(sjfound)
       discard g.b.buildStore(ni0, statusP)
-      g.genNode(b[blen-1])
+      if not n.typ.isEmptyType():
+        g.genAssignment(b[blen-1], result, n.typ)
+      else:
+        g.genNode(b[blen-1])
       discard g.callCompilerProc("popCurrentException", [])
 
       discard g.b.buildBr(sjend)
@@ -5176,7 +5202,10 @@ proc genNodeTryStmt(g: LLGen, n: PNode) =
   if i < length and n[i].kind == nkFinally:
     g.f.finallySafePoints.add(sp)
     g.f.scopePush(nil, nil)
-    g.genNode(n[i][0])
+    if not n.typ.isEmptyType():
+      g.genAssignment(n[i][0], result, n.typ)
+    else:
+      g.genNode(n[i][0])
     g.f.scopePop()
     discard g.f.finallySafePoints.pop()
 
@@ -5196,6 +5225,9 @@ proc genNodeTryStmt(g: LLGen, n: PNode) =
   g.b.positionBuilderAtEnd(sjnm)
   sjend.moveBasicBlockBefore(sjrr)
   g.f.scopePop()
+
+  if load and result != nil:
+    result = g.b.buildLoadValue(result)
 
 proc genNodeRaiseStmt(g: LLGen, n: PNode) =
   if g.f.nestedTryStmts.len > 0 and g.f.nestedTryStmts[^1].inExcept:
@@ -5451,7 +5483,7 @@ proc genNode(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of nkCaseStmt: result = g.genNodeCaseStmt(n, load)  # Sometimes seen as expression!
   of nkVarSection, nkLetSection, nkConstSection: g.genSons(n)
   of nkConstDef: g.genNodeConstDef(n)
-  of nkTryStmt: g.genNodeTryStmt(n)
+  of nkTryStmt: result = g.genNodeTryStmt(n, load)
   of nkRaiseStmt: g.genNodeRaiseStmt(n)
   of nkReturnStmt: g.genNodeReturnStmt(n)
   of nkBreakStmt: g.genNodeBreakStmt(n)
