@@ -52,6 +52,12 @@ proc initializeX86Target*() {.importc: "LLVMInitializeX86Target", dynlib: LLVMLi
 proc initializeX86TargetInfo*() {.importc: "LLVMInitializeX86TargetInfo", dynlib: LLVMLib.}
 proc initializeX86TargetMC*() {.importc: "LLVMInitializeX86TargetMC", dynlib: LLVMLib.}
 
+proc initializeWebAssemblyAsmPrinter*() {.importc: "LLVMInitializeWebAssemblyAsmPrinter", dynlib: LLVMLib.}
+proc initializeWebAssemblyDisassembler*() {.importc: "LLVMInitializeWebAssemblyDisassembler", dynlib: LLVMLib.}
+proc initializeWebAssemblyTarget*() {.importc: "LLVMInitializeWebAssemblyTarget", dynlib: LLVMLib.}
+proc initializeWebAssemblyTargetInfo*() {.importc: "LLVMInitializeWebAssemblyTargetInfo", dynlib: LLVMLib.}
+proc initializeWebAssemblyTargetMC*() {.importc: "LLVMInitializeWebAssemblyTargetMC", dynlib: LLVMLib.}
+
 include llvm/Core
 include llvm/DebugInfo
 include llvm/BitReader

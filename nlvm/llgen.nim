@@ -132,6 +132,10 @@ type LLGenObj = object of TPassContext
   # Compile unit
   dcu: llvm.MetadataRef
 
+  # target specific stuff
+  tgt: string
+  tgtExportLinkage: llvm.Linkage
+
 type LLGen = ref LLGenObj
 
 # Using an ugly global - haven't found a way to keep per-project data other than
@@ -1988,7 +1992,7 @@ proc genGlobal(g: LLGen, n: PNode): llvm.ValueRef =
   if sfImportc in s.flags:
     result.setLinkage(llvm.ExternalLinkage)
   elif sfExportc in s.flags:
-    result.setLinkage(llvm.CommonLinkage)
+    result.setLinkage(g.tgtExportLinkage)
     result.setInitializer(llvm.constNull(t))
   else:
     result.setLinkage(llvm.PrivateLinkage)
@@ -2274,8 +2278,10 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
   if sfForward in s.flags: return
   if sfImportc in s.flags: return
 
-  # Because we generate only one module, we can tag all functions internal
-  result.setLinkage(llvm.InternalLinkage)
+  # Because we generate only one module, we can tag all functions internal, except
+  # those that should be importable from c
+  if sfExportc notin s.flags:
+    result.setLinkage(llvm.InternalLinkage)
 
   var i = 1
   var lastIsArr = false
@@ -5569,6 +5575,19 @@ proc newLLGen(s: PSym): LLGen =
     g.dtypes[tyCString] = g.d.nimDIBuilderCreatePointerType(
       g.dtypes[tyChar], 64, 64, "")
 
+  if options.existsConfigVar("nlvm.target"):
+    result.tgt = options.getConfigVar("nlvm.target")
+  else:
+    let p = llvm.getDefaultTargetTriple()
+    result.tgt = $p
+    disposeMessage(p)
+
+  # TODO somehow, clang knows this! figure out how and why...
+  result.tgtExportLinkage = llvm.CommonLinkage
+
+  if result.tgt.startsWith("wasm"):
+    result.tgtExportLinkage = llvm.ExternalLinkage
+
 proc genMain(g: LLGen) =
   let llMainType = llvm.functionType(llCIntType, [llCIntType, llCStringType.pointerType()])
 
@@ -5619,13 +5638,13 @@ proc genMain(g: LLGen) =
 
   let cmdLine = g.m.getNamedGlobal("cmdLine")
   if cmdLine != nil:
-    cmdLine.setLinkage(llvm.CommonLinkage)
+    cmdLine.setLinkage(g.tgtExportLinkage)
     cmdLine.setInitializer(llvm.constNull(cmdLine.typeOf().getElementType()))
     discard g.b.buildStore(g.b.buildBitCast(f.getParam(1), cmdLine.typeOf().getElementType(), ""), cmdLine)
 
   let cmdCount = g.m.getNamedGlobal("cmdCount")
   if cmdCount != nil:
-    cmdCount.setLinkage(llvm.CommonLinkage)
+    cmdCount.setLinkage(g.tgtExportLinkage)
     cmdCount.setInitializer(llvm.constNull(cmdCount.typeOf().getElementType()))
     discard g.b.buildStore(f.getParam(0), cmdCount)
 
@@ -5690,10 +5709,13 @@ proc writeOutput(g: LLGen, project: string) =
   initializeX86TargetInfo()
   initializeX86TargetMC()
 
-  let triple = llvm.getDefaultTargetTriple()
+  initializeWebAssemblyAsmPrinter()
+  initializeWebAssemblyTarget()
+  initializeWebAssemblyTargetInfo()
+  initializeWebAssemblyTargetMC()
 
   var tr: llvm.TargetRef
-  discard getTargetFromTriple(triple, addr(tr), nil)
+  discard getTargetFromTriple(g.tgt, addr(tr), nil)
 
   var reloc = llvm.RelocDefault
   if optGenDynLib in gGlobalOptions and
@@ -5704,12 +5726,12 @@ proc writeOutput(g: LLGen, project: string) =
     if optOptimizeSpeed in gOptions: llvm.CodeGenLevelAggressive
     else: llvm.CodeGenLevelDefault
 
-  let tm = createTargetMachine(tr, triple, "", "", cgl,
+  let tm = createTargetMachine(tr, g.tgt, "", "", cgl,
     reloc, llvm.CodeModelDefault)
 
   let layout = tm.createTargetDataLayout()
   g.m.setModuleDataLayout(layout)
-  g.m.setTarget(triple)
+  g.m.setTarget(g.tgt)
 
   g.runOptimizers()
 

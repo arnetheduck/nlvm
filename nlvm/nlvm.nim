@@ -76,7 +76,11 @@ proc handleCmdLine() =
   # act as a drop-in replacement (for now)
   # Most of this is taken from the main nim command
   if os.paramCount() == 0:
-    echo "you can: nlvm c <filename> (see standard nim compiler for options)"
+    echo """
+you can: nlvm c <filename> (see standard nim compiler for options)
+magic options:
+  --nlvm.target=wasm32 cross-compile to WebAssembly
+"""
   else:
     # Main nim compiler has some reaons for two-pass parsing
     service.processCmdLine(passCmd1, "")
