@@ -17,58 +17,58 @@ type
 ## *
 ##  @defgroup LLVMCTransformsPassManagerBuilder Pass manager builder
 ##  @ingroup LLVMCTransforms
-## 
+##
 ##  @{
-## 
+##
 ## * See llvm::PassManagerBuilder.
 
 proc passManagerBuilderCreate*(): PassManagerBuilderRef {.
-    importc: "LLVMPassManagerBuilderCreate", dynlib: LLVMLib.}
+    importc: "LLVMPassManagerBuilderCreate", llvmImport.}
 proc passManagerBuilderDispose*(pmb: PassManagerBuilderRef) {.
-    importc: "LLVMPassManagerBuilderDispose", dynlib: LLVMLib.}
+    importc: "LLVMPassManagerBuilderDispose", llvmImport.}
 ## * See llvm::PassManagerBuilder::OptLevel.
 
 proc passManagerBuilderSetOptLevel*(pmb: PassManagerBuilderRef; optLevel: cuint) {.
-    importc: "LLVMPassManagerBuilderSetOptLevel", dynlib: LLVMLib.}
+    importc: "LLVMPassManagerBuilderSetOptLevel", llvmImport.}
 ## * See llvm::PassManagerBuilder::SizeLevel.
 
 proc passManagerBuilderSetSizeLevel*(pmb: PassManagerBuilderRef; sizeLevel: cuint) {.
-    importc: "LLVMPassManagerBuilderSetSizeLevel", dynlib: LLVMLib.}
+    importc: "LLVMPassManagerBuilderSetSizeLevel", llvmImport.}
 ## * See llvm::PassManagerBuilder::DisableUnitAtATime.
 
 proc passManagerBuilderSetDisableUnitAtATime*(pmb: PassManagerBuilderRef;
     value: Bool) {.importc: "LLVMPassManagerBuilderSetDisableUnitAtATime",
-                 dynlib: LLVMLib.}
+                 llvmImport.}
 ## * See llvm::PassManagerBuilder::DisableUnrollLoops.
 
 proc passManagerBuilderSetDisableUnrollLoops*(pmb: PassManagerBuilderRef;
     value: Bool) {.importc: "LLVMPassManagerBuilderSetDisableUnrollLoops",
-                 dynlib: LLVMLib.}
+                 llvmImport.}
 ## * See llvm::PassManagerBuilder::DisableSimplifyLibCalls
 
 proc passManagerBuilderSetDisableSimplifyLibCalls*(pmb: PassManagerBuilderRef;
     value: Bool) {.importc: "LLVMPassManagerBuilderSetDisableSimplifyLibCalls",
-                 dynlib: LLVMLib.}
+                 llvmImport.}
 ## * See llvm::PassManagerBuilder::Inliner.
 
 proc passManagerBuilderUseInlinerWithThreshold*(pmb: PassManagerBuilderRef;
     threshold: cuint) {.importc: "LLVMPassManagerBuilderUseInlinerWithThreshold",
-                      dynlib: LLVMLib.}
+                      llvmImport.}
 ## * See llvm::PassManagerBuilder::populateFunctionPassManager.
 
 proc passManagerBuilderPopulateFunctionPassManager*(pmb: PassManagerBuilderRef;
     pm: PassManagerRef) {.importc: "LLVMPassManagerBuilderPopulateFunctionPassManager",
-                        dynlib: LLVMLib.}
+                        llvmImport.}
 ## * See llvm::PassManagerBuilder::populateModulePassManager.
 
 proc passManagerBuilderPopulateModulePassManager*(pmb: PassManagerBuilderRef;
     pm: PassManagerRef) {.importc: "LLVMPassManagerBuilderPopulateModulePassManager",
-                        dynlib: LLVMLib.}
+                        llvmImport.}
 ## * See llvm::PassManagerBuilder::populateLTOPassManager.
 
 proc passManagerBuilderPopulateLTOPassManager*(pmb: PassManagerBuilderRef;
     pm: PassManagerRef; internalize: Bool; runInliner: Bool) {.
-    importc: "LLVMPassManagerBuilderPopulateLTOPassManager", dynlib: LLVMLib.}
+    importc: "LLVMPassManagerBuilderPopulateLTOPassManager", llvmImport.}
 ## *
 ##  @}
-## 
+##

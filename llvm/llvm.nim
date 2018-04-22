@@ -3,6 +3,7 @@
 # See the LICENSE file for license info (doh!)
 
 const LLVMLib = "libLLVM-6.0.so"
+{.pragma: llvmImport, cdecl, dynlib: LLVMLib.}
 
 {.passC: "-I../ext/llvm-6.0.0.src/include".}
 {.passC: "-I../ext/llvm-6.0.0.src/rel/include".}
@@ -45,18 +46,18 @@ include llvm/Support
 
 # Target.h is quite a mess with lots of site-specific stuff - some of the parts
 # that c2nim can't deal with:
-proc initializeX86AsmParser*() {.importc: "LLVMInitializeX86AsmParser", dynlib: LLVMLib.}
-proc initializeX86AsmPrinter*() {.importc: "LLVMInitializeX86AsmPrinter", dynlib: LLVMLib.}
-proc initializeX86Disassembler*() {.importc: "LLVMInitializeX86Disassembler", dynlib: LLVMLib.}
-proc initializeX86Target*() {.importc: "LLVMInitializeX86Target", dynlib: LLVMLib.}
-proc initializeX86TargetInfo*() {.importc: "LLVMInitializeX86TargetInfo", dynlib: LLVMLib.}
-proc initializeX86TargetMC*() {.importc: "LLVMInitializeX86TargetMC", dynlib: LLVMLib.}
+proc initializeX86AsmParser*() {.importc: "LLVMInitializeX86AsmParser", llvmImport.}
+proc initializeX86AsmPrinter*() {.importc: "LLVMInitializeX86AsmPrinter", llvmImport.}
+proc initializeX86Disassembler*() {.importc: "LLVMInitializeX86Disassembler", llvmImport.}
+proc initializeX86Target*() {.importc: "LLVMInitializeX86Target", llvmImport.}
+proc initializeX86TargetInfo*() {.importc: "LLVMInitializeX86TargetInfo", llvmImport.}
+proc initializeX86TargetMC*() {.importc: "LLVMInitializeX86TargetMC", llvmImport.}
 
-proc initializeWebAssemblyAsmPrinter*() {.importc: "LLVMInitializeWebAssemblyAsmPrinter", dynlib: LLVMLib.}
-proc initializeWebAssemblyDisassembler*() {.importc: "LLVMInitializeWebAssemblyDisassembler", dynlib: LLVMLib.}
-proc initializeWebAssemblyTarget*() {.importc: "LLVMInitializeWebAssemblyTarget", dynlib: LLVMLib.}
-proc initializeWebAssemblyTargetInfo*() {.importc: "LLVMInitializeWebAssemblyTargetInfo", dynlib: LLVMLib.}
-proc initializeWebAssemblyTargetMC*() {.importc: "LLVMInitializeWebAssemblyTargetMC", dynlib: LLVMLib.}
+proc initializeWebAssemblyAsmPrinter*() {.importc: "LLVMInitializeWebAssemblyAsmPrinter", llvmImport.}
+proc initializeWebAssemblyDisassembler*() {.importc: "LLVMInitializeWebAssemblyDisassembler", llvmImport.}
+proc initializeWebAssemblyTarget*() {.importc: "LLVMInitializeWebAssemblyTarget", llvmImport.}
+proc initializeWebAssemblyTargetInfo*() {.importc: "LLVMInitializeWebAssemblyTargetInfo", llvmImport.}
+proc initializeWebAssemblyTargetMC*() {.importc: "LLVMInitializeWebAssemblyTargetMC", llvmImport.}
 
 include llvm/Core
 include llvm/DebugInfo

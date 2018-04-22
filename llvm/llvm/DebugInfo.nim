@@ -74,13 +74,13 @@ type
 ##
 
 proc debugMetadataVersion*(): cuint {.importc: "LLVMDebugMetadataVersion",
-                                   dynlib: LLVMLib.}
+                                   llvmImport.}
 ## *
 ##  The version of debug metadata that's present in the provided \c Module.
 ##
 
 proc getModuleDebugMetadataVersion*(module: ModuleRef): cuint {.
-    importc: "LLVMGetModuleDebugMetadataVersion", dynlib: LLVMLib.}
+    importc: "LLVMGetModuleDebugMetadataVersion", llvmImport.}
 ## *
 ##  Strip debug info in the module if it exists.
 ##  To do this, we remove all calls to the debugger intrinsics and any named
@@ -89,14 +89,14 @@ proc getModuleDebugMetadataVersion*(module: ModuleRef): cuint {.
 ##
 
 proc stripModuleDebugInfo*(module: ModuleRef): Bool {.
-    importc: "LLVMStripModuleDebugInfo", dynlib: LLVMLib.}
+    importc: "LLVMStripModuleDebugInfo", llvmImport.}
 ## *
 ##  Construct a builder for a module, and do not allow for unresolved nodes
 ##  attached to the module.
 ##
 
 proc createDIBuilderDisallowUnresolved*(m: ModuleRef): DIBuilderRef {.
-    importc: "LLVMCreateDIBuilderDisallowUnresolved", dynlib: LLVMLib.}
+    importc: "LLVMCreateDIBuilderDisallowUnresolved", llvmImport.}
 ## *
 ##  Construct a builder for a module and collect unresolved nodes attached
 ##  to the module in order to resolve cycles during a call to
@@ -104,20 +104,20 @@ proc createDIBuilderDisallowUnresolved*(m: ModuleRef): DIBuilderRef {.
 ##
 
 proc createDIBuilder*(m: ModuleRef): DIBuilderRef {.importc: "LLVMCreateDIBuilder",
-    dynlib: LLVMLib.}
+    llvmImport.}
 ## *
 ##  Deallocates the \c DIBuilder and everything it owns.
 ##  @note You must call \c LLVMDIBuilderFinalize before this
 ##
 
 proc disposeDIBuilder*(builder: DIBuilderRef) {.importc: "LLVMDisposeDIBuilder",
-    dynlib: LLVMLib.}
+    llvmImport.}
 ## *
 ##  Construct any deferred debug info descriptors.
 ##
 
 proc dIBuilderFinalize*(builder: DIBuilderRef) {.importc: "LLVMDIBuilderFinalize",
-    dynlib: LLVMLib.}
+    llvmImport.}
 ## *
 ##  A CompileUnit provides an anchor for all debugging
 ##  information generated during this instance of compilation.
@@ -155,7 +155,7 @@ proc dIBuilderCreateCompileUnit*(builder: DIBuilderRef; lang: DWARFSourceLanguag
                                 kind: DWARFEmissionKind; dWOId: cuint;
                                 splitDebugInlining: Bool;
                                 debugInfoForProfiling: Bool): MetadataRef {.
-    importc: "LLVMDIBuilderCreateCompileUnit", dynlib: LLVMLib.}
+    importc: "LLVMDIBuilderCreateCompileUnit", llvmImport.}
 ## *
 ##  Create a file descriptor to hold debugging information for a file.
 ##  \param Builder      The \c DIBuilder.
@@ -167,7 +167,7 @@ proc dIBuilderCreateCompileUnit*(builder: DIBuilderRef; lang: DWARFSourceLanguag
 
 proc dIBuilderCreateFile*(builder: DIBuilderRef; filename: cstring;
                          filenameLen: csize; directory: cstring; directoryLen: csize): MetadataRef {.
-    importc: "LLVMDIBuilderCreateFile", dynlib: LLVMLib.}
+    importc: "LLVMDIBuilderCreateFile", llvmImport.}
 ## *
 ##  Creates a new DebugLocation that describes a source location.
 ##  \param Line The line in the source file.
@@ -181,4 +181,4 @@ proc dIBuilderCreateFile*(builder: DIBuilderRef; filename: cstring;
 
 proc dIBuilderCreateDebugLocation*(ctx: ContextRef; line: cuint; column: cuint;
                                   scope: MetadataRef; inlinedAt: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateDebugLocation", dynlib: LLVMLib.}
+    importc: "LLVMDIBuilderCreateDebugLocation", llvmImport.}
