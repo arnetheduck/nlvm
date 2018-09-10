@@ -4,6 +4,7 @@
 
 import
   strutils,
+  times,
   os
 
 import llgen
@@ -13,6 +14,7 @@ import
   compiler/condsyms,
   compiler/idents,
   compiler/lexer,
+  compiler/lineinfos,
   compiler/llstream,
   compiler/modulegraphs,
   compiler/modules,
@@ -21,56 +23,84 @@ import
   compiler/options,
   compiler/passes,
   compiler/sem,
-  compiler/service
+  parseopt
 
-proc commandLL(graph: ModuleGraph; cache: IdentCache) =
-  registerPass(sem.semPass)
-  registerPass(llgen.llgenPass)
+proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
+  var p = parseopt.initOptParser(cmd)
+  var argsCount = 0
+  while true:
+    parseopt.next(p)
+    case p.kind
+    of cmdEnd: break
+    of cmdLongoption, cmdShortOption:
+      if p.key == " ":
+        p.key = "-"
+        if processArgument(pass, p, argsCount, config): break
+      else:
+        processSwitch(pass, p, config)
+    of cmdArgument:
+      if processArgument(pass, p, argsCount, config): break
+  if pass == passCmd2:
+    if optRun notin config.globalOptions and config.arguments.len > 0 and config.command.normalize != "run":
+      rawMessage(config, errGenerated, errArgsNeedRunOption)
 
-  modules.compileProject(graph, cache)
+proc commandLL(graph: ModuleGraph) =
+  registerPass(graph, sem.semPass)
+  registerPass(graph, llgen.llgenPass)
 
-proc commandScan(cache: IdentCache) =
-  var f = addFileExt(mainCommandArg(), NimExt)
+  modules.compileProject(graph)
+
+proc commandScan(conf: ConfigRef) =
+  var f = addFileExt(mainCommandArg(conf), NimExt)
   var stream = llStreamOpen(f, fmRead)
   if stream != nil:
     var
       L: TLexer
       tok: TToken
     initToken(tok)
-    openLexer(L, f, stream, cache)
+    openLexer(L, f, stream, newIdentCache(), conf)
     while true:
       rawGetTok(L, tok)
-      printTok(tok)
+      conf.printTok(tok)
       if tok.tokType == tkEof: break
     closeLexer(L)
   else:
-    rawMessage(errCannotOpenFile, f)
+    conf.rawMessage(errCannotOpenFile, f)
 
-proc mainCommand() =
-  searchPaths.add(options.libpath)
+proc mainCommand(cache: IdentCache, conf: ConfigRef) =
+  conf.lastCmdTime = epochTime()
+  conf.searchPaths.add(conf.libpath)
 
-  case options.command.normalize
+  case conf.command.normalize
   # Take over the default compile command
-  of "c", "cc", "compile", "compiletoc": commandLL(newModuleGraph(), newIdentCache())
+  of "c", "cc", "compile", "compiletoc": commandLL(newModuleGraph(cache, conf))
   of "dump":
-    msgWriteln("-- list of currently defined symbols --")
-    for s in definedSymbolNames(): msgWriteln(s)
-    msgWriteln("-- end of list --")
+    conf.msgWriteln("-- list of currently defined symbols --")
+    for s in definedSymbolNames(conf.symbols): conf.msgWriteln(s)
+    conf.msgWriteln("-- end of list --")
 
-    for it in searchPaths: msgWriteln(it)
+    for it in conf.searchPaths: conf.msgWriteln(it)
 
   of "scan":
-    gCmd = cmdScan
-    wantMainModule()
-    commandScan(newIdentCache())
+    conf.cmd = cmdScan
+    conf.wantMainModule()
+    commandScan(conf)
 
-  else: msgs.rawMessage(errInvalidCommandX, options.command)
+  else: conf.rawMessage(errGenerated, conf.command)
 
-  if msgs.gErrorCounter == 0 and
-     gCmd notin {cmdInterpret, cmdRun, cmdDump}:
-    rawMessage(hintSuccess, [])
+  if conf.errorCounter == 0 and
+     conf.cmd notin {cmdInterpret, cmdRun, cmdDump}:
+    when declared(system.getMaxMem):
+      let usedMem = formatSize(getMaxMem()) & " peakmem"
+    else:
+      let usedMem = formatSize(getTotalMem())
+    rawMessage(conf, hintSuccessX, [$conf.linesCompiled,
+               formatFloat(epochTime() - conf.lastCmdTime, ffDecimal, 3),
+               usedMem,
+               if isDefined(conf, "release"): "Release Build"
+               else: "Debug Build"])
 
-proc handleCmdLine() =
+proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   # For now, we reuse the nim command line options parser, mainly because
   # the options are used all over the compiler, but also because we want to
   # act as a drop-in replacement (for now)
@@ -83,46 +113,48 @@ magic options:
 """
   else:
     # Main nim compiler has some reaons for two-pass parsing
-    service.processCmdLine(passCmd1, "")
+    processCmdLine(passCmd1, "", conf)
 
     # Use project name like main nim compiler
     # TODO upstream to common location...
-    if options.gProjectName == "-":
-      options.gProjectName = "stdinfile"
-      options.gProjectFull = "stdinfile"
-      options.gProjectPath = os.getCurrentDir()
-      options.gProjectIsStdin = true
-    elif options.gProjectName != "":
+    if conf.projectName == "-":
+      conf.projectName = "stdinfile"
+      conf.projectFull = "stdinfile"
+      conf.projectPath = os.getCurrentDir()
+      conf.projectIsStdin = true
+    elif conf.projectName != "":
       try:
-        options.gProjectFull = canonicalizePath(options.gProjectName)
+        conf.projectFull = conf.canonicalizePath(conf.projectName)
       except OSError:
-        options.gProjectFull = options.gProjectName
-      let p = splitFile(options.gProjectFull)
-      options.gProjectPath = p.dir
-      options.gProjectName = p.name
+        conf.projectFull = conf.projectName
+      let p = splitFile(conf.projectFull)
+      conf.projectPath = p.dir
+      conf.projectName = p.name
     else:
-      gProjectPath = os.getCurrentDir()
+      conf.projectPath = os.getCurrentDir()
 
-    nimconf.loadConfigs(DefaultConfig)
-    service.processCmdLine(passCmd2, "")
+    nimconf.loadConfigs(DefaultConfig, cache, conf)
+    processCmdLine(passCmd2, "", conf)
 
     #gSelectedGC = gcMarkAndSweep
     #defineSymbol("gcmarkandsweep")
 
     # default signal handler does memory allocations and all kinds of
     # disallowed-in-signal-handler-stuff
-    defineSymbol("noSignalHandler")
+    defineSymbol(conf.symbols, "noSignalHandler")
 
     # lib/pure/bitops.num
-    defineSymbol("noIntrinsicsBitOpts")
+    defineSymbol(conf.symbols, "noIntrinsicsBitOpts")
 
-    mainCommand()
+    mainCommand(cache, conf)
 
 # Beautiful...
 var tmp = getAppDir()
 while not dirExists(tmp / "nlvm-lib") and tmp.len > 1:
   tmp = tmp.parentDir()
 
-options.gPrefixDir = tmp / "Nim"
-condsyms.initDefines()
-handleCmdLine()
+let conf = newConfigRef()
+let cache = newIdentCache()
+condsyms.initDefines(conf.symbols)
+conf.prefixDir = tmp / "Nim"
+handleCmdLine(cache, conf)
