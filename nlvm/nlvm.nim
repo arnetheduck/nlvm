@@ -22,6 +22,7 @@ import
   compiler/nimconf,
   compiler/options,
   compiler/passes,
+  compiler/pathutils,
   compiler/sem,
   parseopt
 
@@ -52,13 +53,13 @@ proc commandLL(graph: ModuleGraph) =
 
 proc commandScan(conf: ConfigRef) =
   var f = addFileExt(mainCommandArg(conf), NimExt)
-  var stream = llStreamOpen(f, fmRead)
+  var stream = llStreamOpen(f.AbsoluteFile, fmRead)
   if stream != nil:
     var
       L: TLexer
       tok: TToken
     initToken(tok)
-    openLexer(L, f, stream, newIdentCache(), conf)
+    openLexer(L, f.AbsoluteFile, stream, newIdentCache(), conf)
     while true:
       rawGetTok(L, tok)
       conf.printTok(tok)
@@ -79,7 +80,7 @@ proc mainCommand(cache: IdentCache, conf: ConfigRef) =
     for s in definedSymbolNames(conf.symbols): conf.msgWriteln(s)
     conf.msgWriteln("-- end of list --")
 
-    for it in conf.searchPaths: conf.msgWriteln(it)
+    for it in conf.searchPaths: conf.msgWriteln(it.string)
 
   of "scan":
     conf.cmd = cmdScan
@@ -119,19 +120,19 @@ magic options:
     # TODO upstream to common location...
     if conf.projectName == "-":
       conf.projectName = "stdinfile"
-      conf.projectFull = "stdinfile"
-      conf.projectPath = os.getCurrentDir()
+      conf.projectFull = "stdinfile".AbsoluteFile
+      conf.projectPath = os.getCurrentDir().AbsoluteDir
       conf.projectIsStdin = true
     elif conf.projectName != "":
       try:
-        conf.projectFull = conf.canonicalizePath(conf.projectName)
+        conf.projectFull = conf.canonicalizePath(conf.projectName.AbsoluteFile)
       except OSError:
-        conf.projectFull = conf.projectName
+        conf.projectFull = conf.projectName.AbsoluteFile
       let p = splitFile(conf.projectFull)
       conf.projectPath = p.dir
       conf.projectName = p.name
     else:
-      conf.projectPath = os.getCurrentDir()
+      conf.projectPath = os.getCurrentDir().AbsoluteDir
 
     nimconf.loadConfigs(DefaultConfig, cache, conf)
     processCmdLine(passCmd2, "", conf)
@@ -156,5 +157,5 @@ while not dirExists(tmp / "nlvm-lib") and tmp.len > 1:
 let conf = newConfigRef()
 let cache = newIdentCache()
 condsyms.initDefines(conf.symbols)
-conf.prefixDir = tmp / "Nim"
+conf.prefixDir = AbsoluteDir(tmp / "Nim")
 handleCmdLine(cache, conf)

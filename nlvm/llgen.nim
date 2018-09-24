@@ -25,6 +25,7 @@ import
   compiler/nimsets,
   compiler/options,
   compiler/passes,
+  compiler/pathutils,
   compiler/platform,
   compiler/ropes,
   compiler/semparallel,
@@ -4355,6 +4356,9 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     else:
       result = v
 
+  of skEnumField:
+    result = llvm.constInt(g.llType(sym.typ), sym.position.culonglong, llvm.False)
+
   else:
     g.config.internalError(n.info, "Unhandled nodesym kind: " & $sym.kind)
 
@@ -5686,7 +5690,7 @@ proc genMain(g: LLGen) =
 
 proc loadBase(g: LLGen) =
   let m = parseIRInContext(
-    llctxt, g.config.prefixDir / "../nlvm-lib/nlvmbase-linux-amd64.ll")
+    llctxt, g.config.prefixDir.string / "../nlvm-lib/nlvmbase-linux-amd64.ll")
 
   if g.m.linkModules2(m) != 0:
     g.config.internalError("module link failed")
@@ -5723,11 +5727,11 @@ proc runOptimizers(g: LLGen) =
 
 proc writeOutput(g: LLGen, project: string) =
   var outFile: string
-  if g.config.outFile.len > 0:
-    if g.config.outFile.isAbsolute:
-      outFile = g.config.outFile
+  if g.config.outFile.string.len > 0:
+    if g.config.outFile.string.isAbsolute:
+      outFile = g.config.outFile.string
     else:
-      outFile = getCurrentDir() / g.config.outFile
+      outFile = getCurrentDir() / g.config.outFile.string
   else:
     if optCompileOnly in g.config.globalOptions:
       outFile = project & ".ll"
@@ -5775,7 +5779,7 @@ proc writeOutput(g: LLGen, project: string) =
     if optNoLinking in g.config.globalOptions:
       outFile
     else:
-      g.config.completeCFilePath(project & ".o")
+      g.config.completeCFilePath(AbsoluteFile(project.string & ".o")).string
 
   var err: cstring
   if llvm.targetMachineEmitToFile(tm, g.m, ofile, llvm.ObjectFile,
@@ -5790,10 +5794,10 @@ proc writeOutput(g: LLGen, project: string) =
   # doesn't support, so here, we add a few libraries..
   g.config.cLinkedLibs.add("pcre")
 
-  g.config.addExternalFileToLink(ofile)
+  g.config.addExternalFileToLink(ofile.AbsoluteFile)
 
   # Linking is a horrible mess - let's reuse the c compiler for now
-  g.config.callCCompiler(project)
+  g.config.callCCompiler(project.AbsoluteFile)
 
 proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   if graph.config.skipCodegen(n): return n
@@ -5850,7 +5854,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
 
     # Magic string, see https://groups.google.com/forum/#!topic/llvm-dev/1O955wQjmaQ
     g.m.nimAddModuleFlag("Debug Info Version", llvm.debugMetadataVersion())
-  g.writeOutput(changeFileExt(g.config.projectFull, ""))
+  g.writeOutput(changeFileExt(g.config.projectFull, "").string)
 
   result = n
   discard g.syms.pop()
