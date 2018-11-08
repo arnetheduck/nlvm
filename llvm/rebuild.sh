@@ -20,4 +20,6 @@ for a in $HEADERS; do
 
   # workaround for reserved keword
   sed -i -e 's/sizeOf/sizeOfX/' $OUT
+  # workaround for reserved keword
+  sed -i -e 's/typeOf/typeOfX/' $OUT
 done

@@ -48,22 +48,21 @@ nlvm/nimcache/nlvm.self.ll: nlvm/nlvm.self
 compare: nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
 	diff -u nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
 
-Nim/tests/testament/tester: $(NIMC) Nim/tests/testament/*.nim
-	cd Nim && bin/nim -d:release c tests/testament/tester
+Nim/testament/tester: $(NIMC) Nim/testament/*.nim
+	cd Nim && bin/nim -d:release c testament/tester
 
 .PHONY: test
-test: Nim/tests/testament/tester $(NLVMC)
-	cd Nim && time tests/testament/tester --targets:c "--nim:../nlvm/nlvm "  all
-	cd Nim && tests/testament/tester html
+test: Nim/testament/tester $(NLVMC)
+	cd Nim && time testament/tester --targets:c "--nim:../nlvm/nlvm "  all
 
 .PHONY: t2
 t2:
-	cp Nim/testresults.json Nim/t2.json
+	cp -r Nim/testresults Nim/tr2
 
 .PHONY: self
 self: nlvm/nlvm.self
 
 .PHONY: clean
 clean:
-	rm -rf $(NLVMC) nlvm/nimcache nlvm/nlvm.self Nim/tests/testament/tester
+	rm -rf $(NLVMC) nlvm/nimcache nlvm/nlvm.self Nim/testament/tester
 

@@ -1204,7 +1204,7 @@ proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 ##  @see llvm::Value::getType()
 ## 
 
-proc typeOf*(val: ValueRef): TypeRef {.importc: "LLVMTypeOf", dynlib: LLVMLib.}
+proc typeOfX*(val: ValueRef): TypeRef {.importc: "LLVMTypeOf", dynlib: LLVMLib.}
 ## *
 ##  Obtain the enumerated type of a Value instance.
 ## 
