@@ -10,7 +10,7 @@ NIMFLAGS=
 
 NLVMFLAGS=--gc:markandsweep
 
-LLVMLIB=LLVM-6.0
+LLVMLIB=LLVM-7
 
 LLVMLIBS="-l:-l$(LLVMLIB)" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=\$$ORIGIN/$(LLVMPATH)'"
 

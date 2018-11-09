@@ -41,7 +41,13 @@
 ##  @{
 ## 
 
-type                          ##  Terminator Instructions
+type ##  Terminator Instructions
+    ## *
+    ##  Emits an error if two values disagree, otherwise the resulting value is
+    ##  that of the operands.
+    ## 
+    ##  @see Module::ModFlagBehavior::Error
+    ## 
   Opcode* {.size: sizeof(cint).} = enum
     Ret = 1, Br = 2, Switch = 3, IndirectBr = 4, Invoke = 5, ##  removed 6 due to API changes
     Unreachable = 7,            ##  Standard Binary Operators
@@ -98,12 +104,27 @@ type                          ##  Terminator Instructions
     DefaultVisibility,        ## *< The GV is visible
     HiddenVisibility,         ## *< The GV is hidden
     ProtectedVisibility       ## *< The GV is protected
+  UnnamedAddr* {.size: sizeof(cint).} = enum
+    NoUnnamedAddr,            ## *< Address of the GV is significant.
+    LocalUnnamedAddr,         ## *< Address of the GV is locally insignificant.
+    GlobalUnnamedAddr         ## *< Address of the GV is globally insignificant.
   DLLStorageClass* {.size: sizeof(cint).} = enum
     DefaultStorageClass = 0, DLLImportStorageClass = 1, ## *< Function to be imported from DLL.
     DLLExportStorageClass = 2
   CallConv* {.size: sizeof(cint).} = enum
-    CCallConv = 0, FastCallConv = 8, ColdCallConv = 9, WebKitJSCallConv = 12,
-    AnyRegCallConv = 13, X86StdcallCallConv = 64, X86FastcallCallConv = 65
+    CCallConv = 0, FastCallConv = 8, ColdCallConv = 9, GHCCallConv = 10, HiPECallConv = 11,
+    WebKitJSCallConv = 12, AnyRegCallConv = 13, PreserveMostCallConv = 14,
+    PreserveAllCallConv = 15, SwiftCallConv = 16, CXXFASTTLSCallConv = 17,
+    X86StdcallCallConv = 64, X86FastcallCallConv = 65, ARMAPCSCallConv = 66,
+    ARMAAPCSCallConv = 67, ARMAAPCSVFPCallConv = 68, MSP430INTRCallConv = 69,
+    X86ThisCallCallConv = 70, PTXKernelCallConv = 71, PTXDeviceCallConv = 72,
+    SPIRFUNCCallConv = 75, SPIRKERNELCallConv = 76, IntelOCLBICallConv = 77,
+    X8664SysVCallConv = 78, Win64CallConv = 79, X86VectorCallCallConv = 80,
+    HHVMCallConv = 81, HHVMCCallConv = 82, X86INTRCallConv = 83, AVRINTRCallConv = 84,
+    AVRSIGNALCallConv = 85, AVRBUILTINCallConv = 86, AMDGPUVSCallConv = 87,
+    AMDGPUGSCallConv = 88, AMDGPUPSCallConv = 89, AMDGPUCSCallConv = 90,
+    AMDGPUKERNELCallConv = 91, X86RegCallCallConv = 92, AMDGPUHSCallConv = 93,
+    MSP430BUILTINCallConv = 94, AMDGPULSCallConv = 95, AMDGPUESCallConv = 96
   ValueKind* {.size: sizeof(cint).} = enum
     ArgumentValueKind, BasicBlockValueKind, MemoryUseValueKind, MemoryDefValueKind,
     MemoryPhiValueKind, FunctionValueKind, GlobalAliasValueKind,
@@ -187,6 +208,49 @@ type                          ##  Terminator Instructions
                       ##                              the old one
   DiagnosticSeverity* {.size: sizeof(cint).} = enum
     DSError, DSWarning, DSRemark, DSNote
+  InlineAsmDialect* {.size: sizeof(cint).} = enum
+    InlineAsmDialectATT, InlineAsmDialectIntel
+  ModuleFlagBehavior* {.size: sizeof(cint).} = enum
+    ModuleFlagBehaviorError, ## *
+                            ##  Emits a warning if two values disagree. The result value will be the
+                            ##  operand for the flag from the first module being linked.
+                            ## 
+                            ##  @see Module::ModFlagBehavior::Warning
+                            ## 
+    ModuleFlagBehaviorWarning, ## *
+                              ##  Adds a requirement that another module flag be present and have a
+                              ##  specified value after linking is performed. The value must be a metadata
+                              ##  pair, where the first element of the pair is the ID of the module flag
+                              ##  to be restricted, and the second element of the pair is the value the
+                              ##  module flag should be restricted to. This behavior can be used to
+                              ##  restrict the allowable results (via triggering of an error) of linking
+                              ##  IDs with the **Override** behavior.
+                              ## 
+                              ##  @see Module::ModFlagBehavior::Require
+                              ## 
+    ModuleFlagBehaviorRequire, ## *
+                              ##  Uses the specified value, regardless of the behavior or value of the
+                              ##  other module. If both modules specify **Override**, but the values
+                              ##  differ, an error will be emitted.
+                              ## 
+                              ##  @see Module::ModFlagBehavior::Override
+                              ## 
+    ModuleFlagBehaviorOverride, ## *
+                               ##  Appends the two values, which are required to be metadata nodes.
+                               ## 
+                               ##  @see Module::ModFlagBehavior::Append
+                               ## 
+    ModuleFlagBehaviorAppend, ## *
+                             ##  Appends the two values, which are required to be metadata
+                             ##  nodes. However, duplicate entries in the second list are dropped
+                             ##  during the append operation.
+                             ## 
+                             ##  @see Module::ModFlagBehavior::AppendUnique
+                             ## 
+    ModuleFlagBehaviorAppendUnique
+
+
+
 
 
 
@@ -452,6 +516,29 @@ proc getModuleIdentifier*(m: ModuleRef; len: ptr csize): cstring {.
 proc setModuleIdentifier*(m: ModuleRef; ident: cstring; len: csize) {.
     importc: "LLVMSetModuleIdentifier", dynlib: LLVMLib.}
 ## *
+##  Obtain the module's original source file name.
+## 
+##  @param M Module to obtain the name of
+##  @param Len Out parameter which holds the length of the returned string
+##  @return The original source file name of M
+##  @see Module::getSourceFileName()
+## 
+
+proc getSourceFileName*(m: ModuleRef; len: ptr csize): cstring {.
+    importc: "LLVMGetSourceFileName", dynlib: LLVMLib.}
+## *
+##  Set the original source file name of a module to a string Name with length
+##  Len.
+## 
+##  @param M The module to set the source file name of
+##  @param Name The string to set M's source file name to
+##  @param Len Length of Name
+##  @see Module::setSourceFileName()
+## 
+
+proc setSourceFileName*(m: ModuleRef; name: cstring; len: csize) {.
+    importc: "LLVMSetSourceFileName", dynlib: LLVMLib.}
+## *
 ##  Obtain the data layout for a module.
 ## 
 ##  @see Module::getDataLayoutStr()
@@ -489,6 +576,66 @@ proc getTarget*(m: ModuleRef): cstring {.importc: "LLVMGetTarget", dynlib: LLVML
 proc setTarget*(m: ModuleRef; triple: cstring) {.importc: "LLVMSetTarget",
     dynlib: LLVMLib.}
 ## *
+##  Returns the module flags as an array of flag-key-value triples.  The caller
+##  is responsible for freeing this array by calling
+##  \c LLVMDisposeModuleFlagsMetadata.
+## 
+##  @see Module::getModuleFlagsMetadata()
+## 
+
+proc copyModuleFlagsMetadata*(m: ModuleRef; len: ptr csize): ptr ModuleFlagEntry {.
+    importc: "LLVMCopyModuleFlagsMetadata", dynlib: LLVMLib.}
+## *
+##  Destroys module flags metadata entries.
+## 
+
+proc disposeModuleFlagsMetadata*(entries: ptr ModuleFlagEntry) {.
+    importc: "LLVMDisposeModuleFlagsMetadata", dynlib: LLVMLib.}
+## *
+##  Returns the flag behavior for a module flag entry at a specific index.
+## 
+##  @see Module::ModuleFlagEntry::Behavior
+## 
+
+proc moduleFlagEntriesGetFlagBehavior*(entries: ptr ModuleFlagEntry; index: cuint): ModuleFlagBehavior {.
+    importc: "LLVMModuleFlagEntriesGetFlagBehavior", dynlib: LLVMLib.}
+## *
+##  Returns the key for a module flag entry at a specific index.
+## 
+##  @see Module::ModuleFlagEntry::Key
+## 
+
+proc moduleFlagEntriesGetKey*(entries: ptr ModuleFlagEntry; index: cuint;
+                             len: ptr csize): cstring {.
+    importc: "LLVMModuleFlagEntriesGetKey", dynlib: LLVMLib.}
+## *
+##  Returns the metadata for a module flag entry at a specific index.
+## 
+##  @see Module::ModuleFlagEntry::Val
+## 
+
+proc moduleFlagEntriesGetMetadata*(entries: ptr ModuleFlagEntry; index: cuint): MetadataRef {.
+    importc: "LLVMModuleFlagEntriesGetMetadata", dynlib: LLVMLib.}
+## *
+##  Add a module-level flag to the module-level flags metadata if it doesn't
+##  already exist.
+## 
+##  @see Module::getModuleFlag()
+## 
+
+proc getModuleFlag*(m: ModuleRef; key: cstring; keyLen: csize): MetadataRef {.
+    importc: "LLVMGetModuleFlag", dynlib: LLVMLib.}
+## *
+##  Add a module-level flag to the module-level flags metadata if it doesn't
+##  already exist.
+## 
+##  @see Module::addModuleFlag()
+## 
+
+proc addModuleFlag*(m: ModuleRef; behavior: ModuleFlagBehavior; key: cstring;
+                   keyLen: csize; val: MetadataRef) {.importc: "LLVMAddModuleFlag",
+    dynlib: LLVMLib.}
+## *
 ##  Dump a representation of a module to stderr.
 ## 
 ##  @see Module::dump()
@@ -514,13 +661,40 @@ proc printModuleToFile*(m: ModuleRef; filename: cstring; errorMessage: cstringAr
 proc printModuleToString*(m: ModuleRef): cstring {.
     importc: "LLVMPrintModuleToString", dynlib: LLVMLib.}
 ## *
+##  Get inline assembly for a module.
+## 
+##  @see Module::getModuleInlineAsm()
+## 
+
+proc getModuleInlineAsm*(m: ModuleRef; len: ptr csize): cstring {.
+    importc: "LLVMGetModuleInlineAsm", dynlib: LLVMLib.}
+## *
 ##  Set inline assembly for a module.
 ## 
 ##  @see Module::setModuleInlineAsm()
 ## 
 
-proc setModuleInlineAsm*(m: ModuleRef; `asm`: cstring) {.
-    importc: "LLVMSetModuleInlineAsm", dynlib: LLVMLib.}
+proc setModuleInlineAsm2*(m: ModuleRef; `asm`: cstring; len: csize) {.
+    importc: "LLVMSetModuleInlineAsm2", dynlib: LLVMLib.}
+## *
+##  Append inline assembly to a module.
+## 
+##  @see Module::appendModuleInlineAsm()
+## 
+
+proc appendModuleInlineAsm*(m: ModuleRef; `asm`: cstring; len: csize) {.
+    importc: "LLVMAppendModuleInlineAsm", dynlib: LLVMLib.}
+## *
+##  Create the specified uniqued inline asm string.
+## 
+##  @see InlineAsm::get()
+## 
+
+proc getInlineAsm*(ty: TypeRef; asmString: cstring; asmStringSize: csize;
+                  constraints: cstring; constraintsSize: csize;
+                  hasSideEffects: Bool; isAlignStack: Bool;
+                  dialect: InlineAsmDialect): ValueRef {.
+    importc: "LLVMGetInlineAsm", dynlib: LLVMLib.}
 ## *
 ##  Obtain the context to which this module is associated.
 ## 
@@ -618,6 +792,10 @@ proc getNextFunction*(fn: ValueRef): ValueRef {.importc: "LLVMGetNextFunction",
 
 proc getPreviousFunction*(fn: ValueRef): ValueRef {.
     importc: "LLVMGetPreviousFunction", dynlib: LLVMLib.}
+## * Deprecated: Use LLVMSetModuleInlineAsm2 instead.
+
+proc setModuleInlineAsm*(m: ModuleRef; `asm`: cstring) {.
+    importc: "LLVMSetModuleInlineAsm", dynlib: LLVMLib.}
 ## *
 ##  @}
 ## 
@@ -1109,6 +1287,7 @@ proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 ## 
 ##  @{
 ## 
+## 
 ## #define LLVM_FOR_EACH_VALUE_SUBCLASS(macro) \
 ##   macro(Argument)                           \
 ##   macro(BasicBlock)                         \
@@ -1219,16 +1398,16 @@ proc getValueKind*(val: ValueRef): ValueKind {.importc: "LLVMGetValueKind",
 ##  @see llvm::Value::getName()
 ## 
 
-proc getValueName*(val: ValueRef): cstring {.importc: "LLVMGetValueName",
-    dynlib: LLVMLib.}
+proc getValueName2*(val: ValueRef; length: ptr csize): cstring {.
+    importc: "LLVMGetValueName2", dynlib: LLVMLib.}
 ## *
 ##  Set the string name of a value.
 ## 
 ##  @see llvm::Value::setName()
 ## 
 
-proc setValueName*(val: ValueRef; name: cstring) {.importc: "LLVMSetValueName",
-    dynlib: LLVMLib.}
+proc setValueName2*(val: ValueRef; name: cstring; nameLen: csize) {.
+    importc: "LLVMSetValueName2", dynlib: LLVMLib.}
 ## *
 ##  Dump a representation of a value to stderr.
 ## 
@@ -1277,9 +1456,18 @@ proc isUndef*(val: ValueRef): Bool {.importc: "LLVMIsUndef", dynlib: LLVMLib.}
 ## #define LLVM_DECLARE_VALUE_CAST(name) \
 ##   LLVMValueRef LLVMIsA##name(LLVMValueRef Val);
 ## LLVM_FOR_EACH_VALUE_SUBCLASS(LLVM_DECLARE_VALUE_CAST)
+## 
 
 proc isAMDNode*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDNode", dynlib: LLVMLib.}
 proc isAMDString*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDString",
+    dynlib: LLVMLib.}
+## * Deprecated: Use LLVMGetValueName2 instead.
+
+proc getValueName*(val: ValueRef): cstring {.importc: "LLVMGetValueName",
+    dynlib: LLVMLib.}
+## * Deprecated: Use LLVMSetValueName2 instead.
+
+proc setValueName*(val: ValueRef; name: cstring) {.importc: "LLVMSetValueName",
     dynlib: LLVMLib.}
 ## *
 ##  @}
@@ -1777,11 +1965,13 @@ proc constExtractValue*(aggConstant: ValueRef; idxList: ptr cuint; numIdx: cuint
 proc constInsertValue*(aggConstant: ValueRef; elementValueConstant: ValueRef;
                       idxList: ptr cuint; numIdx: cuint): ValueRef {.
     importc: "LLVMConstInsertValue", dynlib: LLVMLib.}
+proc blockAddress*(f: ValueRef; bb: BasicBlockRef): ValueRef {.
+    importc: "LLVMBlockAddress", dynlib: LLVMLib.}
+## * Deprecated: Use LLVMGetInlineAsm instead.
+
 proc constInlineAsm*(ty: TypeRef; asmString: cstring; constraints: cstring;
                     hasSideEffects: Bool; isAlignStack: Bool): ValueRef {.
     importc: "LLVMConstInlineAsm", dynlib: LLVMLib.}
-proc blockAddress*(f: ValueRef; bb: BasicBlockRef): ValueRef {.
-    importc: "LLVMBlockAddress", dynlib: LLVMLib.}
 ## *
 ##  @}
 ## 
@@ -1816,8 +2006,16 @@ proc getDLLStorageClass*(global: ValueRef): DLLStorageClass {.
     importc: "LLVMGetDLLStorageClass", dynlib: LLVMLib.}
 proc setDLLStorageClass*(global: ValueRef; class: DLLStorageClass) {.
     importc: "LLVMSetDLLStorageClass", dynlib: LLVMLib.}
+proc getUnnamedAddress*(global: ValueRef): UnnamedAddr {.
+    importc: "LLVMGetUnnamedAddress", dynlib: LLVMLib.}
+proc setUnnamedAddress*(global: ValueRef; unnamedAddr: UnnamedAddr) {.
+    importc: "LLVMSetUnnamedAddress", dynlib: LLVMLib.}
+## * Deprecated: Use LLVMGetUnnamedAddress instead.
+
 proc hasUnnamedAddr*(global: ValueRef): Bool {.importc: "LLVMHasUnnamedAddr",
     dynlib: LLVMLib.}
+## * Deprecated: Use LLVMSetUnnamedAddress instead.
+
 proc setUnnamedAddr*(global: ValueRef; hasUnnamedAddr: Bool) {.
     importc: "LLVMSetUnnamedAddr", dynlib: LLVMLib.}
 ## *
@@ -1910,6 +2108,62 @@ proc setExternallyInitialized*(globalVar: ValueRef; isExtInit: Bool) {.
 
 proc addAlias*(m: ModuleRef; ty: TypeRef; aliasee: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMAddAlias", dynlib: LLVMLib.}
+## *
+##  Obtain a GlobalAlias value from a Module by its name.
+## 
+##  The returned value corresponds to a llvm::GlobalAlias value.
+## 
+##  @see llvm::Module::getNamedAlias()
+## 
+
+proc getNamedGlobalAlias*(m: ModuleRef; name: cstring; nameLen: csize): ValueRef {.
+    importc: "LLVMGetNamedGlobalAlias", dynlib: LLVMLib.}
+## *
+##  Obtain an iterator to the first GlobalAlias in a Module.
+## 
+##  @see llvm::Module::alias_begin()
+## 
+
+proc getFirstGlobalAlias*(m: ModuleRef): ValueRef {.
+    importc: "LLVMGetFirstGlobalAlias", dynlib: LLVMLib.}
+## *
+##  Obtain an iterator to the last GlobalAlias in a Module.
+## 
+##  @see llvm::Module::alias_end()
+## 
+
+proc getLastGlobalAlias*(m: ModuleRef): ValueRef {.
+    importc: "LLVMGetLastGlobalAlias", dynlib: LLVMLib.}
+## *
+##  Advance a GlobalAlias iterator to the next GlobalAlias.
+## 
+##  Returns NULL if the iterator was already at the end and there are no more
+##  global aliases.
+## 
+
+proc getNextGlobalAlias*(ga: ValueRef): ValueRef {.
+    importc: "LLVMGetNextGlobalAlias", dynlib: LLVMLib.}
+## *
+##  Decrement a GlobalAlias iterator to the previous GlobalAlias.
+## 
+##  Returns NULL if the iterator was already at the beginning and there are
+##  no previous global aliases.
+## 
+
+proc getPreviousGlobalAlias*(ga: ValueRef): ValueRef {.
+    importc: "LLVMGetPreviousGlobalAlias", dynlib: LLVMLib.}
+## *
+##  Retrieve the target value of an alias.
+## 
+
+proc aliasGetAliasee*(alias: ValueRef): ValueRef {.importc: "LLVMAliasGetAliasee",
+    dynlib: LLVMLib.}
+## *
+##  Set the target value of an alias.
+## 
+
+proc aliasSetAliasee*(alias: ValueRef; aliasee: ValueRef) {.
+    importc: "LLVMAliasSetAliasee", dynlib: LLVMLib.}
 ## *
 ##  @}
 ## 
@@ -2570,11 +2824,12 @@ proc instructionClone*(inst: ValueRef): ValueRef {.importc: "LLVMInstructionClon
 ## *
 ##  Obtain the argument count for a call instruction.
 ## 
-##  This expects an LLVMValueRef that corresponds to a llvm::CallInst or
-##  llvm::InvokeInst.
+##  This expects an LLVMValueRef that corresponds to a llvm::CallInst,
+##  llvm::InvokeInst, or llvm:FuncletPadInst.
 ## 
 ##  @see llvm::CallInst::getNumArgOperands()
 ##  @see llvm::InvokeInst::getNumArgOperands()
+##  @see llvm::FuncletPadInst::getNumArgOperands()
 ## 
 
 proc getNumArgOperands*(instr: ValueRef): cuint {.importc: "LLVMGetNumArgOperands",
@@ -2665,9 +2920,12 @@ proc getNormalDest*(invokeInst: ValueRef): BasicBlockRef {.
 ## *
 ##  Return the unwind destination basic block.
 ## 
-##  This only works on llvm::InvokeInst instructions.
+##  Works on llvm::InvokeInst, llvm::CleanupReturnInst, and
+##  llvm::CatchSwitchInst instructions.
 ## 
 ##  @see llvm::InvokeInst::getUnwindDest()
+##  @see llvm::CleanupReturnInst::getUnwindDest()
+##  @see llvm::CatchSwitchInst::getUnwindDest()
 ## 
 
 proc getUnwindDest*(invokeInst: ValueRef): BasicBlockRef {.
@@ -2685,9 +2943,12 @@ proc setNormalDest*(invokeInst: ValueRef; b: BasicBlockRef) {.
 ## *
 ##  Set the unwind destination basic block.
 ## 
-##  This only works on llvm::InvokeInst instructions.
+##  Works on llvm::InvokeInst, llvm::CleanupReturnInst, and
+##  llvm::CatchSwitchInst instructions.
 ## 
 ##  @see llvm::InvokeInst::setUnwindDest()
+##  @see llvm::CleanupReturnInst::setUnwindDest()
+##  @see llvm::CatchSwitchInst::setUnwindDest()
 ## 
 
 proc setUnwindDest*(invokeInst: ValueRef; b: BasicBlockRef) {.
@@ -2932,13 +3193,28 @@ proc buildIndirectBr*(b: BuilderRef; `addr`: ValueRef; numDests: cuint): ValueRe
 proc buildInvoke*(a2: BuilderRef; fn: ValueRef; args: ptr ValueRef; numArgs: cuint;
                  then: BasicBlockRef; catch: BasicBlockRef; name: cstring): ValueRef {.
     importc: "LLVMBuildInvoke", dynlib: LLVMLib.}
+proc buildUnreachable*(a2: BuilderRef): ValueRef {.importc: "LLVMBuildUnreachable",
+    dynlib: LLVMLib.}
+##  Exception Handling
+
+proc buildResume*(b: BuilderRef; exn: ValueRef): ValueRef {.
+    importc: "LLVMBuildResume", dynlib: LLVMLib.}
 proc buildLandingPad*(b: BuilderRef; ty: TypeRef; persFn: ValueRef; numClauses: cuint;
                      name: cstring): ValueRef {.importc: "LLVMBuildLandingPad",
     dynlib: LLVMLib.}
-proc buildResume*(b: BuilderRef; exn: ValueRef): ValueRef {.
-    importc: "LLVMBuildResume", dynlib: LLVMLib.}
-proc buildUnreachable*(a2: BuilderRef): ValueRef {.importc: "LLVMBuildUnreachable",
-    dynlib: LLVMLib.}
+proc buildCleanupRet*(b: BuilderRef; catchPad: ValueRef; bb: BasicBlockRef): ValueRef {.
+    importc: "LLVMBuildCleanupRet", dynlib: LLVMLib.}
+proc buildCatchRet*(b: BuilderRef; catchPad: ValueRef; bb: BasicBlockRef): ValueRef {.
+    importc: "LLVMBuildCatchRet", dynlib: LLVMLib.}
+proc buildCatchPad*(b: BuilderRef; parentPad: ValueRef; args: ptr ValueRef;
+                   numArgs: cuint; name: cstring): ValueRef {.
+    importc: "LLVMBuildCatchPad", dynlib: LLVMLib.}
+proc buildCleanupPad*(b: BuilderRef; parentPad: ValueRef; args: ptr ValueRef;
+                     numArgs: cuint; name: cstring): ValueRef {.
+    importc: "LLVMBuildCleanupPad", dynlib: LLVMLib.}
+proc buildCatchSwitch*(b: BuilderRef; parentPad: ValueRef; unwindBB: BasicBlockRef;
+                      numHandlers: cuint; name: cstring): ValueRef {.
+    importc: "LLVMBuildCatchSwitch", dynlib: LLVMLib.}
 ##  Add a case to the switch instruction
 
 proc addCase*(switch: ValueRef; onVal: ValueRef; dest: BasicBlockRef) {.
@@ -2967,6 +3243,57 @@ proc isCleanup*(landingPad: ValueRef): Bool {.importc: "LLVMIsCleanup",
 
 proc setCleanup*(landingPad: ValueRef; val: Bool) {.importc: "LLVMSetCleanup",
     dynlib: LLVMLib.}
+##  Add a destination to the catchswitch instruction
+
+proc addHandler*(catchSwitch: ValueRef; dest: BasicBlockRef) {.
+    importc: "LLVMAddHandler", dynlib: LLVMLib.}
+##  Get the number of handlers on the catchswitch instruction
+
+proc getNumHandlers*(catchSwitch: ValueRef): cuint {.importc: "LLVMGetNumHandlers",
+    dynlib: LLVMLib.}
+## *
+##  Obtain the basic blocks acting as handlers for a catchswitch instruction.
+## 
+##  The Handlers parameter should point to a pre-allocated array of
+##  LLVMBasicBlockRefs at least LLVMGetNumHandlers() large. On return, the
+##  first LLVMGetNumHandlers() entries in the array will be populated
+##  with LLVMBasicBlockRef instances.
+## 
+##  @param CatchSwitch The catchswitch instruction to operate on.
+##  @param Handlers Memory address of an array to be filled with basic blocks.
+## 
+
+proc getHandlers*(catchSwitch: ValueRef; handlers: ptr BasicBlockRef) {.
+    importc: "LLVMGetHandlers", dynlib: LLVMLib.}
+##  Funclets
+##  Get the number of funcletpad arguments.
+
+proc getArgOperand*(funclet: ValueRef; i: cuint): ValueRef {.
+    importc: "LLVMGetArgOperand", dynlib: LLVMLib.}
+##  Set a funcletpad argument at the given index.
+
+proc setArgOperand*(funclet: ValueRef; i: cuint; value: ValueRef) {.
+    importc: "LLVMSetArgOperand", dynlib: LLVMLib.}
+## *
+##  Get the parent catchswitch instruction of a catchpad instruction.
+## 
+##  This only works on llvm::CatchPadInst instructions.
+## 
+##  @see llvm::CatchPadInst::getCatchSwitch()
+## 
+
+proc getParentCatchSwitch*(catchPad: ValueRef): ValueRef {.
+    importc: "LLVMGetParentCatchSwitch", dynlib: LLVMLib.}
+## *
+##  Set the parent catchswitch instruction of a catchpad instruction.
+## 
+##  This only works on llvm::CatchPadInst instructions.
+## 
+##  @see llvm::CatchPadInst::setCatchSwitch()
+## 
+
+proc setParentCatchSwitch*(catchPad: ValueRef; catchSwitch: ValueRef) {.
+    importc: "LLVMSetParentCatchSwitch", dynlib: LLVMLib.}
 ##  Arithmetic
 
 proc buildAdd*(a2: BuilderRef; lhs: ValueRef; rhs: ValueRef; name: cstring): ValueRef {.
@@ -3277,7 +3604,7 @@ proc initializeFunctionPassManager*(fpm: PassManagerRef): Bool {.
 
 proc runFunctionPassManager*(fpm: PassManagerRef; f: ValueRef): Bool {.
     importc: "LLVMRunFunctionPassManager", dynlib: LLVMLib.}
-## * Finalizes all of the function passes scheduled in in the function pass
+## * Finalizes all of the function passes scheduled in the function pass
 ##     manager. Returns 1 if any of the passes modified the module, 0 otherwise.
 ##     @see llvm::FunctionPassManager::doFinalization
 

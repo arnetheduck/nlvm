@@ -134,6 +134,20 @@ proc targetMachineEmitToMemoryBuffer*(t: TargetMachineRef; m: ModuleRef;
 
 proc getDefaultTargetTriple*(): cstring {.importc: "LLVMGetDefaultTargetTriple",
                                        dynlib: LLVMLib.}
+## * Normalize a target triple. The result needs to be disposed with
+##   LLVMDisposeMessage.
+
+proc normalizeTargetTriple*(triple: cstring): cstring {.
+    importc: "LLVMNormalizeTargetTriple", dynlib: LLVMLib.}
+## * Get the host CPU as a string. The result needs to be disposed with
+##   LLVMDisposeMessage.
+
+proc getHostCPUName*(): cstring {.importc: "LLVMGetHostCPUName", dynlib: LLVMLib.}
+## * Get the host CPU's features as a string. The result needs to be disposed
+##   with LLVMDisposeMessage.
+
+proc getHostCPUFeatures*(): cstring {.importc: "LLVMGetHostCPUFeatures",
+                                   dynlib: LLVMLib.}
 ## * Adds the target-specific analysis passes to the pass manager.
 
 proc addAnalysisPasses*(t: TargetMachineRef; pm: PassManagerRef) {.

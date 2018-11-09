@@ -3,7 +3,7 @@
 mkdir -p ext
 cd ext
 
-VER="6.0"
+VER="7.0"
 VER2="$VER.0"
 
 [[ -f libLLVM-$VER.so ]] && exit 0

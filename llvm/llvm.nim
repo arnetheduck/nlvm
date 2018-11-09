@@ -2,10 +2,10 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-const LLVMLib = "libLLVM-6.0.so"
+const LLVMLib = "libLLVM-7.so"
 
-{.passC: "-I../ext/llvm-6.0.0.src/include".}
-{.passC: "-I../ext/llvm-6.0.0.src/rel/include".}
+{.passC: "-I../ext/llvm-7.0.0.src/include".}
+{.passC: "-I../ext/llvm-7.0.0.src/rel/include".}
 
 {.compile: "wrapper.cc".}
 
@@ -32,6 +32,9 @@ type
   OpaqueMetaData{.pure, final.} = object
   OpaqueDIBuilder{.pure, final.} = object
   target{.pure, final.} = object
+  Comdat{.pure, final.} = object
+  OpaqueModuleFlagEntry{.pure, final.} = object
+  OpaqueJITEventListener{.pure, final.} = object
 
   # Funny type names that came out of c2nim
   uint64T = uint64
@@ -89,61 +92,80 @@ const
   DW_ATE_lo_user* = 0x80.cuint
   DW_ATE_hi_user* = 0xff.cuint
 
+template oaAddr(v: openArray): untyped =
+  if v.len > 0: v[0].unsafeAddr else: nil
+template oaLen(v: openArray): cuint = v.len.uint32
+
 proc nimAddModuleFlag*(m: ModuleRef, name: cstring, value: uint32) {.importc: "LLVMNimAddModuleFlag".}
 
-proc nimDIBuilderCreateSubroutineType*(
-  d: DIBuilderRef, parameterTypes: MetadataRef): MetadataRef {.importc: "LLVMNimDIBuilderCreateSubroutineType".}
-proc nimDIBuilderCreateFile*(
-  d: DIBuilderRef, filename: cstring,
-  directory: cstring): MetadataRef {.importc: "LLVMNimDIBuilderCreateFile".}
-proc nimDIBuilderCreateFunction*(d: DIBuilderRef, scope: MetadataRef,
-  name: cstring, linkageName: cstring, file: MetadataRef, lineNo: cuint,
+proc dIBuilderCreateSubroutineType*(
+  d: DIBuilderRef, file: MetadataRef, parameterTypes: openArray[MetadataRef]): MetadataRef =
+  dIBuilderCreateSubroutineType(d, nil, parameterTypes.oaAddr,
+  parameterTypes.oaLen, DIFlagZero)
+proc dIBuilderCreateFunction*(d: DIBuilderRef, scope: MetadataRef,
+  name: string, linkageName: string, file: MetadataRef, lineNo: cuint,
   ty: MetadataRef, isLocalToUnit: bool, isDefinition: bool, scopeLine: cuint,
-  flags: cuint, isOptimized: bool, fn: llvm.ValueRef, tparam: MetadataRef,
-  decl: MetadataRef): MetadataRef {.importc: "LLVMNimDIBuilderCreateFunction".}
-proc nimDIBuilderCreateBasicType*(
-  d: DIBuilderRef, name: cstring, bits: uint64,
-  encoding: cuint): MetadataRef {.importc: "LLVMNimDIBuilderCreateBasicType".}
-proc nimDIBuilderCreatePointerType*(
+  flags: cuint, isOptimized: bool): MetadataRef =
+  dIBuilderCreateFunction(d, scope, name.cstring, name.len, linkageName.cstring,
+  linkageName.len, file, lineNo, ty, isLocalToUnit.Bool, isDefinition.Bool,
+  scopeLine, flags.DIFlags, isOptimized.Bool)
+proc dIBuilderCreateBasicType*(
+  d: DIBuilderRef, name: string, bits: uint64,
+  encoding: cuint): MetadataRef =
+  dIBuilderCreateBasicType(d, name.cstring, name.len, bits, encoding)
+proc dIBuilderCreatePointerType*(
   d: DIBuilderRef, pointeeTy: MetadataRef, bits: uint64, align: uint32,
-  name: cstring): MetadataRef {.importc: "LLVMNimDIBuilderCreatePointerType".}
-proc nimDIBuilderCreateStructType*(
-  d: DIBuilderRef, scope: MetadataRef, name: cstring,
+  name: string): MetadataRef =
+  dIBuilderCreatePointerType(d, pointeeTy, bits, align, 0, name.cstring, name.len)
+proc dIBuilderCreateStructType*(
+  d: DIBuilderRef, scope: MetadataRef, name: string,
   file: MetadataRef, lineNumber: cuint, sizeBits: uint64,
   alignBits: uint32, flags: cuint, derivedFrom: MetadataRef,
-  elements: MetadataRef, runtimeLang: cuint, vtableHolder: MetadataRef,
-  uniqueId: cstring): MetadataRef {.importc: "LLVMNimDIBuilderCreateStructType".}
-proc nimDIBuilderCreateMemberType*(
-  d: DIBuilderRef, scope: MetadataRef, name: cstring,
+  elements: openArray[MetadataRef], runtimeLang: cuint, vtableHolder: MetadataRef,
+  uniqueId: string): MetadataRef =
+  dIBuilderCreateStructType(d, scope, name.cstring, name.len, file, lineNumber,
+  sizeBits, alignBits, flags.DIFlags, derivedFrom, elements.oaAddr, elements.oaLen,
+  runtimeLang, vtableHolder, uniqueId.cstring, uniqueId.len)
+proc dIBuilderCreateMemberType*(
+  d: DIBuilderRef, scope: MetadataRef, name: string,
   file: MetadataRef, lineNo: cuint, sizeBits: uint64, alignBits: uint32,
   offsetBits: uint64, flags: cuint,
-  ty: MetadataRef): MetadataRef {.importc: "LLVMNimDIBuilderCreateMemberType".}
-proc nimDIBuilderCreateStaticVariable*(
-  d: DIBuilderRef, context: MetadataRef, name: cstring,
-  linkageName: cstring, file: MetadataRef, lineNo: cuint, ty: MetadataRef,
+  ty: MetadataRef): MetadataRef =
+  dIBuilderCreateMemberType(d, scope, name.cstring, name.len, file, lineNo,
+  sizeBits, alignBits, offsetBits, flags.DIFlags, ty)
+proc dIBuilderCreateGlobalVariableExpression*(
+  d: DIBuilderRef, context: MetadataRef, name: string,
+  linkageName: string, file: MetadataRef, lineNo: cuint, ty: MetadataRef,
   isLocalToUnit: bool, v: ValueRef, decl: MetadataRef,
-  alignBits: uint32): MetadataRef {.importc: "LLVMNimDIBuilderCreateStaticVariable".}
-proc nimDIBuilderCreateVariable*(
-  d: DIBuilderRef, tag: cuint, scope: MetadataRef, name: cstring,
+  alignBits: uint32): MetadataRef =
+  dIBuilderCreateGlobalVariableExpression(d, context, name.cstring, name.len,
+  linkageName.cstring, linkageName.len, file, lineNo, ty, isLocalToUnit.Bool,
+  valueAsMetadata(v), decl, alignBits)
+
+proc dIBuilderCreateAutoVariable*(
+  d: DIBuilderRef, scope: MetadataRef, name: string,
   file: MetadataRef, lineNo: cuint, ty: MetadataRef, alwaysPreserve: bool,
-  flags: cuint, argNo: cuint, alignBits: uint32): MetadataRef {.importc: "LLVMNimDIBuilderCreateVariable".}
-proc nimDIBuilderCreateArrayType*(
+  flags: cuint, alignBits: uint32): MetadataRef =
+  dIBuilderCreateAutoVariable(d, scope, name.cstring, name.len, file, lineNo,
+  ty, alwaysPreserve.Bool, flags.DIFlags, alignBits)
+proc dIBuilderCreateParameterVariable*(
+  d: DIBuilderRef, scope: MetadataRef, name: string, argNo: cuint,
+  file: MetadataRef, lineNo: cuint, ty: MetadataRef, alwaysPreserve: bool,
+  flags: cuint): MetadataRef =
+  dIBuilderCreateParameterVariable(d, scope, name.cstring, name.len, argNo,
+  file, lineNo, ty, alwaysPreserve.Bool, flags.DIFlags)
+proc dIBuilderCreateArrayType*(
   d: DIBuilderRef, size: uint64, alignBits: uint32, ty: MetadataRef,
-  subscripts: MetadataRef): MetadataRef {.importc: "LLVMNimDIBuilderCreateArrayType".}
-proc nimDIBuilderCreateSubrange*(
-  d: DIBuilderRef, lo, count: int64): MetadataRef {.importc: "LLVMNimDIBuilderCreateSubrange".}
-proc nimDIBuilderGetOrCreateArray*(d: DIBuilderRef, p: ptr MetadataRef,
-  count: cuint): MetadataRef {.importc: "LLVMNimDIBuilderGetOrCreateArray".}
-proc nimDIBuilderInsertDeclareAtEnd*(
-  d: DIBuilderRef, v: ValueRef, varInfo: MetadataRef, addrOps: ptr int64,
-  addrOpsCount: cuint, dl: ValueRef,
-  insertAtEnd: BasicBlockRef): ValueRef {.importc: "LLVMNimDIBuilderInsertDeclareAtEnd".}
+  subscripts: openArray[MetadataRef]): MetadataRef =
+  dIBuilderCreateArrayType(d, size, alignBits, ty, subscripts.oaAddr, subscripts.oaLen)
+proc dIBuilderGetOrCreateArray*(d: DIBuilderRef, p: openArray[MetadataRef]): MetadataRef =
+  dIBuilderGetOrCreateArray(d, p.oaAddr, p.oaLen.csize)
 proc nimDICompositeTypeSetTypeArray*(
   d: DIBuilderRef, compositeTy: MetadataRef,
   tyArray: MetadataRef) {.importc: "LLVMNimDICompositeTypeSetTypeArray".}
-proc nimDIBuilderCreateDebugLocation*(
-  ctx: ContextRef, line: cuint, column: cuint, scope: MetadataRef,
-  inlinedAt: MetadataRef): ValueRef {.importc: "LLVMNimDIBuilderCreateDebugLocation".}
+proc addModuleFlag*(
+  m: ModuleRef, behavior: ModuleFlagBehavior, key: string, val: MetadataRef) =
+  addModuleFlag(m, behavior, key.cstring, key.len, val)
 
 # A few helpers to make things more smooth
 
@@ -258,11 +280,9 @@ proc buildCall*(a2: BuilderRef; fn: ValueRef; args: openarray[ValueRef];
                 name: cstring = ""): ValueRef =
   asRaw(args, buildCall(a2, fn, p, n, name))
 
-proc nimDIBuilderGetOrCreateArray*(
-  d: DIBuilderRef, elems: openarray[MetadataRef]): MetadataRef =
-  var tmp = @elems
-  var p = if tmp.len > 0: addr(tmp[0]) else: nil
-  d.nimDIBuilderGetOrCreateArray(p, tmp.len.cuint)
+proc diBuilderCreateFile*(builder: DIBuilderRef, filename: string, directory: string): MetadataRef =
+  diBuilderCreateFile(builder, filename.cstring, filename.len.csize,
+    directory.cstring, directory.len.csize)
 
 template getEnumAttrKind(x: untyped): untyped = getEnumAttributeKindForName(x, x.len)
 
