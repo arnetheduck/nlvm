@@ -119,6 +119,7 @@ type
 
     # Compile unit
     dcu: llvm.MetadataRef
+    dbgKind: cuint
 
     # target specific stuff
     tgt: string
@@ -209,13 +210,15 @@ proc localAlloca(g: LLGen, typ: llvm.TypeRef, name: string): llvm.ValueRef =
 
   let b = g.b
   let pre = b.getInsertBlock()
+  let dbg = b.getCurrentDebugLocation()
+  if g.d != nil: b.setCurrentDebugLocation(nil)
   let f = pre.getBasicBlockParent()
   var entry = f.getEntryBasicBlock()
 
   var first = entry.getFirstInstruction()
   if first == nil or first.getInstructionOpcode() != llvm.Alloca:
     # Allocate a specific alloca block and place it first in the function
-    let newEntry = entry.insertBasicBlock(g.nn("alloca"))
+    let newEntry = g.lc.insertBasicBlockInContext(entry, g.nn("alloca"))
     b.positionBuilderAtEnd(newEntry)
     let br = b.buildBr(entry)
     entry = newEntry
@@ -227,6 +230,7 @@ proc localAlloca(g: LLGen, typ: llvm.TypeRef, name: string): llvm.ValueRef =
 
   result = b.buildAlloca(typ, name)
   b.positionBuilderAtEnd(pre)
+  if g.d != nil: b.setCurrentDebugLocation(dbg)
 
 proc addPrivateConstant*(m: ModuleRef, ty: llvm.TypeRef, name: cstring): llvm.ValueRef =
   result = m.addGlobal(ty, name)
@@ -862,7 +866,8 @@ proc debugVariable(g: LLGen, sym: PSym, v: llvm.ValueRef, argNo = -1) =
         g.debugGetFile(sym.info.fileIndex),
         sym.info.line.cuint, dt, false, 0)
 
-  discard g.d.dIBuilderInsertDeclareAtEnd(v, vd, nil,
+  discard g.d.dIBuilderInsertDeclareAtEnd(v, vd,
+    g.d.dIBuilderCreateExpression(nil, 0),
     llvm.valueAsMetadata(g.b.getCurrentDebugLocation()),
     g.b.getInsertBlock())
 
@@ -872,11 +877,12 @@ proc debugGlobal(g: LLGen, sym: PSym, v: llvm.ValueRef) =
   var dt = g.debugType(sym.typ)
   let scope = g.debugGetScope(sym)
 
-  discard dIBuilderCreateGlobalVariableExpression(
+  let gve = dIBuilderCreateGlobalVariableExpression(
     g.d, scope, sym.llName, "",
     g.debugGetFile(sym.info.fileIndex), sym.info.line.cuint, dt, false,
-    v, nil, 0
+    dIBuilderCreateExpression(g.d, nil, 0), nil, 0
   )
+  v.nimSetMetadataGlobal(g.dbgKind, g.lc.metadataAsValue(gve))
 
 proc debugFunction(
     g: LLGen, s: PSym, params: openArray[llvm.MetadataRef],
@@ -885,6 +891,7 @@ proc debugFunction(
   let st = g.d.dIBuilderCreateSubroutineType(df, params)
   result = g.d.dIBuilderCreateFunction(
     g.dcu, $f.getValueName(), "", df, 0, st, true, true, 0, 0, false)
+  f.setSubprogram(result)
 
 proc llStructType(g: LLGen, typ: PType): llvm.TypeRef
 proc llTupleType(g: LLGen, typ: PType): llvm.TypeRef
@@ -1313,12 +1320,14 @@ proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
         if typ.sym == nil: g.config.projectMainIdx else: typ.sym.info.fileIndex)
       let vd = g.d.dIBuilderCreateParameterVariable(
         scope, $v.getValueName(), 1, file, 0, dt, false, 0)
-      discard g.d.dIBuilderInsertDeclareAtEnd(vs, vd, nil,
+      discard g.d.dIBuilderInsertDeclareAtEnd(vs, vd,
+        g.d.dIBuilderCreateExpression(nil, 0),
         valueAsMetadata(g.b.getCurrentDebugLocation()), g.b.getInsertBlock())
 
       let opd = g.d.dIBuilderCreateParameterVariable(
         scope, $op.getValueName(), 2, file, 0, g.dtypes[tyInt], false, 0)
-      discard g.d.dIBuilderInsertDeclareAtEnd(ops, opd, nil,
+      discard g.d.dIBuilderInsertDeclareAtEnd(ops, opd,
+        g.d.dIBuilderCreateExpression(nil, 0),
         valueAsMetadata(g.b.getCurrentDebugLocation()), g.b.getInsertBlock())
 
     if typ.kind == tySequence:
@@ -1706,11 +1715,13 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
       sym = t.sym
       dt = g.debugMagicType("TNimType")
 
-    discard g.d.dIBuilderCreateGlobalVariableExpression(
+    let gve = g.d.dIBuilderCreateGlobalVariableExpression(
       g.dcu, name, "",
       g.debugGetFile(if sym == nil: g.config.projectMainIdx else: sym.info.fileIndex),
       if sym == nil: 0.cuint else: sym.info.line.cuint, dt, false,
-      result, nil, 0)
+      dIBuilderCreateExpression(g.d, nil, 0), nil, 0)
+    result.nimSetMetadataGlobal(g.dbgKind, g.lc.metadataAsValue(gve))
+
   g.typeInfos[sig] = result
 
   var finalizerVar, markerVar, deepcopyVar: llvm.ValueRef
@@ -5589,6 +5600,7 @@ proc newLLGen(graph: ModuleGraph): LLGen =
     g.dfiles = initTable[int, llvm.MetadataRef]()
     g.dscopes = initTable[int, llvm.MetadataRef]()
     g.dstructs = initTable[SigHash, llvm.MetadataRef]()
+    g.dbgKind = llvm.getMDKindIDInContext(g.lc, "dbg")
     let df = g.debugGetFile(graph.config.projectMainIdx)
     let isOptimized = False # TODO fetch from flags?
     let flags = "" # TODO Compiler flags
@@ -5669,14 +5681,16 @@ proc genMain(g: LLGen) =
     let vd0 = g.d.dIBuilderCreateParameterVariable(
       scope, "argc", 1, g.debugGetFile(g.config.projectMainIdx), 0, g.dtypes[tyInt],
       false, 0)
-    discard g.d.dIBuilderInsertDeclareAtEnd(argc, vd0, nil,
+    discard g.d.dIBuilderInsertDeclareAtEnd(argc, vd0,
+      g.d.dIBuilderCreateExpression(nil, 0),
       dl, g.b.getInsertBlock())
 
     let vd1 = g.d.dIBuilderCreateParameterVariable(
       scope, "argv", 2, g.debugGetFile(g.config.projectMainIdx), 0,
       g.d.dIBuilderCreatePointerType(g.dtypes[tyCString], 64, 64, ""),
       false, 0)
-    discard g.d.dIBuilderInsertDeclareAtEnd(argv, vd1, nil,
+    discard g.d.dIBuilderInsertDeclareAtEnd(argv, vd1,
+      g.d.dIBuilderCreateExpression(nil, 0),
       dl, g.b.getInsertBlock())
 
   if g.config.target.targetOS != osStandAlone and g.config.selectedGC != gcNone:

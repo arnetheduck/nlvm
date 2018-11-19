@@ -16,6 +16,17 @@ template <typename DIT> inline DIT *unwrapDIPtr(LLVMMetadataRef Ref) {
   return (DIT *)(Ref ? unwrap<MDNode>(Ref) : nullptr);
 }
 
+static MDNode *extractMDNode(MetadataAsValue *MAV) {
+  Metadata *MD = MAV->getMetadata();
+  assert((isa<MDNode>(MD) || isa<ConstantAsMetadata>(MD)) &&
+      "Expected a metadata node or a canonicalized constant");
+
+  if (MDNode *N = dyn_cast<MDNode>(MD))
+    return N;
+
+  return MDNode::get(MAV->getContext(), MD);
+}
+
 using LLVMNimDIFlags = uint32_t;
 
 extern "C" void LLVMNimDICompositeTypeSetTypeArray(LLVMNimDIBuilderRef Builder,
@@ -23,4 +34,12 @@ extern "C" void LLVMNimDICompositeTypeSetTypeArray(LLVMNimDIBuilderRef Builder,
                                                    LLVMMetadataRef TyArray) {
   DICompositeType *Tmp = unwrapDIPtr<DICompositeType>(CompositeTy);
   Builder->replaceArrays(Tmp, DINodeArray(unwrap<MDTuple>(TyArray)));
+}
+
+extern "C" void LLVMNimSetMetadataGlobal(LLVMValueRef Global,
+                                         unsigned KindID,
+                                         LLVMValueRef Val) {
+  MDNode *N = Val ? extractMDNode(unwrap<MetadataAsValue>(Val)) : nullptr;
+
+  unwrap<GlobalObject>(Global)->setMetadata(KindID, N);
 }

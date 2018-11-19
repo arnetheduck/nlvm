@@ -136,11 +136,11 @@ proc dIBuilderCreateMemberType*(
 proc dIBuilderCreateGlobalVariableExpression*(
   d: DIBuilderRef, context: MetadataRef, name: string,
   linkageName: string, file: MetadataRef, lineNo: cuint, ty: MetadataRef,
-  isLocalToUnit: bool, v: ValueRef, decl: MetadataRef,
+  isLocalToUnit: bool, exp: MetadataRef, decl: MetadataRef,
   alignBits: uint32): MetadataRef =
   dIBuilderCreateGlobalVariableExpression(d, context, name.cstring, name.len,
   linkageName.cstring, linkageName.len, file, lineNo, ty, isLocalToUnit.Bool,
-  valueAsMetadata(v), decl, alignBits)
+  exp, decl, alignBits)
 
 proc dIBuilderCreateAutoVariable*(
   d: DIBuilderRef, scope: MetadataRef, name: string,
@@ -166,6 +166,8 @@ proc nimDICompositeTypeSetTypeArray*(
 proc addModuleFlag*(
   m: ModuleRef, behavior: ModuleFlagBehavior, key: string, val: MetadataRef) =
   addModuleFlag(m, behavior, key.cstring, key.len, val)
+proc nimSetMetadataGlobal*(
+  val: ValueRef; kindID: cuint; node: ValueRef) {.importc: "LLVMNimSetMetadataGlobal".}
 
 # A few helpers to make things more smooth
 
@@ -292,3 +294,6 @@ let
 
 proc addFuncAttribute*(f: ValueRef, v: AttributeRef) =
   addAttributeAtIndex(f, cast[AttributeIndex](AttributeFunctionIndex), v)
+
+proc getMDKindIDInContext*(c: ContextRef, name: string): cuint =
+  getMDKindIDInContext(c, name.cstring, name.len.cuint)
