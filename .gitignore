@@ -6,3 +6,5 @@ nimcache
 /testament.db
 *.ndb
 ext
+testresults
+badeggs.json

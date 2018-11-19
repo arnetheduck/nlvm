@@ -6,9 +6,9 @@ LLVMPATH=../ext
 
 #NIMFLAGS=--opt:speed --gc:markandsweep
 #NIMFLAGS=-d:release
-NIMFLAGS=
+NIMFLAGS=--debuginfo --linedir:on
 
-NLVMFLAGS=--gc:markandsweep
+NLVMFLAGS=--gc:markandsweep --debuginfo --linedir:on
 
 LLVMLIB=LLVM-7
 
@@ -33,7 +33,7 @@ $(NIMC): Nim/koch Nim/compiler/*.nim
 	cd Nim && ./koch boot -d:release
 
 $(NLVMC): $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim
-	cd nlvm && time ../$(NIMC) --debuginfo $(NIMFLAGS) $(LLVMLIBS) c nlvm
+	cd nlvm && time ../$(NIMC) $(NIMFLAGS) $(LLVMLIBS) c nlvm
 
 nlvm/nimcache/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim
 	cd nlvm && time ./nlvm $(NLVMFLAGS) -o:nimcache/nlvm.ll -c c nlvm
@@ -51,9 +51,27 @@ compare: nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
 Nim/testament/tester: $(NIMC) Nim/testament/*.nim
 	cd Nim && bin/nim -d:release c testament/tester
 
+.PHONY: run-tester
+run-tester: Nim/testament/tester $(NLVMC)
+	cd Nim && time testament/tester --targets:c "--nim:../nlvm/nlvm " all
+
+.PHONY: move-results
+move-results:
+	rm -rf testresults
+	[ -d Nim/testresults ] && mv Nim/testresults .
+
 .PHONY: test
-test: Nim/testament/tester $(NLVMC)
-	cd Nim && time testament/tester --targets:c "--nim:../nlvm/nlvm "  all
+test: move-results run-tester stats
+	jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
+
+.PHONY: badeggs.json
+badeggs.json:
+	jq -s '[.[][]|select(.result != "reSuccess" and .result != "reIgnored")]' Nim/testresults/*.json > badeggs.json
+
+.PHONY: stats
+stats: badeggs.json
+	jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
+	jq 'group_by(.category)|.[]|((unique_by(.category)|.[].category) + " " + (length| tostring))' badeggs.json
 
 .PHONY: t2
 t2:

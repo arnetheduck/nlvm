@@ -39,23 +39,25 @@ import
   llvm/llvm
 
 type
-  LLScope = ref object
+  LLBlock = ref object
     n: PNode
     exit: llvm.BasicBlockRef
     goto: llvm.ValueRef
     nestedTryStmts: int
     nestedExceptStmts: int
+    isLoop: bool
 
   LLFunc = ref object
-    scope: seq[LLScope]
+    blocks: seq[LLBlock]
     ret: llvm.BasicBlockRef
     options: TOptions
     nestedTryStmts*: seq[tuple[n: PNode, inExcept: bool]]
     finallySafePoints: seq[llvm.ValueRef]
-    loopNesting: int
+    withinLoop: int
     init: llvm.BasicBlockRef
     clenv: llvm.ValueRef
     ds: llvm.MetadataRef
+    breakIdx: int
 
   LLModule = ref object of PPassContext
     ## One LLModule per .nim file (module)
@@ -113,7 +115,6 @@ type
 
     # Debug stuff
     dfiles: Table[int, llvm.MetadataRef]
-    dscopes: Table[int, llvm.MetadataRef]
     dtypes: array[TTypeKind, llvm.MetadataRef]
     dstructs: Table[SigHash, llvm.MetadataRef]
 
@@ -171,21 +172,14 @@ proc inExceptBlockLen(p: LLFunc): int =
   for x in p.nestedTryStmts:
     if x.inExcept: result.inc
 
-proc scopePush(f: LLFunc, n: PNode, exit: llvm.BasicBlockRef) =
-  f.scope.add(
-    LLScope(n: n, exit: exit, nestedTryStmts: f.nestedTryStmts.len,
+proc startBlock(f: LLFunc, n: PNode, exit: llvm.BasicBlockRef): int =
+  result = f.blocks.len
+  f.blocks.add(
+    LLBlock(n: n, exit: exit, nestedTryStmts: f.nestedTryStmts.len,
       nestedExceptStmts: f.inExceptBlockLen))
 
-proc scopeIdx(f: LLFunc, sym: PSym): int =
-  for i in 0..f.scope.len - 1:
-    let scope = f.scope[f.scope.len - 1 - i]
-    if scope.n != nil and scope.n.kind == nkSym and scope.n.sym == sym:
-      return f.scope.len - 1 - i
-
-  return -1
-
-proc scopePop(f: LLFunc): LLScope {.discardable.} =
-  f.scope.pop
+proc endBlock(f: LLFunc): LLBlock {.discardable.} =
+  f.blocks.pop
 
 proc getInitBlock(g: LLGen, llf: LLFunc): llvm.BasicBlockRef =
   if llf.init == nil:
@@ -574,10 +568,10 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
     result = g.d.dIBuilderCreateBasicType("enum", bits, DW_ATE_unsigned)
   of tyArray:
     let et = g.debugType(typ.elemType)
-    # Aribrary limit of 100 items here - large numbers seem to have a poor
+    # Arbitrary limit of 1024 items here - large numbers seem to have a poor
     # impact on some debuggers that insist on displaying all sub-items (looking
     # at you, eclipse+gdb) - need to investigate this more
-    let (s, c) = if g.config.lengthOrd(typ) > 100: (cuint(0), -1.int64)
+    let (s, c) = if g.config.lengthOrd(typ) > 1024: (cuint(0), -1.int64)
                  else: (cuint(g.config.lengthOrd(typ)), int64(g.config.lengthOrd(typ)))
     result = g.d.dIBuilderCreateArrayType(s * 8, 0, et,
               [g.d.dIBuilderGetOrCreateSubrange(0, c)])
@@ -818,23 +812,11 @@ proc debugProcType(g: LLGen, typ: PType, closure: bool): seq[llvm.MetadataRef] =
   if closure:
     result.add(g.dtypes[tyPointer])
 
-proc debugGetScope(g: LLGen, sym: PSym): llvm.MetadataRef =
-  var sym = sym
-  while sym != nil and sym.kind notin {skProc, skFunc, skModule}:
-    sym = sym.owner
-
-  if sym != nil and sym.id in g.dscopes: return g.dscopes[sym.id]
-
+proc debugGetScope(g: LLGen): llvm.MetadataRef =
   if g.f != nil:
     return g.f.ds
 
   result = g.dcu
-
-proc debugGetLocation(g: LLGen, sym: PSym, li: TLineInfo): llvm.MetadataRef =
-  let scope = g.debugGetScope(sym)
-
-  result = llvm.getGlobalContext().dIBuilderCreateDebugLocation(
-      li.line.cuint, li.col.cuint, scope, nil)
 
 proc debugUpdateLoc(g: LLGen, n: PNode) =
   if g.d == nil: return
@@ -842,9 +824,19 @@ proc debugUpdateLoc(g: LLGen, n: PNode) =
     g.b.setCurrentDebugLocation(nil)
     return
 
-  let sym = if n.kind == nkSym: n.sym else: nil
+  # This scope ensures that even for top-level statements, the right file is
+  # used together with the line and column - it happens this way because we
+  # dump such statements from all nim modules into a single `main` function.
+  # It's a bit of a hack, better would be to control this more tightly so as to
+  # avoid creating all these scopes - we should also be creating
+  # a new lexical scope whenever a new block begins - probably somewhere around
+  # startBlock..
+  let scope = g.d.dIBuilderCreateLexicalBlockFile(
+    g.debugGetScope(), g.debugGetFile(n.info.fileIndex), 0)
+  let dlm = g.lc.dIBuilderCreateDebugLocation(
+    max(n.info.line.cuint, 1), max(n.info.col.cuint, 1), scope, nil)
 
-  let dl = metadataAsValue(llvm.getGlobalContext(), g.debugGetLocation(sym, n.info))
+  let dl = metadataAsValue(g.lc, dlm)
   g.b.setCurrentDebugLocation(dl)
 
 proc debugVariable(g: LLGen, sym: PSym, v: llvm.ValueRef, argNo = -1) =
@@ -852,7 +844,7 @@ proc debugVariable(g: LLGen, sym: PSym, v: llvm.ValueRef, argNo = -1) =
 
   var dt = g.debugType(sym.typ)
 
-  let scope = g.debugGetScope(sym)
+  let scope = g.debugGetScope()
 
   let vd =
     if argNo == -1:
@@ -875,7 +867,7 @@ proc debugGlobal(g: LLGen, sym: PSym, v: llvm.ValueRef) =
   if g.d == nil: return
 
   var dt = g.debugType(sym.typ)
-  let scope = g.debugGetScope(sym)
+  let scope = g.debugGetScope()
 
   let gve = dIBuilderCreateGlobalVariableExpression(
     g.d, scope, sym.llName, "",
@@ -887,10 +879,14 @@ proc debugGlobal(g: LLGen, sym: PSym, v: llvm.ValueRef) =
 proc debugFunction(
     g: LLGen, s: PSym, params: openArray[llvm.MetadataRef],
     f: llvm.ValueRef): llvm.MetadataRef =
-  let df = g.debugGetFile(if s == nil: g.config.projectMainIdx else: s.info.fileIndex)
-  let st = g.d.dIBuilderCreateSubroutineType(df, params)
+  let
+    df = g.debugGetFile(if s == nil: g.config.projectMainIdx else: s.info.fileIndex)
+    line = if s == nil: 1.cuint else: s.info.line.cuint
+    st = g.d.dIBuilderCreateSubroutineType(df, params)
+    linkageName = $f.getValueName()
+    name = if s == nil or s.name.s.len == 0: linkageName else: s.name.s
   result = g.d.dIBuilderCreateFunction(
-    g.dcu, $f.getValueName(), "", df, 0, st, true, true, 0, 0, false)
+    g.dcu, name, linkageName, df, line, st, false, true, line, 0, false)
   f.setSubprogram(result)
 
 proc llStructType(g: LLGen, typ: PType): llvm.TypeRef
@@ -963,6 +959,11 @@ template withBlock(g: LLGen, bb: llvm.BasicBlockRef, body: untyped) =
     b.positionBuilderAtEnd(pre)
     if optCDebug in g.config.globalOptions:
       b.setCurrentDebugLocation(db)
+
+template preserveBreakIdx(f: var LLFunc, body: untyped): untyped =
+  var oldBreakIdx = f.breakIdx
+  body
+  f.breakIdx = oldBreakIdx
 
 proc finalize(g: LLGen, llf: LLFunc) =
   if llf.init == nil: return
@@ -1296,9 +1297,9 @@ proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
       scope = g.debugFunction(
         typ.sym, [nil, g.dtypes[tyPointer], g.dtypes[tyInt]], f)
 
-      let dl = llvm.getGlobalContext().dIBuilderCreateDebugLocation(
-          0, 0, scope, nil)
-      g.b.setCurrentDebugLocation(llvm.getGlobalContext().metadataAsValue(dl))
+      let dl = g.lc.dIBuilderCreateDebugLocation(
+          1, 1, scope, nil)
+      g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
 
     let v = f.getFirstParam()
     v.setValueName("v")
@@ -1379,9 +1380,9 @@ proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
     if g.d != nil:
       let scope = g.debugFunction(sym, [], result)
 
-      let dl = llvm.getGlobalContext().dIBuilderCreateDebugLocation(
-          0, 0, scope, nil)
-      g.b.setCurrentDebugLocation(llvm.getGlobalContext().metadataAsValue(dl))
+      let dl = g.lc.dIBuilderCreateDebugLocation(
+          1, 1, scope, nil)
+      g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
 
     var v = v
     if typ.kind in {tyRef, tyPtr, tyVar, tyString, tySequence}:
@@ -1398,9 +1399,9 @@ proc registerGcRoot(g: LLGen, sym: PSym, v: llvm.ValueRef) =
       let prc = g.genGlobalMarkerProc(sym, v)
       let scope = g.init.ds
       if scope != nil:
-        let dl = llvm.getGlobalContext().dIBuilderCreateDebugLocation(
-          0, 0, scope, nil)
-        g.b.setCurrentDebugLocation(llvm.getGlobalContext().metadataAsValue(dl))
+        let dl = g.lc.dIBuilderCreateDebugLocation(
+          1, 1, scope, nil)
+        g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
 
       discard g.callCompilerProc("nimRegisterGlobalMarker", [prc])
 
@@ -2250,7 +2251,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
       let arr = g.debugProcType(typ, typ.callConv == ccClosure)
       g.f.ds = g.debugFunction(s, arr, result)
     g.f.options = s.options
-    g.f.scopePush(s.ast, g.f.ret)
+    discard g.f.startBlock(s.ast, g.f.ret)
 
     g.debugUpdateLoc(s.ast)
 
@@ -2298,7 +2299,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
       argNo += 1
 
     # Scope for local variables
-    g.f.scopePush(s.ast, g.f.ret)
+    discard g.f.startBlock(s.ast, g.f.ret)
 
     var ret: llvm.ValueRef
     if sfPure notin s.flags and typ.sons[0] != nil:
@@ -4360,7 +4361,7 @@ proc genSingleVar(g: LLGen, n: PNode) =
 
     x = g.genGlobal(vn)
 
-    if v.kind == skLet or g.f.loopNesting == 0:
+    if v.kind == skLet or g.f.withinLoop == 0:
       if init.isDeepConstExprLL(true):
         let i = g.genConstInitializer(init)
         if i != nil:
@@ -4372,7 +4373,7 @@ proc genSingleVar(g: LLGen, n: PNode) =
 
     # oddly, variables in a loop in the global scope are tagged "global" even
     # though they're local to the looping block
-    if g.f.loopNesting > 0:
+    if g.f.withinLoop > 0:
       discard g.callCompilerProc("genericReset", [x, g.genTypeInfo(v.typ)])
   else:
     x = g.genLocal(vn)
@@ -4709,10 +4710,10 @@ proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     if s.sonsLen == 1:
       # else branch
       if not typ.isEmptyType():
-        g.f.scopePush(n, nil)
+        discard g.f.startBlock(n, nil)
         g.genAssignment(s[0], result, typ)
 
-        g.f.scopePop()
+        g.f.endBlock()
 
       discard g.b.buildBr(iend)
     else:
@@ -4725,9 +4726,9 @@ proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
       g.b.positionBuilderAtEnd(itrue)
       if not typ.isEmptyType():
-        g.f.scopePush(n, nil)
+        discard g.f.startBlock(n, nil)
         g.genAssignment(s[1], result, typ)
-        g.f.scopePop()
+        g.f.endBlock()
 
       discard g.b.buildBr(iend)
 
@@ -4895,16 +4896,16 @@ proc genNodeIfStmt(g: LLGen, n: PNode): llvm.ValueRef =
   let f = pre.getBasicBlockParent()
 
   # TODO Single scope enough?
-  g.f.scopePush(n, nil)
+  discard g.f.startBlock(n, nil)
   var iend: llvm.BasicBlockRef
   for i in 0..<n.sonsLen:
     let s = n[i]
 
     if s.sons.len == 1:
       # else branch
-      g.f.scopePush(n, nil)
+      discard g.f.startBlock(n, nil)
       g.genNode(s[0])
-      g.f.scopePop()
+      g.f.endBlock()
 
       if g.b.needsBr():
         if iend == nil:
@@ -4919,9 +4920,9 @@ proc genNodeIfStmt(g: LLGen, n: PNode): llvm.ValueRef =
       discard g.b.buildCondBr(cond, itrue, ifalse)
 
       g.b.positionBuilderAtEnd(itrue)
-      g.f.scopePush(n, nil)
+      discard g.f.startBlock(n, nil)
       g.genNode(s[1])
-      g.f.scopePop()
+      g.f.endBlock()
 
       if g.b.needsBr():
         if iend == nil:
@@ -4934,43 +4935,45 @@ proc genNodeIfStmt(g: LLGen, n: PNode): llvm.ValueRef =
     if n[n.sonsLen - 1].sonsLen != 1:
       discard g.b.buildBr(iend)
     g.b.positionAndMoveToEnd(iend)
-  discard g.f.scopePop()
+  discard g.f.endBlock()
 
 proc genNodeWhenStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   g.genNode(n[1][0], load)
 
 proc genNodeWhileStmt(g: LLGen, n: PNode) =
-  inc(g.f.loopNesting)
+  inc(g.f.withinLoop)
 
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
+  g.f.preserveBreakIdx:
+    let pre = g.b.getInsertBlock()
+    let f = pre.getBasicBlockParent()
 
-  let wcmp = f.appendBasicBlock(g.nn("while.cmp", n))
-  let wtrue = f.appendBasicBlock(g.nn("while.true", n))
-  let wfalse = f.appendBasicBlock(g.nn("while.false", n))
+    let wcmp = f.appendBasicBlock(g.nn("while.cmp", n))
+    let wtrue = f.appendBasicBlock(g.nn("while.true", n))
+    let wfalse = f.appendBasicBlock(g.nn("while.false", n))
 
-  # jump to comparison
-  discard g.b.buildBr(wcmp)
+    # jump to comparison
+    discard g.b.buildBr(wcmp)
 
-  # generate condition expression in cmp block
-  g.b.positionBuilderAtEnd(wcmp)
-  let cond = g.buildI1(g.genNode(n[0], true))
+    # generate condition expression in cmp block
+    g.b.positionBuilderAtEnd(wcmp)
+    let cond = g.buildI1(g.genNode(n[0], true))
 
-  discard g.b.buildCondBr(cond, wtrue, wfalse)
+    discard g.b.buildCondBr(cond, wtrue, wfalse)
 
-  # loop body
-  g.b.positionBuilderAtEnd(wtrue)
-  g.f.scopePush(n, wfalse)
-  g.genNode(n[1])
-  g.f.scopePop()
+    # loop body
+    g.b.positionBuilderAtEnd(wtrue)
+    g.f.breakIdx = g.f.startBlock(n, wfalse)
+    g.f.blocks[g.f.breakIdx].isLoop = true
+    g.genNode(n[1])
+    g.f.endBlock()
 
-  # back to comparison
-  discard g.b.buildBr(wcmp)
+    # back to comparison
+    discard g.b.buildBr(wcmp)
 
-  # continue at the end
-  g.b.positionAndMoveToEnd(wfalse)
+    # continue at the end
+    g.b.positionAndMoveToEnd(wfalse)
 
-  dec(g.f.loopNesting)
+  dec(g.f.withinLoop)
 
 proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let pre = g.b.getInsertBlock()
@@ -5003,7 +5006,7 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       elif n[i+1].kind == nkElse: f.appendBasicBlock(g.nn("case.else", n))
       else: f.appendBasicBlock(g.nn("case.of." & $(i+1), n))
 
-    g.f.scopePush(n, caseend)
+    discard g.f.startBlock(n, caseend)
     g.b.positionBuilderAtEnd(casedo)
     if not n.typ.isEmptyType():
       g.genAssignment(s.lastSon, result, n.typ)
@@ -5065,7 +5068,7 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       discard g.b.buildBr(casedo)
     else:
       g.config.internalError(s.info, "Unexpected case kind " & $s.kind)
-    g.f.scopePop()
+    g.f.endBlock()
 
   g.b.positionAndMoveToEnd(caseend)
 
@@ -5092,7 +5095,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   g.buildStoreNull(sp)
   discard g.callCompilerProc("pushSafePoint", [sp])
 
-  g.f.scopePush(nil, nil)
+  discard g.f.startBlock(nil, nil)
 
   # call setjmp
   let
@@ -5119,7 +5122,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
   g.b.positionBuilderAtEnd(sjok)
 
-  g.f.scopePush(nil, nil)
+  discard g.f.startBlock(nil, nil)
   g.f.nestedTryStmts.add((n, false))
 
   if not n.typ.isEmptyType():
@@ -5128,12 +5131,12 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     g.genNode(n[0])
 
   discard g.callCompilerProc("popSafePoint", [])
-  g.f.scopePop()
+  g.f.endBlock()
 
   discard g.b.buildBr(sjend)
 
   g.b.positionBuilderAtEnd(sjexc)
-  g.f.scopePush(nil, nil)
+  discard g.f.startBlock(nil, nil)
 
   discard g.callCompilerProc("popSafePoint", [])
 
@@ -5192,7 +5195,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       g.b.positionBuilderAtEnd(sjnext)
 
   discard pop(g.f.nestedTryStmts)
-  g.f.scopePop()
+  g.f.endBlock()
 
   if i == 1:
     # finally without catch!
@@ -5201,12 +5204,12 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
   if i < length and n[i].kind == nkFinally:
     g.f.finallySafePoints.add(sp)
-    g.f.scopePush(nil, nil)
+    discard g.f.startBlock(nil, nil)
     if not n.typ.isEmptyType():
       g.genAssignment(n[i][0], result, n.typ)
     else:
       g.genNode(n[i][0])
-    g.f.scopePop()
+    g.f.endBlock()
     discard g.f.finallySafePoints.pop()
 
   # TODO is the load needed?
@@ -5224,7 +5227,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
   g.b.positionBuilderAtEnd(sjnm)
   sjend.moveBasicBlockBefore(sjrr)
-  g.f.scopePop()
+  g.f.endBlock()
 
   if load and result != nil:
     result = g.buildLoadValue(result)
@@ -5233,9 +5236,9 @@ proc genNodeRaiseStmt(g: LLGen, n: PNode) =
   if g.f.nestedTryStmts.len > 0 and g.f.nestedTryStmts[^1].inExcept:
     let finallyBlock = g.f.nestedTryStmts[^1].n.lastSon
     if finallyBlock.kind == nkFinally:
-      g.f.scopePush(nil, nil)
+      discard g.f.startBlock(nil, nil)
       g.genNode(finallyBlock.sons[0])
-      g.f.scopePop()
+      g.f.endBlock()
 
   if n[0].kind != nkEmpty:
     let ax = g.genNode(n[0], true)
@@ -5302,14 +5305,20 @@ proc genNodeReturnStmt(g: LLGen, n: PNode) =
 proc genNodeBreakStmt(g: LLGen, n: PNode) =
   p("b", n[0], g.depth)
 
-  if n[0].kind == nkEmpty:
-    g.config.internalError(n.info, "Unexpected nkBreakStmt with nkEmpty")
+  var idx = g.f.breakIdx
 
-  let idx = g.f.scopeIdx(n[0].sym)
-  if idx == -1:
-    g.config.internalError(n.info, "Scope not found: " & $n[0].sym)
+  if n[0].kind != nkEmpty:
+    # named break?
+    let sym = n[0].sym
+    doAssert(sym.loc.k == locOther)
+    idx = sym.position-1
+  else:
+    # an unnamed 'break' can only break a loop after 'transf' pass:
+    while idx >= 0 and not g.f.blocks[idx].isLoop: dec idx
+    if idx < 0 or not g.f.blocks[idx].isLoop:
+      internalError(g.config, n.info, "no loop to break")
 
-  let s = g.f.scope[idx]
+  let s = g.f.blocks[idx]
 
   g.blockLeave(
     g.f.nestedTryStmts.len - s.nestedTryStmts,
@@ -5329,13 +5338,19 @@ proc genNodeBreakStmt(g: LLGen, n: PNode) =
   g.b.positionBuilderAtEnd(cont)
 
 proc genNodeBlockStmt(g: LLGen, n: PNode) =
-  g.f.scopePush(n[0], nil)
-  g.genNode(n[1])
-  let scope = g.f.scopePop()
+  g.f.preserveBreakIdx:
+    g.f.breakIdx = g.f.startBlock(n[0], nil)
+    if n[0].kind != nkEmpty:
+      # named block?
+      var sym = n[0].sym
+      sym.loc.k = locOther
+      sym.position = g.f.breakIdx+1
+    g.genNode(n[1])
+    let scope = g.f.endBlock()
 
-  if scope.exit != nil:
-    g.b.buildBrFallthrough(scope.exit)
-    g.b.positionAndMoveToEnd(scope.exit)
+    if scope.exit != nil:
+      g.b.buildBrFallthrough(scope.exit)
+      g.b.positionAndMoveToEnd(scope.exit)
 
 proc genNodeDiscardStmt(g: LLGen, n: PNode) =
   if n[0].kind != nkEmpty:
@@ -5349,13 +5364,20 @@ proc genNodeStmtListExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     result = g.genNode(n[length - 1], load)
 
 proc genNodeBlockExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  g.f.scopePush(n[0], nil)
-  result = g.genNode(n[1], load)
-  let scope = g.f.scopePop()
+  g.f.preserveBreakIdx:
+    g.f.breakIdx = g.f.startBlock(n[0], nil)
+    if n[0].kind != nkEmpty:
+      # named block?
+      var sym = n[0].sym
+      sym.loc.k = locOther
+      sym.position = g.f.breakIdx+1
 
-  if scope.exit != nil:
-    g.b.buildBrFallthrough(scope.exit)
-    g.b.positionAndMoveToEnd(scope.exit)
+    result = g.genNode(n[1], load)
+    let scope = g.f.endBlock()
+
+    if scope.exit != nil:
+      g.b.buildBrFallthrough(scope.exit)
+      g.b.positionAndMoveToEnd(scope.exit)
 
 proc genNodeClosure(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   var
@@ -5382,7 +5404,7 @@ proc genNodeGotoState(g: LLGen, n: PNode) =
 
   let l = g.config.lastOrd(n[0].typ)
 
-  g.f.scope[g.f.scope.len - 1].goto = g.b.buildSwitch(ax, g.f.ret, (l + 1).cuint)
+  g.f.blocks[g.f.blocks.len - 1].goto = g.b.buildSwitch(ax, g.f.ret, (l + 1).cuint)
 
 proc genNodeState(g: LLGen, n: PNode) =
   let pre = g.b.getInsertBlock()
@@ -5390,40 +5412,28 @@ proc genNodeState(g: LLGen, n: PNode) =
   let state = f.appendBasicBlock(g.nn("state." & $n[0].intVal, n))
   g.b.buildBrFallthrough(state)
   g.b.positionBuilderAtEnd(state)
-  for i in 0..g.f.scope.len-1:
-    if g.f.scope[g.f.scope.len - i - 1].goto != nil:
-      g.f.scope[g.f.scope.len - i - 1].goto.addCase(g.constNimInt(n[0].intVal.int), state)
+  for i in 0..g.f.blocks.len-1:
+    if g.f.blocks[g.f.blocks.len - i - 1].goto != nil:
+      g.f.blocks[g.f.blocks.len - i - 1].goto.addCase(g.constNimInt(n[0].intVal.int), state)
       break
 
-proc genNodeBreakState(g: LLGen, n: PNode) =
+proc genNodeBreakState(g: LLGen, n: PNode): llvm.ValueRef =
   # TODO C code casts to int* and reads second value.. uh, I guess we should be
   # able to do better
   var ax: llvm.ValueRef
   if n[0].kind == nkClosure:
     ax = g.genNode(n[0][1], false)
+    ax = g.b.buildLoad(ax, g.nn("load.state.break", n))
+    ax = g.b.buildGEP(ax, [g.gep0, g.gep1])
   else:
     ax = g.genNode(n[0], false)
     ax = g.b.buildGEP(ax, [g.gep0, g.gep1])
+    ax = g.b.buildLoad(ax, g.nn("load.state.break", n))
+    ax = g.b.buildBitCast(ax, g.primitives[tyInt].pointerType(), "")
+    ax = g.b.buildGEP(ax, [g.gep1])
 
-  ax = g.b.buildLoad(ax, g.nn("load.state.break", n))
-  let s = g.b.buildLoad(g.b.buildGEP(ax, [g.gep0, g.gep1]), g.nn("state.break.s", n))
-  let cmp = g.b.buildICmp(llvm.IntSLT, s, g.ni0, g.nn("state.break.cmp", n))
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-  let state = f.appendBasicBlock(g.nn("state.break.cont", n))
-
-  # nkBreakState happens in a loop, so we need to find the end of that loop...
-  var whileExit: llvm.BasicBlockRef
-  for i in 0..g.f.scope.len-1:
-    if g.f.scope[g.f.scope.len - i - 1].exit != nil:
-      whileExit = g.f.scope[g.f.scope.len - i - 1].exit
-      break
-
-  if whileExit == nil:
-    g.config.internalError(n.info, "no enclosing while loop in nkBreakState")
-
-  discard g.b.buildCondBr(cmp, whileExit, state)
-  g.b.positionBuilderAtEnd(state)
+  let s = g.b.buildLoad(ax, g.nn("state.break.s", n))
+  result = g.b.buildICmp(llvm.IntSLT, s, g.ni0, g.nn("state.break.cmp", n))
 
 proc genNodeTupleConstr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   genNodePar(g, n, load)
@@ -5498,7 +5508,7 @@ proc genNode(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   of nkClosure: result = g.genNodeClosure(n, load)
   of nkGotoState: g.genNodeGotoState(n)
   of nkState: g.genNodeState(n)
-  of nkBreakState: g.genNodeBreakState(n)
+  of nkBreakState: result = g.genNodeBreakState(n)
   of nkTupleConstr: result = g.genNodeTupleConstr(n, load)
 
   of nkTypeSection, nkCommentStmt, nkIteratorDef, nkIncludeStmt,
@@ -5511,7 +5521,7 @@ proc genNode(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
 proc newLLFunc(g: LLGen, ret: llvm.BasicBlockRef): LLFunc =
   new(result)
-  result.scope = @[]
+  result.blocks = @[]
   result.ret = ret
   result.nestedTryStmts = @[]
   result.finallySafePoints = @[]
@@ -5598,7 +5608,6 @@ proc newLLGen(graph: ModuleGraph): LLGen =
     let d = llvm.createDIBuilder(g.m)
     g.d = d
     g.dfiles = initTable[int, llvm.MetadataRef]()
-    g.dscopes = initTable[int, llvm.MetadataRef]()
     g.dstructs = initTable[SigHash, llvm.MetadataRef]()
     g.dbgKind = llvm.getMDKindIDInContext(g.lc, "dbg")
     let df = g.debugGetFile(graph.config.projectMainIdx)
@@ -5649,27 +5658,18 @@ proc newLLGen(graph: ModuleGraph): LLGen =
     result.tgtExportLinkage = llvm.ExternalLinkage
 
 proc genMain(g: LLGen) =
-  let llMainType = llvm.functionType(
-    g.cintType, [g.cintType, g.primitives[tyCString].pointerType()])
+  let
+    llf = g.init
+    f = llf.ret.getBasicBlockParent()
+    init = f.getFirstBasicBlock()
+    b = insertBasicBlockInContext(g.lc, init, g.nn("entry"))
 
-  let f = g.m.addFunction("main", llMainType)
-
-  let b = f.appendBasicBlock(g.nn("entry"))
   g.b.positionBuilderAtEnd(b)
 
   if g.d != nil:
-    let types = [
-      g.dtypes[tyInt32],
-      g.dtypes[tyInt32],
-      g.d.dIBuilderCreatePointerType(
-        g.d.dIBuilderCreatePointerType(g.dtypes[tyChar], 64, 64, ""),
-        64, 64, "")
-    ]
-    let scope = g.debugFunction(nil, types, f)
-
-    let dl = llvm.getGlobalContext().dIBuilderCreateDebugLocation(
-        0, 0, scope, nil)
-    g.b.setCurrentDebugLocation(llvm.getGlobalContext().metadataAsValue(dl))
+    let dl = g.lc.dIBuilderCreateDebugLocation(
+        1, 1, llf.ds, nil)
+    g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
 
     let f0 = f.getFirstParam()
     let f1 = f0.getNextParam()
@@ -5679,14 +5679,14 @@ proc genMain(g: LLGen) =
     discard g.b.buildStore(f1, argv)
 
     let vd0 = g.d.dIBuilderCreateParameterVariable(
-      scope, "argc", 1, g.debugGetFile(g.config.projectMainIdx), 0, g.dtypes[tyInt],
+      llf.ds, "argc", 1, g.debugGetFile(g.config.projectMainIdx), 0, g.dtypes[tyInt],
       false, 0)
     discard g.d.dIBuilderInsertDeclareAtEnd(argc, vd0,
       g.d.dIBuilderCreateExpression(nil, 0),
       dl, g.b.getInsertBlock())
 
     let vd1 = g.d.dIBuilderCreateParameterVariable(
-      scope, "argv", 2, g.debugGetFile(g.config.projectMainIdx), 0,
+      llf.ds, "argv", 2, g.debugGetFile(g.config.projectMainIdx), 0,
       g.d.dIBuilderCreatePointerType(g.dtypes[tyCString], 64, 64, ""),
       false, 0)
     discard g.d.dIBuilderInsertDeclareAtEnd(argv, vd1,
@@ -5709,9 +5709,7 @@ proc genMain(g: LLGen) =
     cmdCount.setInitializer(llvm.constNull(cmdCount.typeOfX().getElementType()))
     discard g.b.buildStore(f.getParam(0), cmdCount)
 
-  discard g.b.buildCall(g.init.ret.getBasicBlockParent(), [], "")
-
-  discard g.b.buildRet(constInt(g.cintType, 0, False))
+  discard g.b.buildBr(init)
 
 proc loadBase(g: LLGen) =
   let m = parseIRInContext(
@@ -5852,21 +5850,18 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     g.markerBody.setLen(0)
     return n
 
-  # return from nlvmInit
-
   g.debugUpdateLoc(n)
   g.b.buildBrFallthrough(g.f.ret)
   g.b.positionBuilderAtEnd(g.f.ret)
+  discard g.b.buildRet(constInt(g.cintType, 0, False))
 
-  discard g.b.buildRetVoid()
+  g.genMain()
 
   let fn = g.f.ret.getBasicBlockParent()
   if fn.getLastBasicBlock() != g.f.ret:
     g.f.ret.moveBasicBlockAfter(fn.getLastBasicBlock())
 
   g.finalize(g.f)
-
-  g.genMain()
 
   var disp = generateMethodDispatchers(graph)
   for i in 0..<disp.sonsLen:
@@ -5881,10 +5876,6 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   if g.d != nil:
     g.d.dIBuilderFinalize()
 
-    # Magic string, see https://groups.google.com/forum/#!topic/llvm-dev/1O955wQjmaQ
-    g.m.addModuleFlag(
-      ModuleFlagBehaviorWarning, "Debug Info Version",
-      valueAsMetadata(g.constInt32(llvm.debugMetadataVersion().int32)))
   g.writeOutput(changeFileExt(g.config.projectFull, "").string)
 
   result = n
@@ -5928,18 +5919,35 @@ proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
     g = newLLGen(graph)
     graph.backend = g
 
-    let llInitFuncType = llvm.functionType(llvm.voidType(), [])
-    let init = g.m.addFunction(".nlvmInit", llInitFuncType)
+    let
+      llMainType = llvm.functionType(
+        g.cintType, [g.cintType, g.primitives[tyCString].pointerType()])
+      main = g.m.addFunction("main", llMainType)
+      b = llvm.appendBasicBlock(main, g.nn("mainBlock", s))
 
-    let b = llvm.appendBasicBlock(init, g.nn("entry", s))
     g.b.positionBuilderAtEnd(b)
 
-    g.f = g.newLLFunc(llvm.appendBasicBlock(init, g.nn("return")))
+    g.f = g.newLLFunc(llvm.appendBasicBlock(main, g.nn("return")))
 
     if g.d != nil:
-      g.f.ds = g.debugFunction(s, [], init)
+      # Magic string, see https://groups.google.com/forum/#!topic/llvm-dev/1O955wQjmaQ
+      g.m.addModuleFlag(
+        ModuleFlagBehaviorWarning, "Dwarf Version",
+        valueAsMetadata(g.constInt32(4)))
+      g.m.addModuleFlag(
+        ModuleFlagBehaviorWarning, "Debug Info Version",
+        valueAsMetadata(g.constInt32(llvm.debugMetadataVersion().int32)))
 
-    g.f.scopePush(nil, g.f.ret)
+      let types = [
+        g.dtypes[tyInt32],
+        g.dtypes[tyInt32],
+        g.d.dIBuilderCreatePointerType(
+          g.d.dIBuilderCreatePointerType(g.dtypes[tyChar], 64, 64, ""),
+          64, 64, "")
+      ]
+      g.f.ds = g.debugFunction(nil, types, main)
+
+    discard g.f.startBlock(nil, g.f.ret)
 
     g.init = g.f
 
