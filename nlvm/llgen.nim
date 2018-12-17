@@ -39,6 +39,16 @@ import
   llvm/llvm
 
 type
+  SectionKind = enum
+    secAlloca # Local stack allocations (see localAlloca)
+    secArgs # Function argument initialization
+    secRoots # GC root registration
+    secGlobalInit # One-time assignments to globals
+    secLastGlobalInit # Last piece of init code that was written
+    secBody # User code
+    secLastBody # Last piece of body code that was written
+    secReturn # Final ret instruction
+
   LLBlock = ref object
     n: PNode
     exit: llvm.BasicBlockRef
@@ -48,16 +58,16 @@ type
     isLoop: bool
 
   LLFunc = ref object
+    f: llvm.ValueRef
     blocks: seq[LLBlock]
-    ret: llvm.BasicBlockRef
     options: TOptions
-    nestedTryStmts*: seq[tuple[n: PNode, inExcept: bool]]
+    nestedTryStmts: seq[tuple[n: PNode, inExcept: bool]]
     finallySafePoints: seq[llvm.ValueRef]
     withinLoop: int
-    init: llvm.BasicBlockRef
     clenv: llvm.ValueRef
     ds: llvm.MetadataRef
     breakIdx: int
+    sections: array[SectionKind, llvm.BasicBlockRef]
 
   LLModule = ref object of PPassContext
     ## One LLModule per .nim file (module)
@@ -88,6 +98,8 @@ type
     nimStringDescPtrType: llvm.TypeRef
     jmpBufType: llvm.TypeRef
 
+    strLitFlag: int64 # 1 shl (sizeof(int)*8 - 2) (for target!)
+
     gep0: llvm.ValueRef
     gep1: llvm.ValueRef
     ni0: llvm.ValueRef
@@ -96,7 +108,7 @@ type
     attrNoInline: AttributeRef
     attrNoReturn: AttributeRef
 
-    symbols: Table[int, llvm.ValueRef]
+    symbols: Table[int, LLValue]
     gmarkers: Table[int, llvm.ValueRef]
     markers: Table[SigHash, llvm.ValueRef]
     nodeInfos: Table[SigHash, llvm.ValueRef]
@@ -126,25 +138,45 @@ type
     tgt: string
     tgtExportLinkage: llvm.Linkage
 
+  LLValue = object
+    v: llvm.ValueRef
+    lode: PNode # Origin node of this value
+    storage: TStorageLoc
+
+  # Same as cgen, for easier genAssignment comparison
+  TAssignmentFlag = enum
+    needToCopy
+  TAssignmentFlags = set[TAssignmentFlag]
+
 template config(g: LLGen): untyped = g.graph.config
 template fileInfos(g: LLGen): untyped = g.config.m.fileInfos
 
 # Helpers
-proc newLLFunc(g: LLGen, ret: llvm.BasicBlockRef): LLFunc
 proc llType(g: LLGen, typ: PType): llvm.TypeRef
 proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[int]
 proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef)
 proc callErrno(g: LLGen, prefix: string): llvm.ValueRef
-proc callCompilerProc(g: LLGen, name: string, args: openarray[llvm.ValueRef]): llvm.ValueRef
+proc callCompilerProc(
+  g: LLGen, name: string, args: openarray[llvm.ValueRef]): llvm.ValueRef
 
-proc genFunction(g: LLGen, s: PSym): llvm.ValueRef
-proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef
+proc genFunction(g: LLGen, s: PSym): LLValue
+proc genFunctionWithBody(g: LLGen, s: PSym): LLValue
 
 # Magic expressions
-proc genMagicLength(g: LLGen, n: PNode): llvm.ValueRef
+proc genMagicLength(g: LLGen, n: PNode): LLValue
 
 # Node handling
-proc genNode(g: LLGen, n: PNode, load: bool = false): llvm.ValueRef {.discardable.}
+proc genNode(g: LLGen, n: PNode, load: bool = false): LLValue {.discardable.}
+
+proc deepTyp(n: PNode): PType =
+  if n.typ != nil:
+    n.typ
+  elif n.kind in {nkTryStmt, nkIfStmt, nkCaseStmt}:
+    n[0].deepTyp
+  elif n.kind in {nkStmtListExpr}:
+    n.lastSon.deepTyp
+  else:
+    nil
 
 proc nn(g: LLGen, s: string, li: TLineInfo): string =
   # later on, we'll just return an empty string here
@@ -157,7 +189,6 @@ proc nn(g: LLGen, s: string, li: TLineInfo): string =
   let col = if li.col >= 0: "." & $li.col else: ""
 
   result = s & fn & ln & col
-
 proc nn(g: LLGen, s: string): string = s
 proc nn(g: LLGen, s: string, n: PNode): string =
   if n == nil: g.nn(s) else: g.nn(s, n.info)
@@ -167,6 +198,12 @@ proc nn(g: LLGen, s: string, v: llvm.ValueRef): string =
   var vn = v.getValueName()
   if vn == nil: vn = ""
   result = s & "." & $vn
+proc nn(g: LLGen, s: string, v: LLValue): string = g.nn(s, v.v)
+
+proc newLLFunc(g: LLGen, f: llvm.ValueRef): LLFunc =
+  LLFunc(
+    f: f
+  )
 
 proc inExceptBlockLen(p: LLFunc): int =
   for x in p.nestedTryStmts:
@@ -181,50 +218,128 @@ proc startBlock(f: LLFunc, n: PNode, exit: llvm.BasicBlockRef): int =
 proc endBlock(f: LLFunc): LLBlock {.discardable.} =
   f.blocks.pop
 
-proc getInitBlock(g: LLGen, llf: LLFunc): llvm.BasicBlockRef =
-  if llf.init == nil:
-    let pre = llf.ret.getBasicBlockParent()
-    llf.init = pre.appendBasicBlock(g.nn("init"))
-  result = llf.init
+proc section(g: LLGen, llf: LLFunc, sk: SectionKind): llvm.BasicBlockRef =
+  if llf.sections[sk] == nil:
+    llf.sections[sk] = llf.f.appendBasicBlock(g.nn($sk))
+  llf.sections[sk]
 
 proc positionAndMoveToEnd(b: llvm.BuilderRef, bl: llvm.BasicBlockRef) =
   bl.moveBasicBlockAfter(b.getInsertBlock().getBasicBlockParent().getLastBasicBlock())
   b.positionBuilderAtEnd(bl)
+
+template withBlock(g: LLGen, bb: llvm.BasicBlockRef, body: untyped) =
+  block:
+    let b = g.b
+    let pre = b.getInsertBlock()
+    let db = b.getCurrentDebugLocation()
+    b.positionBuilderAtEnd(bb)
+    body
+    b.positionBuilderAtEnd(pre)
+    if optCDebug in g.config.globalOptions:
+      b.setCurrentDebugLocation(db)
+
+template withFunc(g: LLGen, llf: LLFunc, body: untyped) =
+  block:
+    let f = g.f
+    g.f = llf
+    let db = g.b.getCurrentDebugLocation()
+    if optCDebug in g.config.globalOptions:
+      g.b.setCurrentDebugLocation(metadataAsValue(g.lc, g.f.ds))
+    body
+    g.f = f
+    if optCDebug in g.config.globalOptions:
+      g.b.setCurrentDebugLocation(db)
+
+template withNotNil(g: LLGen, v: llvm.ValueRef, body: untyped) =
+  let pre = g.b.getInsertBlock()
+  let f = pre.getBasicBlockParent()
+
+  let notnil = f.appendBasicBlock(g.nn("nilcheck.notnil", v))
+  let done = f.appendBasicBlock(g.nn("nilcheck.done", v))
+
+  # nil check
+  let cond = g.b.buildICmp(
+    llvm.IntEQ, v, llvm.constNull(v.typeOfX()), g.nn("nilcheck.isnil", v))
+
+  discard g.b.buildCondBr(cond, done, notnil)
+
+  g.b.positionBuilderAtEnd(notnil)
+
+  body
+
+  discard g.b.buildBr(done)
+
+  g.b.positionBuilderAtEnd(done)
+
+template withNotNilOrNull(
+    g: LLGen, v: llvm.ValueRef, body: untyped): llvm.ValueRef =
+  let pre = g.b.getInsertBlock()
+  let f = pre.getBasicBlockParent()
+
+  let lload = f.appendBasicBlock(g.nn("nilcheck.notnil", v))
+  let ldone = f.appendBasicBlock(g.nn("nilcheck.done", v))
+
+  # nil check
+  let cond = g.b.buildICmp(
+    llvm.IntEQ, v, llvm.constNull(v.typeOfX()), g.nn("nilcheck.isnil", v))
+
+  discard g.b.buildCondBr(cond, ldone, lload)
+
+  # run body if v is not nil
+  g.b.positionBuilderAtEnd(lload)
+  let v1 = body
+  discard g.b.buildBr(ldone)
+
+  g.b.positionBuilderAtEnd(ldone)
+
+  # body or default
+  let phi = g.b.buildPHI(v1.typeOfX(), g.nn("nilcheck.phi", v))
+
+  phi.addIncoming([constNull(v1.typeOfX()), v1], [pre, lload])
+  phi
+
+template withNotNil(
+    g: LLGen, v: llvm.ValueRef, def: llvm.ValueRef,
+    body: untyped): llvm.ValueRef =
+  let pre = g.b.getInsertBlock()
+  let f = pre.getBasicBlockParent()
+
+  let lload = f.appendBasicBlock(g.nn("nilcheck.notnil", v))
+  let ldone = f.appendBasicBlock(g.nn("nilcheck.done", v))
+
+  # nil check
+  let cond = g.b.buildICmp(
+    llvm.IntEQ, v, llvm.constNull(v.typeOfX()), g.nn("nilcheck.isnil", v))
+
+  discard g.b.buildCondBr(cond, ldone, lload)
+
+  # run body if v is not nil
+  g.b.positionBuilderAtEnd(lload)
+  let v1 = body
+  discard g.b.buildBr(ldone)
+
+  g.b.positionBuilderAtEnd(ldone)
+
+  # body or default
+  let phi = g.b.buildPHI(v1.typeOfX(), g.nn("nilcheck.phi", v))
+
+  phi.addIncoming([if def == nil: constNull(v1.typeOfX()) else: def, v1], [pre, lload])
+  phi
 
 proc localAlloca(g: LLGen, typ: llvm.TypeRef, name: string): llvm.ValueRef =
   # alloca will allocate memory on the stack that will be released at function
   # exit - thus for a variable local to a loop we would actually be creating a
   # new location for every iteration. Thus, we make space for all locals at
   # the start of the function.
-  # This also helps with another degenerate case:
-  # in a moment of truimph, code like `if a and (let m = 1; m != 1): ...` was
+  # This also helps with another degenerate case:g  # in a moment of truimph, code like `if a and (let m = 1; m != 1): ...` was
   # allowed, creating a problematic scope for m - it should ideally only exist
   # when a is true, but by putting it at the entry, it lives through the
   # the expression (with an undef value until the right branch is taken)
 
-  let b = g.b
-  let pre = b.getInsertBlock()
-  let dbg = b.getCurrentDebugLocation()
-  if g.d != nil: b.setCurrentDebugLocation(nil)
-  let f = pre.getBasicBlockParent()
-  var entry = f.getEntryBasicBlock()
-
-  var first = entry.getFirstInstruction()
-  if first == nil or first.getInstructionOpcode() != llvm.Alloca:
-    # Allocate a specific alloca block and place it first in the function
-    let newEntry = g.lc.insertBasicBlockInContext(entry, g.nn("alloca"))
-    b.positionBuilderAtEnd(newEntry)
-    let br = b.buildBr(entry)
-    entry = newEntry
-    b.positionBuilderBefore(br)
-  else:
-    while first.getInstructionOpcode() == llvm.Alloca:
-      first = first.getNextInstruction()
-    b.positionBuilderBefore(first)
-
-  result = b.buildAlloca(typ, name)
-  b.positionBuilderAtEnd(pre)
-  if g.d != nil: b.setCurrentDebugLocation(dbg)
+  var v: llvm.ValueRef
+  g.withBlock(g.section(g.f, secAlloca)):
+    v = g.b.buildAlloca(typ, name)
+  v
 
 proc addPrivateConstant*(m: ModuleRef, ty: llvm.TypeRef, name: cstring): llvm.ValueRef =
   result = m.addGlobal(ty, name)
@@ -278,8 +393,13 @@ proc llName(s: PSym): string =
    result = result[8..^1]
 
 const
-  irrelevantForBackend = {tyGenericBody, tyGenericInst, tyGenericInvocation,
-                          tyDistinct, tyRange, tyStatic, tyAlias, tyInferred}
+  irrelevantForBackend = {
+    tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
+    tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
+    tyUserTypeClassInst, tyInferred, tyStatic}
+
+func assignCopy(sym: PSym): set[TAssignmentFlag] =
+  if lfNoDeepCopy in sym.loc.flags: {} else: {needToCopy}
 
 proc typeName(typ: PType): Rope =
   let typ = typ.skipTypes(irrelevantForBackend)
@@ -391,8 +511,14 @@ proc constInt64(g: LLGen, v: int64): ValueRef =
 proc constCInt(g: LLGen, val: int): llvm.ValueRef =
   llvm.constInt(g.cintType, val.culonglong, llvm.True)
 
-proc constNimInt(g: LLGen, val: int): llvm.ValueRef =
+proc constNimInt(g: LLGen, val: int64): llvm.ValueRef =
+  # int64 because we could compile 64-bit programs on 32-bit
   llvm.constInt(g.primitives[tyInt], val.culonglong, llvm.True)
+
+proc isZero(v: llvm.ValueRef): bool =
+  v.isConstant() == llvm.True and
+    v.typeOfX().getTypeKind() == IntegerTypeKind and
+    v.constIntGetZExtValue() == 0
 
 proc isArrayPtr(t: llvm.TypeRef): bool =
   t.getTypeKind() == llvm.PointerTypeKind and
@@ -432,10 +558,26 @@ proc constNimSet(g: LLGen, n: PNode): llvm.ValueRef =
     result = llvm.constArray(g.primitives[tyInt8], cs.map(ci8))
 
 proc constNimString(g: LLGen, n: PNode): llvm.ValueRef =
-  let s = llvm.constString(n.strVal)
-  let ll = g.constNimInt(n.strVal.len)
-  let x = llvm.constNamedStruct(g.seqBaseType, [ll, ll])
-  result = llvm.constStruct([x, s])
+  if n.typ.kind == tyCString:
+    return g.lc.constStringInContext(n.strVal)
+
+  if n.strVal.len == 0:
+    llvm.constNull(g.llType(n.typ))
+  else:
+    let s = g.lc.constStringInContext(n.strVal)
+    let ll = g.constNimInt(n.strVal.len)
+    let cap = g.constNimInt(n.strVal.len + g.strLitFlag)
+    let x = llvm.constNamedStruct(g.seqBaseType, [ll, cap])
+    llvm.constStruct([x, s])
+
+proc buildExtractValue(b: llvm.BuilderRef, v: LLValue, index: cuint,
+                       name: cstring): LLValue =
+  LLValue(
+    v: b.buildExtractValue(v.v, index, name), lode: v.lode, storage: v.storage)
+
+proc buildGEP(b: llvm.BuilderRef, v: LLValue, indices: openarray[ValueRef],
+              name: cstring): LLValue =
+  LLValue(v: b.buildGEP(v.v, indices, name), lode: v.lode, storage: v.storage)
 
 proc buildNimSeqLenGEP(g: LLGen, s: llvm.ValueRef): llvm.ValueRef =
   g.b.buildGEP(s, [g.gep0, g.gep0, g.gep0], g.nn("seq.len", s))
@@ -443,6 +585,11 @@ proc buildNimSeqLenGEP(g: LLGen, s: llvm.ValueRef): llvm.ValueRef =
 proc buildNimSeqDataGEP(g: LLGen, s: llvm.ValueRef, idx: llvm.ValueRef = nil): llvm.ValueRef =
   let idx = if idx == nil: g.gep0 else: idx
   g.b.buildGEP(s, [g.gep0, g.gep1, idx], g.nn("seq.data", s))
+
+proc buildNimSeqDataGEP(g: LLGen, s: LLValue, idx: llvm.ValueRef = nil): LLValue =
+  LLValue(
+    v: g.buildNimSeqDataGEP(s.v, idx), lode: s.lode,
+    storage: if s.storage == OnStatic: OnStatic else: OnHeap)
 
 proc buildI1(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
  g.b.buildTrunc(v, int1TypeInContext(g.lc), g.nn("bool.i1", v))
@@ -453,14 +600,14 @@ proc buildI8(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
 proc isUnsigned(g: LLGen, typ: PType): bool =
   let typ = typ.skipTypes(abstractVarRange)
 
-  result = typ.kind in {tyUInt..tyUInt64, tyBool, tyChar, tySet} or
+  typ.kind in {tyUInt..tyUInt64, tyBool, tyChar, tySet} or
     (typ.kind == tyEnum and g.config.firstOrd(typ) >= 0)
 
 proc buildNimIntExt(g: LLGen, v: llvm.ValueRef, unsigned: bool): llvm.ValueRef =
   let nt = g.primitives[tyInt]
-  result =
-    if unsigned: g.b.buildZExt(v, nt, g.nn("nie.z", v))
-    else: g.b.buildSExt(v, nt, g.nn("nie.s", v))
+
+  if unsigned: g.b.buildZExt(v, nt, g.nn("nie.z", v))
+  else: g.b.buildSExt(v, nt, g.nn("nie.s", v))
 
 proc buildTruncOrExt(g: LLGen, v: llvm.ValueRef, nt: llvm.TypeRef,
                      unsigned: bool): llvm.ValueRef =
@@ -510,24 +657,39 @@ proc buildSetMask(g: LLGen, t: llvm.TypeRef, ix: llvm.ValueRef, size: BiggestInt
     g.nn("set.mask", ix))
   if t != shift.typeOfX():
     shift = g.buildTruncOrExt(shift, t, true)
-  result = g.b.buildShl(llvm.constInt(t, 1, llvm.False), shift, g.nn("set.pos", ix))
+
+  g.b.buildShl(llvm.constInt(t, 1, llvm.False), shift, g.nn("set.pos", ix))
 
 proc buildSetGEPMask(g: LLGen, vx, ix: llvm.ValueRef): tuple[gep, mask: llvm.ValueRef] =
   let idx = g.b.buildUDiv(ix, llvm.constInt(ix.typeOfX(), 8, llvm.False), g.nn("set.byte", ix))
   let gep = g.b.buildGEP(vx, [g.gep0, idx], g.nn("set.gep", vx))
 
   let mask = g.buildSetMask(llvm.int8TypeInContext(g.lc), ix, 1)
-  result = (gep: gep, mask: mask)
+
+  (gep: gep, mask: mask)
 
 proc buildLoadValue(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
   if v.typeOfX().isArrayPtr():
-    result = g.b.buildGEP(v, [g.gep0, g.gep0], g.nn("load", v))
+    g.b.buildGEP(v, [g.gep0, g.gep0], g.nn("load", v))
   else:
-    result = g.b.buildLoad(v, g.nn("load", v))
+    g.b.buildLoad(v, g.nn("load", v))
+
+proc buildLoadValue(g: LLGen, v: LLValue): LLValue =
+  # The source remains the same, even though we're turning addess into value
+  LLValue(
+    v: g.buildLoadValue(v.v),
+    lode: v.lode,
+    storage: v.storage
+  )
+
+proc maybeLoadValue(g: LLGen, v: LLValue, load: bool): LLValue =
+  if load: g.buildLoadValue(v)
+  else: v
 
 proc buildNot(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
-  result = g.b.buildICmp(llvm.IntEQ, v, llvm.constInt(v.typeOfX(), 0, llvm.False), g.nn("not", v))
-  result = g.b.buildZExt(result, v.typeOfX(), g.nn("zext", result))
+  let cmp = g.b.buildICmp(
+    llvm.IntEQ, v, llvm.constInt(v.typeOfX(), 0, llvm.False), g.nn("not", v))
+  g.b.buildZExt(cmp, v.typeOfX(), g.nn("zext", cmp))
 
 proc buildBitnot(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
   g.b.buildXor(v, llvm.constInt(v.typeOfX(), (-1).culonglong, llvm.False), g.nn("bitnot", v))
@@ -540,6 +702,15 @@ proc buildStoreNull(g: LLGen, v: llvm.ValueRef) =
     g.callMemset(v, g.constInt8(0), et.sizeOfX())
   else:
     discard g.b.buildStore(constNull(et), v)
+
+proc loadNimSeqLen(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
+  g.withNotNilOrNull(v):
+    let gep = g.buildNimSeqLenGEP(v)
+    g.b.buildLoad(gep, g.nn("nilcheck.load", v))
+
+proc getNimSeqDataPtr(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
+  g.withNotNilOrNull(v):
+    g.buildNimSeqDataGEP(v)
 
 proc debugGetFile(g: LLGen, idx: FileIndex): llvm.MetadataRef =
   if int(idx) in g.dfiles: return g.dfiles[int(idx)]
@@ -558,14 +729,16 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
   if g.d == nil: return nil
 
   case typ.kind
-  of tyBool: result = g.dtypes[tyBool]
-  of tyChar: result = g.dtypes[tyChar]
-  of tyNil, tyStmt: result = nil
-  of tyGenericInst: result = g.debugType(typ.lastSon)
-  of tyDistinct, tyAlias, tyInferred: result = g.debugType(typ.lastSon)
+  of tyBool: g.dtypes[tyBool]
+  of tyChar: g.dtypes[tyChar]
+  of tyNil, tyStmt: nil
+  of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
+      tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
+      tyUserTypeClassInst, tyInferred, tyStatic:
+    g.debugType(typ.lastSon)
   of tyEnum:
     let bits = getSize(g.config, typ).cuint * 8
-    result = g.d.dIBuilderCreateBasicType("enum", bits, DW_ATE_unsigned)
+    g.d.dIBuilderCreateBasicType(g.llName(typ, hashType(typ)), bits, DW_ATE_unsigned)
   of tyArray:
     let et = g.debugType(typ.elemType)
     # Arbitrary limit of 1024 items here - large numbers seem to have a poor
@@ -573,25 +746,25 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
     # at you, eclipse+gdb) - need to investigate this more
     let (s, c) = if g.config.lengthOrd(typ) > 1024: (cuint(0), -1.int64)
                  else: (cuint(g.config.lengthOrd(typ)), int64(g.config.lengthOrd(typ)))
-    result = g.d.dIBuilderCreateArrayType(s * 8, 0, et,
+    g.d.dIBuilderCreateArrayType(s * 8, 0, et,
               [g.d.dIBuilderGetOrCreateSubrange(0, c)])
   of tyUncheckedArray:
     let et = g.debugType(typ.elemType)
     let (s, c) = (cuint(0), -1.int64)
-    result = g.d.dIBuilderCreateArrayType(s * 8, 0, et,
+    g.d.dIBuilderCreateArrayType(s * 8, 0, et,
                 [g.d.dIBuilderGetOrCreateSubrange(0, c)])
-  of tyObject: result = g.debugStructType(typ)
-  of tyTuple: result = g.debugTupleType(typ)
+  of tyObject: g.debugStructType(typ)
+  of tyTuple: g.debugTupleType(typ)
   of tySet:
     let size = g.config.getSize(typ).cuint
     let bits = size * 8
-    result = if size <= 8: g.d.dIBuilderCreateBasicType("set", bits, DW_ATE_unsigned)
-             else: g.d.dIBuilderCreateArrayType(
+    if size <= 8: g.d.dIBuilderCreateBasicType("set" & $bits, bits, DW_ATE_unsigned)
+    else: g.d.dIBuilderCreateArrayType(
               size * 8, 0, g.dtypes[tyUInt8],
               [g.d.dIBuilderGetOrCreateSubrange(0, size.int64)])
-  of tyRange: result = g.debugType(typ.sons[0])
-  of tyPtr, tyRef, tyVar:
-    result = g.d.dIBuilderCreatePointerType(
+  of tyRange: g.debugType(typ.sons[0])
+  of tyPtr, tyRef, tyVar, tyLent:
+    g.d.dIBuilderCreatePointerType(
       g.debugType(typ.lastSon), 64, 64, "")
   of tySequence:
     var st: llvm.MetadataRef
@@ -622,36 +795,33 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
       g.d.nimDICompositeTypeSetTypeArray(
         st, g.d.dIBuilderGetOrCreateArray(elems))
 
-    result = g.d.dIBuilderCreatePointerType(st, 8, 8, "")
+    g.d.dIBuilderCreatePointerType(st, 8, 8, "")
   of tyProc:
     if typ.callConv == ccClosure:
-      result = g.d.dIBuilderCreateStructType(g.dcu, "closure",
+      g.d.dIBuilderCreateStructType(g.dcu, "closure",
         g.debugGetFile(g.config.projectMainIdx), 0, 128, 0, 0, nil,
         [g.dtypes[tyPointer], g.dtypes[tyPointer]], 0, nil, "closure")
     else:
-      result = g.dtypes[tyPointer]
-  of tyPointer: result = g.dtypes[tyPointer]
-  of tyOpenArray, tyVarargs: result = g.debugType(typ.elemType)
+      g.dtypes[tyPointer]
+  of tyPointer: g.dtypes[tyPointer]
+  of tyOpenArray, tyVarargs: g.debugType(typ.elemType)
   of tyString:
     if g.dtypes[tyString] == nil:
       g.dtypes[tyString] = g.d.dIBuilderCreatePointerType(
         g.debugMagicType("NimStringDesc"), 64, 64, "")
-    result = g.dtypes[tyString]
-  of tyCString: result = g.dtypes[tyCString]
-  of tyInt..tyUInt64: result = g.dtypes[typ.kind]
-  of tyTypeDesc: result = g.debugType(typ.lastSon)
-  of tyStatic: result = g.debugType(typ.lastSon)
-  of tyUserTypeClasses: result = g.debugType(typ.lastSon)
-  else: g.config.internalError("Unhandled debug type " & $typ.kind)
+    g.dtypes[tyString]
+  of tyCString: g.dtypes[tyCString]
+  of tyInt..tyUInt64: g.dtypes[typ.kind]
+  else: g.config.internalError("Unhandled debug type " & $typ.kind); nil
 
 proc debugFieldName(field: PSym, typ: PType): string =
   if (typ.sym != nil) and ({sfImportc, sfExportc} * typ.sym.flags != {}):
-    result = $field.loc.r
+    $field.loc.r
   else:
-    result = mangle(field.name.s)
+    mangle(field.name.s)
 
 proc align(address, alignment: int): int =
-  result = (address + (alignment - 1)) and not (alignment - 1)
+  (address + (alignment - 1)) and not (alignment - 1)
 
 proc debugStructFields(
     g: LLGen, elements: var seq[MetadataRef], n: PNode, typ: PType,
@@ -783,18 +953,17 @@ proc debugProcParamType(g: LLGen, t: PType): llvm.MetadataRef =
   let typ = t.skipTypes(abstractInst)
   case typ.kind:
   of tyArray, tyOpenArray, tyUncheckedArray, tyVarargs, tyObject, tyTuple:
-    result = g.d.dIBuilderCreatePointerType(g.debugType(t), 64, 64, "")
+    g.d.dIBuilderCreatePointerType(g.debugType(t), 64, 64, "")
   of tySet:
     let size = g.graph.config.getSize(typ).cuint
-    result = if size <= 8: g.debugType(t)
-             else: g.d.dIBuilderCreatePointerType(g.debugType(t), 64, 64, "")
+    if size <= 8: g.debugType(t)
+    else: g.d.dIBuilderCreatePointerType(g.debugType(t), 64, 64, "")
   of tyProc:
-    result =
-      if typ.callConv == ccClosure:
-        g.d.dIBuilderCreatePointerType(g.debugType(t), 64, 64, "")
-      else: g.debugType(t)
-  of tyDistinct, tyAlias, tyInferred: result = g.debugProcParamType(t.lastSon)
-  else: result = g.debugType(t)
+    if typ.callConv == ccClosure:
+      g.d.dIBuilderCreatePointerType(g.debugType(t), 64, 64, "")
+    else: g.debugType(t)
+  of tyDistinct, tyAlias, tyInferred, tySink: g.debugProcParamType(t.lastSon)
+  else: g.debugType(t)
 
 proc debugProcType(g: LLGen, typ: PType, closure: bool): seq[llvm.MetadataRef] =
   let retType = if typ.sons[0] == nil: nil
@@ -806,7 +975,7 @@ proc debugProcType(g: LLGen, typ: PType, closure: bool): seq[llvm.MetadataRef] =
     let at = g.debugProcParamType(t)
     result.add(at)
 
-    if skipTypes(t, {tyVar}).kind in {tyOpenArray, tyVarargs}:
+    if skipTypes(t, {tyVar, tyLent}).kind in {tyOpenArray, tyVarargs}:
       result.add(g.dtypes[tyInt])  # Extra length parameter
 
   if closure:
@@ -814,9 +983,9 @@ proc debugProcType(g: LLGen, typ: PType, closure: bool): seq[llvm.MetadataRef] =
 
 proc debugGetScope(g: LLGen): llvm.MetadataRef =
   if g.f != nil:
-    return g.f.ds
-
-  result = g.dcu
+    g.f.ds
+  else:
+    g.dcu
 
 proc debugUpdateLoc(g: LLGen, n: PNode) =
   if g.d == nil: return
@@ -895,11 +1064,12 @@ proc llProcType(g: LLGen, typ: PType, closure = false): llvm.TypeRef
 
 proc llType(g: LLGen, typ: PType): llvm.TypeRef =
   case typ.kind
-  of tyBool, tyChar, tyNil, tyStmt: result = g.primitives[typ.kind]
-  of tyGenericInst, tyDistinct, tyAlias, tyInferred:
-    result = g.llType(typ.lastSon)
-  of tyEnum:
-    result = llvm.intTypeInContext(g.lc, g.config.getSize(typ).cuint * 8)
+  of tyBool, tyChar, tyNil, tyStmt: g.primitives[typ.kind]
+  of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
+     tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
+     tyUserTypeClassInst, tyInferred, tyStatic:
+    g.llType(typ.lastSon)
+  of tyEnum: llvm.intTypeInContext(g.lc, g.config.getSize(typ).cuint * 8)
   of tyArray, tyUncheckedArray:
     let et = g.llType(typ.elemType)
     # Even for unchecked arrays, we use lengthord here - echo for
@@ -907,17 +1077,15 @@ proc llType(g: LLGen, typ: PType): llvm.TypeRef =
     # if we skip length, there will be a local stack array of length
     # 0 here!
     let n = cuint(g.config.lengthOrd(typ))
-    result = llvm.arrayType(et, n)
-  of tyObject: result = g.llStructType(typ)
-  of tyTuple: result = g.llTupleType(typ)
+    llvm.arrayType(et, n)
+  of tyObject: g.llStructType(typ)
+  of tyTuple: g.llTupleType(typ)
   of tySet:
     let size = g.config.getSize(typ).cuint
-    result = if size <= 8: llvm.intTypeInContext(g.lc, size * 8)
-             else: llvm.arrayType(llvm.int8TypeInContext(g.lc), size)
-  of tyRange: result = g.llType(typ.sons[0])
-  of tyPtr, tyRef, tyVar:
-    let et = typ.elemType
-    result = g.llType(et).pointerType()
+    if size <= 8: llvm.intTypeInContext(g.lc, size * 8)
+    else: llvm.arrayType(llvm.int8TypeInContext(g.lc), size)
+  of tyRange: g.llType(typ.sons[0])
+  of tyPtr, tyRef, tyVar, tyLent: g.llType(typ.elemType).pointerType()
   of tySequence:  # TODO generate from nim types
     var st: llvm.TypeRef
 
@@ -934,52 +1102,44 @@ proc llType(g: LLGen, typ: PType): llvm.TypeRef =
         st.structSetBody([g.seqBaseType])
       else:
         st.structSetBody([g.seqBaseType, llvm.arrayType(g.llType(typ.elemType), 0)])
-    result = st.pointerType()
+    st.pointerType()
   of tyProc:
-    result = if typ.callConv == ccClosure:
-      g.closureType
-    else:
-      g.procPtrType
-
-  of tyPointer: result = g.primitives[typ.kind]
-  of tyOpenArray, tyVarargs: result = g.llType(typ.elemType)
-  of tyString: result = g.nimStringDescPtrType
-  of tyCString, tyInt..tyUInt64: result = g.primitives[typ.kind]
-  of tyTypeDesc, tyStatic, tyUserTypeClasses: result = g.llType(typ.lastSon)
+    if typ.callConv == ccClosure: g.closureType
+    else: g.procPtrType
+  of tyPointer: g.primitives[typ.kind]
+  of tyOpenArray, tyVarargs: g.llType(typ.elemType)
+  of tyString: g.nimStringDescPtrType
+  of tyCString, tyInt..tyUInt64: g.primitives[typ.kind]
   else:
-    g.config.internalError("Unhandled type " & $typ.kind)
-
-template withBlock(g: LLGen, bb: llvm.BasicBlockRef, body: untyped) =
-  block:
-    let b = g.b
-    let pre = b.getInsertBlock()
-    let db = b.getCurrentDebugLocation()
-    b.positionBuilderAtEnd(bb)
-    body
-    b.positionBuilderAtEnd(pre)
-    if optCDebug in g.config.globalOptions:
-      b.setCurrentDebugLocation(db)
+    g.config.internalError("Unhandled type " & $typ.kind); nil
 
 template preserveBreakIdx(f: var LLFunc, body: untyped): untyped =
   var oldBreakIdx = f.breakIdx
   body
   f.breakIdx = oldBreakIdx
 
-proc finalize(g: LLGen, llf: LLFunc) =
-  if llf.init == nil: return
+proc finalize(g: LLGen) =
+  let ret = g.section(g.f, secReturn)
 
-  let pre = llf.ret.getBasicBlockParent()
-  var entry = pre.getEntryBasicBlock()
-  if entry.getFirstInstruction().getInstructionOpcode() == llvm.Alloca:
-    entry.getLastInstruction().instructionEraseFromParent()
-    g.withBlock(entry):
-      discard g.b.buildBr(llf.init)
-    entry = entry.getNextBasicBlock()
+  var last, cur: llvm.BasicBlockRef
 
-  llf.init.moveBasicBlockBefore(entry)
+  for sk in SectionKind:
+    if last == g.f.sections[sk]:
+      continue # secLastBody!
 
-  g.withBlock(llf.init):
-    discard g.b.buildBr(entry)
+    cur = g.f.sections[sk]
+    if cur == nil: continue
+
+    if last == nil:
+      if cur != g.f.f.getEntryBasicBlock():
+        cur.moveBasicBlockBefore(g.f.f.getEntryBasicBlock())
+    else:
+      if sk != secLastBody: cur.moveBasicBlockAfter(last)
+      g.withBlock(last):
+        g.b.buildBrFallthrough(cur)
+    last = cur
+
+  ret.moveBasicBlockAfter(g.f.f.getLastBasicBlock())
 
 proc llMagicType(g: LLGen, name: string): llvm.TypeRef =
   g.llType(g.graph.getCompilerProc(name).typ)
@@ -1010,10 +1170,10 @@ proc headerType(g: LLGen, name: string): llvm.TypeRef =
   # rely on c header parsing to work. This is a crude workaround that needs to
   # be replaced, but works for now, on linux/x86_64
   case name
-  of "TGenericSeq": result = g.seqBaseType
-  of "NimStringDesc": result = g.nimStringDescType
-  of "jmp_buf": result = g.jmpbufType
-  else: result = nil
+  of "TGenericSeq": g.seqBaseType
+  of "NimStringDesc": g.nimStringDescType
+  of "jmp_buf": g.jmpbufType
+  else: nil
 
 proc headerTypeIndex(g: LLGen, typ: PType, sym: PSym): seq[int] =
   let sig = hashType(typ)
@@ -1083,10 +1243,51 @@ proc llTupleType(g: LLGen, typ: PType): llvm.TypeRef =
   result.structSetBody(elements)
 
 proc hasTypeField(typ: PType): bool =
-  if typ.kind != tyObject: return false
-  if typ.isPureObject(): return false
-  if tfFinal in typ.flags and typ.sons[0] == nil: return false
-  return true
+  if typ.kind != tyObject: false
+  elif typ.isPureObject(): false
+  elif tfFinal in typ.flags and typ.sons[0] == nil: false
+  else: true
+
+proc isDeepConstExprLL(n: PNode): bool =
+  # Upstream treats unsigned integers as non-const:
+  # https://github.com/nim-lang/Nim/pull/9873
+  # .. and a few other small differences that nlvm needs to address ..
+  case n.kind
+  of nkCharLit..nkNilLit:
+    result = true
+  of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
+    result = isDeepConstExprLL(n.sons[1])
+  of nkCurly, nkBracket, nkPar, nkTupleConstr, nkObjConstr, nkClosure, nkRange:
+     # TODO inheritance can be done, just being lazy...
+    if n.typ == nil: return true
+    let typ = n.typ.skipTypes(abstractInst)
+    if n.kind == nkObjConstr and typ.sons[0] != nil: return false
+
+    for i in ord(n.kind == nkObjConstr) ..< n.len:
+      if not isDeepConstExprLL(n.sons[i]): return false
+    if n.typ.isNil: result = true
+    else:
+      let t = n.typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink})
+      if t.kind in {tyRef, tyPtr}: return false
+      if t.kind != tyObject or not isCaseObj(t.n):
+        result = true
+  else: discard
+
+proc canMove(g: LLGen, n: PNode): bool =
+  if n == nil: return false
+
+  # From cgen
+  if n.kind == nkBracket:
+    # This needs to be kept consistent with 'const' seq code
+    # generation!
+    if not isDeepConstExprLL(n) or n.len == 0:
+      if skipTypes(n.typ, abstractVarRange).kind == tySequence:
+        return true
+  elif optNilSeqs notin g.config.options and
+    n.kind in nkStrKinds and n.strVal.len == 0:
+    # Empty strings are codegen'd as NIM_NIL so it's just a pointer copy
+    return true
+  result = n.kind in nkCallKinds
 
 proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef)
 proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var int) =
@@ -1162,7 +1363,7 @@ proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var 
     let field = n.sym
     proc cgi(v: int): llvm.ValueRef = g.constGEPIdx(v)
     var gep = g.b.buildGEP(v, (@[0] & start).map(cgi), g.nn("mk", field))
-    if field.typ.skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyString, tySequence}:
+    if field.typ.skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyLent, tyString, tySequence}:
       gep = g.b.buildLoad(gep, g.nn("mk.load", field))
 
     g.genMarker(field.typ, gep, op)
@@ -1173,10 +1374,11 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
   if typ == nil: return
 
   case typ.kind
-  of tyGenericInst, tyGenericBody, tyTypeDesc, tyAlias, tyDistinct, tyInferred,
-     tySink:
+  of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
+      tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
+      tyUserTypeClassInst, tyInferred, tyStatic:
     g.genMarker(typ.lastSon(), v, op)
-  of tyArray, tyUncheckedArray:
+  of tyArray:
     let arraySize = g.config.lengthOrd(typ.sons[0])
 
     let pre = g.b.getInsertBlock()
@@ -1206,7 +1408,7 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
       if v.typeOfX().isArrayPtr(): g.b.buildGEP(v, [g.gep0, c], g.nn("while.data"))
       else: g.b.buildGEP(v, [c], g.nn("while.data"))
 
-    if typ.sons[1].skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyString, tySequence}:
+    if typ.sons[1].skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyLent, tyString, tySequence}:
       gep = g.b.buildLoad(gep, g.nn("mk.arr.load"))
 
     genMarker(g, typ.sons[1], gep, op)
@@ -1250,8 +1452,7 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
 proc genMarkerSeq(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
   if typ.elemType.kind == tyEmpty: return
 
-  let seqlenp = g.buildNimSeqLenGEP(v)
-  let seqlen = g.b.buildLoad(seqlenp, g.nn("mk.seq.len"))
+  let seqlen = g.loadNimSeqLen(v)
 
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
@@ -1277,7 +1478,8 @@ proc genMarkerSeq(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
   g.b.positionBuilderAtEnd(wtrue)
 
   var gep = g.buildNimSeqDataGEP(v, c)
-  if typ.sons[0].skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyString, tySequence}:
+  if typ.sons[0].skipTypes(abstractInst).kind in
+      {tyRef, tyPtr, tyVar, tyLent, tyString, tySequence}:
     gep = g.b.buildLoad(gep, g.nn("mk.seq.load"))
   genMarker(g, typ.sons[0], gep, op)
 
@@ -1290,53 +1492,60 @@ proc genMarkerSeq(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
   g.b.positionAndMoveToEnd(wfalse)
 
 proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
-  g.withBlock(llvm.appendBasicBlock(f, g.nn("entry"))):
-    var scope: llvm.MetadataRef
+  let llf = g.newLLFunc(f)
+  if g.d != nil:
+    llf.ds = g.debugFunction(
+      typ.sym, [nil, g.dtypes[tyPointer], g.dtypes[tyInt]], f)
 
+  g.withFunc(llf):
     if g.d != nil:
-      scope = g.debugFunction(
-        typ.sym, [nil, g.dtypes[tyPointer], g.dtypes[tyInt]], f)
-
       let dl = g.lc.dIBuilderCreateDebugLocation(
-          1, 1, scope, nil)
+          1, 1, llf.ds, nil)
       g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
 
-    let v = f.getFirstParam()
-    v.setValueName("v")
-    let op = v.getNextParam()
-    op.setValueName("op")
+    g.withBlock(g.section(g.f, secBody)):
 
-    let vs = g.b.buildAlloca(v.typeOfX(), "")
-    discard g.b.buildStore(v, vs)
+      let v = f.getFirstParam()
+      v.setValueName("v")
+      let op = v.getNextParam()
+      op.setValueName("op")
 
-    let ops = g.b.buildAlloca(op.typeOfX(), "")
-    discard g.b.buildStore(op, ops)
+      let vs = g.localAlloca(v.typeOfX(), g.nn("mkr.vs", v))
+      discard g.b.buildStore(v, vs)
 
-    if g.d != nil:
-      let dt = if typ.kind == tySequence: g.debugType(typ)
-               else: g.d.dIBuilderCreatePointerType(
-        g.debugType(typ.elemType), 64, 64, "")
+      let ops = g.localAlloca(op.typeOfX(), g.nn("mkr.ops", op))
+      discard g.b.buildStore(op, ops)
 
-      let file = g.debugGetFile(
-        if typ.sym == nil: g.config.projectMainIdx else: typ.sym.info.fileIndex)
-      let vd = g.d.dIBuilderCreateParameterVariable(
-        scope, $v.getValueName(), 1, file, 0, dt, false, 0)
-      discard g.d.dIBuilderInsertDeclareAtEnd(vs, vd,
-        g.d.dIBuilderCreateExpression(nil, 0),
-        valueAsMetadata(g.b.getCurrentDebugLocation()), g.b.getInsertBlock())
+      if g.d != nil:
+        let dt = if typ.kind == tySequence: g.debugType(typ)
+                else: g.d.dIBuilderCreatePointerType(
+          g.debugType(typ.elemType), 64, 64, "")
 
-      let opd = g.d.dIBuilderCreateParameterVariable(
-        scope, $op.getValueName(), 2, file, 0, g.dtypes[tyInt], false, 0)
-      discard g.d.dIBuilderInsertDeclareAtEnd(ops, opd,
-        g.d.dIBuilderCreateExpression(nil, 0),
-        valueAsMetadata(g.b.getCurrentDebugLocation()), g.b.getInsertBlock())
+        let file = g.debugGetFile(
+          if typ.sym == nil: g.config.projectMainIdx else: typ.sym.info.fileIndex)
+        let vd = g.d.dIBuilderCreateParameterVariable(
+          llf.ds, $v.getValueName(), 1, file, 0, dt, false, 0)
+        discard g.d.dIBuilderInsertDeclareAtEnd(vs, vd,
+          g.d.dIBuilderCreateExpression(nil, 0),
+          valueAsMetadata(g.b.getCurrentDebugLocation()), g.b.getInsertBlock())
 
-    if typ.kind == tySequence:
-      g.genMarkerSeq(typ, v, op)
-    else:
-      g.genMarker(typ.sons[0], v, op)
+        let opd = g.d.dIBuilderCreateParameterVariable(
+          llf.ds, $op.getValueName(), 2, file, 0, g.dtypes[tyInt], false, 0)
+        discard g.d.dIBuilderInsertDeclareAtEnd(ops, opd,
+          g.d.dIBuilderCreateExpression(nil, 0),
+          valueAsMetadata(g.b.getCurrentDebugLocation()), g.b.getInsertBlock())
 
-    discard g.b.buildRetVoid()
+      if typ.kind == tySequence:
+        g.genMarkerSeq(typ, v, op)
+      else:
+        g.genMarker(typ.sons[0], v, op)
+
+      g.f.sections[secLastBody] = g.b.getInsertBlock()
+
+    g.withBlock(g.section(g.f, secReturn)):
+      discard g.b.buildRetVoid()
+
+    g.finalize()
 
 proc genMarkerProc(g: LLGen, typ: PType, sig: SigHash): llvm.ValueRef =
   if g.config.selectedGC < gcMarkAndSweep:
@@ -1376,26 +1585,34 @@ proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
 
-  g.withBlock(llvm.appendBasicBlock(result, g.nn("entry"))):
-    if g.d != nil:
-      let scope = g.debugFunction(sym, [], result)
+  let f = g.newLLFunc(result)
+  if g.d != nil:
+    f.ds = g.debugFunction(sym, [], result)
 
+  g.withFunc(f):
+    if g.d != nil:
       let dl = g.lc.dIBuilderCreateDebugLocation(
-          1, 1, scope, nil)
+          1, 1, f.ds, nil)
       g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
 
-    var v = v
-    if typ.kind in {tyRef, tyPtr, tyVar, tyString, tySequence}:
-      v = g.b.buildLoad(v, g.nn("mk.load"))
+    g.withBlock(g.section(g.f, secBody)):
 
-    g.genMarker(typ, v, g.constInt8(0))
+      var v = v
+      if typ.kind in {tyRef, tyPtr, tyVar, tyLent, tyString, tySequence}:
+        v = g.b.buildLoad(v, g.nn("mk.load"))
 
-    discard g.b.buildRetVoid()
+      g.genMarker(typ, v, g.constInt8(0))
+      g.f.sections[secLastBody] = g.b.getInsertBlock()
+
+    g.withBlock(g.section(g.f, secReturn)):
+      discard g.b.buildRetVoid()
+
+    g.finalize()
 
 proc registerGcRoot(g: LLGen, sym: PSym, v: llvm.ValueRef) =
   if g.config.selectedGC in {gcMarkAndSweep, gcDestructors, gcV2, gcRefc} and
     sym.typ.containsGarbageCollectedRef():
-    g.withBlock(g.getInitBlock(g.init)):
+    g.withFunc(g.init): g.withBlock(g.section(g.init, secRoots)):
       let prc = g.genGlobalMarkerProc(sym, v)
       let scope = g.init.ds
       if scope != nil:
@@ -1754,7 +1971,9 @@ proc llProcParamType(g: LLGen, t: PType): llvm.TypeRef =
   of tyProc:
     result = if typ.callConv == ccClosure: g.llType(t).pointerType()
              else: g.llType(t)
-  of tyDistinct, tyAlias, tyInferred, tyUserTypeClasses, tySink:
+  of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
+      tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
+      tyUserTypeClassInst, tyInferred, tyStatic:
     result = g.llProcParamType(t.lastSon)
   else: result = g.llType(t)
 
@@ -1771,7 +1990,7 @@ proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
     let at = g.llProcParamType(t)
     argTypes.add(at)
 
-    if skipTypes(t, {tyVar}).kind in {tyOpenArray, tyVarargs}:
+    if skipTypes(t, {tyVar, tyLent}).kind in {tyOpenArray, tyVarargs}:
       argTypes.add(g.primitives[tyInt])  # Extra length parameter
 
   if closure:
@@ -1825,7 +2044,7 @@ proc mtypeIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
   let zero = g.gep0
   result = @[zero]
   var t = skipTypes(typ, abstractInst)
-  while t.kind in {tyVar, tyPtr, tyRef}:
+  while t.kind in {tyVar, tyPtr, tyRef, tyLent}:
     result = result & @[zero]
     t = skipTypes(t.lastSon, typedescInst)
 
@@ -1865,6 +2084,9 @@ proc isNimSeqLike(g: LLGen, t: llvm.TypeRef): bool =
 proc preCast(
     g: LLGen, unsigned: bool, ax: llvm.ValueRef, t: PType,
     lt: llvm.TypeRef = nil): llvm.ValueRef =
+  if ax == nil: # tyStmt works like this...
+    return constNull(g.llType(t))
+
   let
     at = ax.typeOfX()
     atk = at.getTypeKind()
@@ -1872,14 +2094,14 @@ proc preCast(
     ltk = lt.getTypeKind()
 
   if t.kind == tyCString and at != g.primitives[tyCString] and g.isNimSeqLike(at):
-      result = g.buildNimSeqDataGEP(ax)
+      result = g.getNimSeqDataPtr(ax)
       return
 
   if ltk == PointerTypeKind and
-      skipTypes(t, {tyVar}).kind in {tyVarargs, tyOpenArray, tyArray, tyUncheckedArray} and
+      skipTypes(t, {tyVar, tyLent}).kind in {tyVarargs, tyOpenArray, tyArray, tyUncheckedArray} and
       g.llType(t.elemType) == lt.getElementType() and
       g.isNimSeqLike(at):
-    result = g.buildNimSeqDataGEP(ax)
+    result = g.getNimSeqDataPtr(ax)
     return
 
   if ltk == PointerTypeKind and atk == PointerTypeKind:
@@ -1892,7 +2114,7 @@ proc preCast(
     return
   result = ax
 
-proc externGlobal(g: LLGen, s: PSym): llvm.ValueRef =
+proc externGlobal(g: LLGen, s: PSym): LLValue =
   # Extra symbols that the compiler fetches from header files - we'll need
   # a better solution than hard-coding them, at some point
   # These are typically "nodecl", "importc" and/or "header" tagged in
@@ -1902,55 +2124,69 @@ proc externGlobal(g: LLGen, s: PSym): llvm.ValueRef =
     t = g.llType(s.typ)
 
   case name
-  of "errno": result = g.callErrno("")
-  of "h_errno": result = g.callErrno("h_")
+  of "errno": LLValue(v: g.callErrno(""))
+  of "h_errno": LLValue(v: g.callErrno("h_"))
   else:
     if s.id in g.symbols:
-      return g.symbols[s.id]
-    result = g.m.addGlobal(t, name)
-    g.symbols[s.id] = result
+      g.symbols[s.id]
+    else:
+      let tmp = LLValue(v: g.m.addGlobal(t, name))
+      g.symbols[s.id] = tmp
+      tmp
 
-proc genLocal(g: LLGen, n: PNode): llvm.ValueRef =
+proc genLocal(g: LLGen, n: PNode): LLValue =
   let s = n.sym
   if s.loc.k == locNone:
     fillLoc(s.loc, locLocalVar, n, s.name.s.mangle.rope, OnStack)
     if s.kind == skLet: incl(s.loc.flags, lfNoDeepCopy)
 
-  let t = g.llType(s.typ)
-  result = g.localAlloca(t, s.llName)
-  g.symbols[s.id] = result
-  g.debugVariable(s, result)
+  let
+    t = g.llType(s.typ)
+    v = g.localAlloca(t, s.llName)
+  g.debugVariable(s, v)
 
-proc genGlobal(g: LLGen, n: PNode): llvm.ValueRef =
+  let lv = LLValue(v: v, lode: n, storage: s.loc.storage)
+  g.symbols[s.id] = lv
+  lv
+
+proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   let s = n.sym
   if s.id in g.symbols:
     return g.symbols[s.id]
 
   if s.loc.k == locNone:
-    fillLoc(s.loc, locGlobalVar, n, g.mangleName(s), OnHeap)
+    fillLoc(
+      s.loc, locGlobalVar, n, g.mangleName(s), if isConst: OnStatic else: OnHeap)
 
-  let t = g.llType(s.typ.skipTypes(abstractInst))
-  result = g.m.addGlobal(t, s.llName)
-  g.symbols[s.id] = result
+  let
+    t = g.llType(s.typ.skipTypes(abstractInst))
+    v = g.m.addGlobal(t, s.llName)
 
   if sfImportc in s.flags:
-    result.setLinkage(llvm.ExternalLinkage)
+    v.setLinkage(llvm.ExternalLinkage)
   elif sfExportc in s.flags:
-    result.setLinkage(g.tgtExportLinkage)
-    result.setInitializer(llvm.constNull(t))
+    v.setLinkage(g.tgtExportLinkage)
+    v.setInitializer(llvm.constNull(t))
   else:
-    result.setLinkage(llvm.PrivateLinkage)
-    result.setInitializer(llvm.constNull(t))
+    v.setLinkage(llvm.PrivateLinkage)
+    v.setInitializer(llvm.constNull(t))
 
   if sfThread in s.flags and optThreads in g.config.globalOptions:
-    result.setThreadLocal(llvm.True)
-  g.debugGlobal(s, result)
+    v.setThreadLocal(llvm.True)
+  g.debugGlobal(s, v)
 
-proc callCompilerProc(g: LLGen, name: string, args: openarray[llvm.ValueRef]): llvm.ValueRef =
+  if isConst:
+    v.setGlobalConstant(llvm.True)
+
+  result = LLValue(v: v, lode: n, storage: s.loc.storage)
+  g.symbols[s.id] = result
+
+proc callCompilerProc(
+    g: LLGen, name: string, args: openarray[llvm.ValueRef]): llvm.ValueRef =
   let sym = g.graph.getCompilerProc(name)
   if sym == nil: g.config.internalError("compiler proc not found: " & name)
 
-  let f = g.genFunctionWithBody(sym)
+  let f = g.genFunctionWithBody(sym).v
 
   var i = 0
   var args = @args
@@ -1961,11 +2197,11 @@ proc callCompilerProc(g: LLGen, name: string, args: openarray[llvm.ValueRef]): l
     let a = g.preCast(false, v, param.typ, g.llProcParamType(param.typ))
     args[i] = a
 
-    if skipTypes(param.typ, {tyVar}).kind in {tyOpenArray, tyVarargs}:
+    if skipTypes(param.typ, {tyVar, tyLent}).kind in {tyOpenArray, tyVarargs}:
       i += 1
     i += 1
 
-  result = g.b.buildCall(
+  g.b.buildCall(
     f, args,
     if f.typeOfX().getElementType().getReturnType().getTypeKind() == llvm.VoidTypeKind: ""
     else: g.nn("call.cp." & name))
@@ -2006,7 +2242,7 @@ proc callCtpop(g: LLGen, v: llvm.ValueRef, size: BiggestInt): llvm.ValueRef =
     t = llvm.functionType(llvm.intTypeInContext(g.lc, bits), [llvm.intTypeInContext(g.lc, bits)])
     f = g.m.getOrInsertFunction("llvm.ctpop.i" & $bits, t)
 
-  result = g.b.buildCall(f, [v])
+  g.b.buildCall(f, [v])
 
 proc callErrno(g: LLGen, prefix: string): llvm.ValueRef =
   # on linux errno is a function, so we call it here. not at all portable.
@@ -2015,15 +2251,16 @@ proc callErrno(g: LLGen, prefix: string): llvm.ValueRef =
     errnoType = llvm.functionType(g.cintType.pointerType(), [])
     f = g.m.getOrInsertFunction("__" & prefix & "errno_location", errnoType)
 
-  result = g.b.buildCall(f, [], g.nn(prefix & "errno"))
+  g.b.buildCall(f, [], g.nn(prefix & "errno"))
 
 proc callWithOverflow(g: LLGen, op: string, a, b: llvm.ValueRef, name: string): llvm.ValueRef =
-  let t = a.typeOfX()
-  let ft = llvm.functionType(llvm.structType([t, int1TypeInContext(g.lc)]), [t, t])
-  let f = g.m.getOrInsertFunction(
-    "llvm." & op & ".with.overflow.i" & $t.getIntTypeWidth(), ft)
+  let
+    t = a.typeOfX()
+    ft = llvm.functionType(llvm.structType([t, int1TypeInContext(g.lc)]), [t, t])
+    f = g.m.getOrInsertFunction(
+      "llvm." & op & ".with.overflow.i" & $t.getIntTypeWidth(), ft)
 
-  result = g.b.buildCall(f, [a, b], name)
+  g.b.buildCall(f, [a, b], name)
 
 proc callBinOpWithOver(
     g: LLGen, a, b: llvm.ValueRef, op: Opcode, n: PNode): llvm.ValueRef =
@@ -2056,7 +2293,7 @@ proc callBinOpWithOver(
 
   if n == nil: return
 
-  let t = n.typ.skipTypes(abstractVar)
+  let t = n.typ.skipTypes({tyGenericInst, tyAlias, tySink, tyVar, tyLent})
   if t.kind in {tyRange, tyEnum}:
     let lt = g.b.buildICmp(
       llvm.IntSLT, result, constInt(result.typeOfX(),
@@ -2081,30 +2318,10 @@ proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
   of frEmbedded:
     discard g.callCompilerProc("objectInit", [v, g.genTypeInfo(t)])
 
-proc cpNewObj(g: LLGen, typ: PType): llvm.ValueRef =
-  let
-    refType = typ.skipTypes(abstractVarRange)
-    objType = refType.sons[0].skipTypes(abstractRange)
-    ti = g.genTypeInfo(refType)
-    t = g.llType(objType)
-    so = t.sizeOfX()
-    x = g.callCompilerProc("newObj", [ti, so])
-
-  result = g.b.buildBitCast(x, t.pointerType(), g.nn("newObj", x))
-  g.genObjectInit(objType, result)
-
-proc cpNewSeq(g: LLGen, typ: PType, len: llvm.ValueRef, name: string): llvm.ValueRef =
-  let
-    t = skipTypes(typ, abstractVarRange)
-    ti = g.genTypeInfo(t)
-    tmp = g.callCompilerProc("newSeq", [ti, len])
-
-  result = g.b.buildBitCast(tmp, g.llType(t), name)
-
 template withRangeItems(il: untyped, n: PNode, body: untyped) =
   let
-    ax = g.genNode(s[0], true)
-    bx = g.genNode(s[1], true)
+    ax = g.genNode(s[0], true).v
+    bx = g.genNode(s[1], true).v
     b = g.setElemIndex(typ, bx)
 
   # loop! init idx
@@ -2164,13 +2381,14 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
       s.typ.sons[2].kind == tyInt:
     # prefer intrinsic for these...
     g.withBlock(f.appendBasicBlock(g.nn("entry.fake", s))):
-      var res: llvm.ValueRef
       let
         a = f.getParam(0)
         b = f.getParam(1)
-      if s.name.s == "addInt": res = g.callBinOpWithOver(a, b, llvm.Add, nil)
-      if s.name.s == "subInt": res = g.callBinOpWithOver(a, b, llvm.Sub, nil)
-      if s.name.s == "mulInt": res = g.callBinOpWithOver(a, b, llvm.Mul, nil)
+        res = case s.name.s
+          of "addInt": g.callBinOpWithOver(a, b, llvm.Add, nil)
+          of "subInt": g.callBinOpWithOver(a, b, llvm.Sub, nil)
+          of "mulInt": g.callBinOpWithOver(a, b, llvm.Mul, nil)
+          else: g.config.internalError("checked above!"); nil
       discard g.b.buildRet(res)
     return true
 
@@ -2179,7 +2397,7 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
       discard g.b.buildRetVoid()
     return true
 
-proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
+proc genFunction(g: LLGen, s: PSym): LLValue =
   if s.id in g.symbols: return g.symbols[s.id]
 
   if s.loc.k == locNone:
@@ -2191,8 +2409,8 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
   # Some compiler proc's have two syms essentially, because of an importc trick
   # in system.nim...
   if sfImportc in s.flags:
-    result = g.m.getNamedFunction(name)
-    if result != nil:
+    result = LLValue(v: g.m.getNamedFunction(name))
+    if result.v != nil:
       g.symbols[s.id] = result
       return
 
@@ -2200,8 +2418,6 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
 
   let ft = g.llProcType(typ, typ.callConv == ccClosure)
   let f = g.m.addFunction(name, ft)
-
-  g.symbols[s.id] = f
 
   if sfNoReturn in s.flags:
     f.addFuncAttribute(g.attrNoReturn)
@@ -2212,129 +2428,138 @@ proc genFunction(g: LLGen, s: PSym): llvm.ValueRef =
   if g.genFakeImpl(s, f):
     f.setLinkage(llvm.InternalLinkage)
 
-  result = f
+  result = LLValue(v: f, storage: s.loc.storage)
+  g.symbols[s.id] = result
 
 proc paramStorageLoc(param: PSym): TStorageLoc =
-  if param.typ.skipTypes({tyVar, tyTypeDesc}).kind notin {
+  if param.typ.skipTypes({tyVar, tyTypeDesc, tyLent}).kind notin {
           tyArray, tyOpenArray, tyUncheckedArray, tyVarargs}:
     result = OnStack
   else:
     result = OnUnknown
 
-proc genFunctionWithBody(g: LLGen, s: PSym): llvm.ValueRef =
+proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
+  var s = s
+  if lfImportCompilerProc in s.loc.flags:
+    s = magicsys.getCompilerProc(g.graph, s.name.s)
+
   result = g.genFunction(s)
 
-  if result.countBasicBlocks() != 0:
+  if result.v.countBasicBlocks() != 0:
     return  # already has body
 
   if sfForward in s.flags: return
   if sfImportc in s.flags: return
 
-  # Because we generate only one module, we can tag all functions internal, except
-  # those that should be importable from c
   if sfExportc notin s.flags:
-    result.setLinkage(llvm.InternalLinkage)
+    # Because we generate only one module, we can tag all functions internal, except
+    # those that should be importable from c
+    result.v.setLinkage(llvm.InternalLinkage)
 
-  var i = 1
-  var lastIsArr = false
+  let
+    typ = s.typ.skipTypes(abstractInst)
+    f = g.newLLFunc(result.v)
 
-  let oldF = g.f
+  g.withFunc(f):
+    var ret: llvm.ValueRef
 
-  let typ = s.typ.skipTypes(abstractInst)
+    discard g.f.startBlock(s.ast, g.section(f, secReturn))
 
-  # generate body
-  g.withBlock(llvm.appendBasicBlock(result, g.nn("entry", s))):
-
-    g.f = g.newLLFunc(llvm.appendBasicBlock(result, g.nn("return", s)))
     g.f.options = s.options
+
     if g.d != nil:
       let arr = g.debugProcType(typ, typ.callConv == ccClosure)
-      g.f.ds = g.debugFunction(s, arr, result)
-    g.f.options = s.options
-    discard g.f.startBlock(s.ast, g.f.ret)
-
+      g.f.ds = g.debugFunction(s, arr, result.v)
     g.debugUpdateLoc(s.ast)
 
-    var argNo = 1
-    for arg in llvm.params(result):
-      while i < typ.n.len and isCompileTimeOnly(typ.n[i].sym.typ):
-        i += 1
-      if i >= typ.len:
-        if typ.callConv == ccClosure:
-          arg.setValueName("ClEnv")
-          g.f.clenv = arg
+    g.withBlock(g.section(f, secArgs)):
+      # Function arguments
 
-          continue
-        else:
-          g.config.internalError("Params missing in function call: " & $s)
-          return
-      let param = typ.n[i]
-
-      fillLoc(param.sym.loc, locParam, param, param.sym.name.s.mangle.rope,
-              param.sym.paramStorageLoc)  # TODO sometimes OnStack
-
-      p("a", param, g.depth + 1)
-      p("a", param.typ, g.depth + 2)
-
-      let name = if lastIsArr: param.sym.llName & "len" else: param.sym.llName
-      arg.setValueName(name)
-
-      let av = g.localAlloca(arg.typeOfX(), g.nn("arg", arg))
-      discard g.b.buildStore(arg, av)
-
-      g.debugVariable(param.sym, av, argNo)
-
-      if lastIsArr:
-        lastIsArr = false
-        i += 1
-        g.symbols[-param.sym.id] = av
-      else:
-        g.symbols[param.sym.id] = av
-
-        if skipTypes(param.typ, {tyVar}).kind in {tyOpenArray, tyVarargs}:
-          lastIsArr = true
-        else:
+      var i = 1
+      var lastIsArr = false
+      var argNo = 1
+      for arg in llvm.params(result.v):
+        while i < typ.n.len and isCompileTimeOnly(typ.n[i].sym.typ):
           i += 1
+        if i >= typ.len:
+          if typ.callConv == ccClosure:
+            arg.setValueName("ClEnv")
+            g.f.clenv = arg
 
-      argNo += 1
+            continue
+          else:
+            g.config.internalError("Params missing in function call: " & $s)
+            return
+        let param = typ.n[i]
 
-    # Scope for local variables
-    discard g.f.startBlock(s.ast, g.f.ret)
+        fillLoc(param.sym.loc, locParam, param, param.sym.name.s.mangle.rope,
+                param.sym.paramStorageLoc)  # TODO sometimes OnStack
 
-    var ret: llvm.ValueRef
-    if sfPure notin s.flags and typ.sons[0] != nil:
-      let resNode = s.ast[resultPos]
-      let res = resNode.sym
-      if sfNoInit in s.flags: incl(res.flags, sfNoInit)
-      ret = g.genLocal(resNode)
-      g.buildStoreNull(ret)
+        p("a", param, g.depth + 1)
+        p("a", param.typ, g.depth + 2)
 
-    if tfCapturesEnv in typ.flags:
-      let ls = lastSon(s.ast[paramsPos])
-      let lt = g.llType(ls.sym.typ)
-      if g.f.clenv == nil: g.config.internalError(s.ast.info, "env missing")
-      let lx = g.b.buildBitCast(g.f.clenv, lt, g.nn("ClEnvX"))
-      let av = g.localAlloca(lx.typeOfX(), g.nn("ClEnvX.a"))
-      discard g.b.buildStore(lx, av)
-      g.symbols[ls.sym.id] = av
+        let name = if lastIsArr: param.sym.llName & "len" else: param.sym.llName
+        arg.setValueName(name)
 
-      g.debugVariable(ls.sym, av, argNo)
+        let av = g.localAlloca(arg.typeOfX(), g.nn("arg", arg))
+        discard g.b.buildStore(arg, av)
 
-    let procBody = transformBody(g.graph, s, cache = false)
-    g.genNode(procBody)
+        g.debugVariable(param.sym, av, argNo)
 
-    g.b.buildBrFallthrough(g.f.ret)
-    g.b.positionAndMoveToEnd(g.f.ret)
+        if lastIsArr:
+          lastIsArr = false
+          i += 1
+          g.symbols[-param.sym.id] =
+            LLValue(v: av, lode: param, storage: param.sym.loc.storage)
+        else:
+          g.symbols[param.sym.id] =
+            LLValue(v: av, lode: param, storage: param.sym.loc.storage)
 
-    if ret != nil:
-      discard g.b.buildRet(g.b.buildLoad(ret, g.nn("load.result")))
-    else:
-      discard g.b.buildRetVoid()
+          if skipTypes(param.typ, {tyVar, tyLent}).kind in {tyOpenArray, tyVarargs}:
+            lastIsArr = true
+          else:
+            i += 1
 
-    g.finalize(g.f)
-    g.f = oldF
+        argNo += 1
 
-proc genFakeCall(g: LLGen, n: PNode, o: var llvm.ValueRef): bool =
+      # Scope for local variables
+      # discard g.f.startBlock(s.ast, g.f.ret)
+
+      if sfPure notin s.flags and typ.sons[0] != nil:
+        let resNode = s.ast[resultPos]
+        let res = resNode.sym
+        if sfNoInit in s.flags: incl(res.flags, sfNoInit)
+        ret = g.genLocal(resNode).v
+        g.buildStoreNull(ret)
+        g.genObjectInit(res.typ, ret)
+
+      if tfCapturesEnv in typ.flags:
+        let ls = lastSon(s.ast[paramsPos])
+        let lt = g.llType(ls.sym.typ)
+        if g.f.clenv == nil: g.config.internalError(s.ast.info, "env missing")
+        let lx = g.b.buildBitCast(g.f.clenv, lt, g.nn("ClEnvX"))
+        let av = g.localAlloca(lx.typeOfX(), g.nn("ClEnvX.a"))
+        discard g.b.buildStore(lx, av)
+        g.symbols[ls.sym.id] = LLValue(v: av)
+
+        g.debugVariable(ls.sym, av, argNo)
+
+    g.withBlock(g.section(g.f, secBody)):
+      let procBody = transformBody(g.graph, s, cache = false)
+      g.genNode(procBody)
+      g.b.buildBrFallthrough(g.section(g.f, secReturn))
+
+      g.f.sections[secLastBody] = g.b.getInsertBlock()
+
+    g.withBlock(g.section(g.f, secReturn)):
+      if ret != nil:
+        discard g.b.buildRet(g.b.buildLoad(ret, g.nn("load.result")))
+      else:
+        discard g.b.buildRetVoid()
+
+    g.finalize()
+
+proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
   let nf = n[0]
   if nf.kind != nkSym: return false
 
@@ -2342,59 +2567,60 @@ proc genFakeCall(g: LLGen, n: PNode, o: var llvm.ValueRef): bool =
 
   if s.originatingModule().name.s == "system":
     if s.name.s == "atomicLoadN":
-      let p0 = g.genNode(n[1], false)
-      o = g.b.buildLoad(p0, g.nn("a.load.n"))
-      o.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
+      let p0 = g.genNode(n[1], false).v
+      o = LLValue(v: g.b.buildLoad(p0, g.nn("a.load.n")))
+      o.v.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
       return true
 
     if s.name.s == "atomicStoreN":
-      let p0 = g.genNode(n[1], false)
-      let p1 = g.genNode(n[2], true)
+      let p0 = g.genNode(n[1], false).v
+      let p1 = g.genNode(n[2], true).v
       let ax = g.b.buildStore(p1, p0)
       ax.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
       ax.setAlignment(1.cuint)  # TODO(j) align all over the place.
       return true
 
     if s.name.s == "atomicAddFetch":
-      let p0 = g.genNode(n[1], false)
-      let p1 = g.genNode(n[2], true)
-      o = g.b.buildAtomicRMW(
+      let p0 = g.genNode(n[1], false).v
+      let p1 = g.genNode(n[2], true).v
+      o = LLValue(v: g.b.buildAtomicRMW(
         llvm.AtomicRMWBinOpAdd, p0, p1,
-        llvm.AtomicOrderingSequentiallyConsistent, llvm.False)
+        llvm.AtomicOrderingSequentiallyConsistent, llvm.False))
       return true
 
     if s.name.s == "atomicSubFetch":
-      let p0 = g.genNode(n[1], false)
-      let p1 = g.genNode(n[2], true)
-      o = g.b.buildAtomicRMW(
+      let p0 = g.genNode(n[1], false).v
+      let p1 = g.genNode(n[2], true).v
+      o = LLValue(v: g.b.buildAtomicRMW(
         llvm.AtomicRMWBinOpSub, p0, p1,
-        llvm.AtomicOrderingSequentiallyConsistent, llvm.False)
+        llvm.AtomicOrderingSequentiallyConsistent, llvm.False))
       return true
 
     if s.name.s == "atomicThreadFence":
-      o = g.b.buildFence(
-        llvm.AtomicOrderingSequentiallyConsistent, llvm.False, "")
+      o = LLValue(v: g.b.buildFence(
+        llvm.AtomicOrderingSequentiallyConsistent, llvm.False, ""))
       return true
 
     if s.name.s == "cas":
-      let p0 = g.genNode(n[1], false)
-      let p1 = g.genNode(n[2], true)
-      let p2 = g.genNode(n[3], true)
-      o = g.b.buildAtomicCmpXchg(p0, p1, p2,
+      let p0 = g.genNode(n[1], false).v
+      let p1 = g.genNode(n[2], true).v
+      let p2 = g.genNode(n[3], true).v
+      let x = g.b.buildAtomicCmpXchg(p0, p1, p2,
         llvm.AtomicOrderingSequentiallyConsistent,
         llvm.AtomicOrderingSequentiallyConsistent, llvm.False)
-      o = g.buildI8(g.b.buildExtractValue(o, 1.cuint, g.nn("cas.b", n)))
+      o = LLValue(v: g.buildI8(
+        g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
       return true
   elif s.originatingModule().name.s == "endians":
     case $s.loc.r
     of "__builtin_bswap16":
-      o = g.callBSwap(g.genNode(n[1], true), 16)
+      o = LLValue(v: g.callBSwap(g.genNode(n[1], true).v, 16))
       return true
     of "__builtin_bswap32":
-      o = g.callBSwap(g.genNode(n[1], true), 32)
+      o = LLValue(v: g.callBSwap(g.genNode(n[1], true).v, 32))
       return true
     of "__builtin_bswap64":
-      o = g.callBSwap(g.genNode(n[1], true), 64)
+      o = LLValue(v: g.callBSwap(g.genNode(n[1], true).v, 64))
       return true
 
 proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.ValueRef] =
@@ -2405,7 +2631,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
     let p = n[i]
     let pr = (if p.kind == nkHiddenAddr: p[0] else: p).skipConv()
     if i >= ftyp.n.len: # varargs like printf, for example
-      let v = g.genNode(pr, true)
+      let v = g.genNode(pr, true).v
       # In some transformations, the compiler produces a call node to a
       # parameterless function, and then adds statements as child nodes where
       # the parameter value expressions would normally go - decidedly, odd -
@@ -2422,24 +2648,25 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
 
     var v: llvm.ValueRef
 
-    if skipTypes(param.typ, {tyVar}).kind in {tyOpenArray, tyVarargs}:
+    if skipTypes(param.typ, {tyVar, tyLent}).kind in {tyOpenArray, tyVarargs}:
       var len: llvm.ValueRef
 
       if pr.getMagic() == mSlice:
         let
           ax = g.genNode(pr[1], true)
-          bx = g.genNode(pr[2], true)
-          cx = g.genNode(pr[3], true)
+          bx = g.genNode(pr[2], true).v
+          cx = g.genNode(pr[3], true).v
         case pr[1].typ.skipTypes(abstractVar + {tyPtr}).kind
         of tyOpenArray, tyVarargs, tyArray, tyUncheckedArray:
           let a = g.buildLoadValue(ax)
-          v = g.b.buildGEP(a, [g.gep0, bx])
+          v = g.b.buildGEP(a, [g.gep0, bx], g.nn("arg" & $i, pr)).v
 
         of tyString, tySequence:
           let a =
-            if n.typ.skipTypes(abstractInst).kind == tyVar: g.buildLoadValue(ax)
+            if n.typ.skipTypes(abstractInst).kind in {tyVar, tyLent}:
+              g.buildLoadValue(ax)
             else: ax
-          v = g.buildNimSeqDataGEP(a, bx)
+          v = g.buildNimSeqDataGEP(a, bx).v
         else: g.config.internalError(n.info, "unknown slice type")
 
         len = g.b.buildSub(cx, bx, g.nn("slice.sub", n))
@@ -2447,28 +2674,26 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
       else:
         case pr.typ.skipTypes(abstractVar).kind
         of tyString, tySequence:
-          v = g.genNode(pr, true)
-          if pr.typ.skipTypes(abstractInst).kind == tyVar:
-            v = g.b.buildLoad(v, "")
-          len = g.buildNimSeqLenGEP(v)
-          len = g.b.buildLoad(len, g.nn("call.seq.len", n))
+          v = g.genNode(pr, true).v
+          if pr.typ.skipTypes(abstractInst).kind in {tyVar, tyLent}:
+            v = g.b.buildLoad(v, g.nn("call.seq.var", n))
+          len = g.loadNimSeqLen(v)
           len = g.b.buildZExt(len, g.primitives[tyInt], g.nn("call.seq.len.ext", n))
-          v = g.buildNimSeqDataGEP(v)
+          v = g.getNimSeqDataPtr(v)
         of tyOpenArray, tyVarargs:
-          v = g.genNode(p, param.typ.kind == tyVar)
-          len = g.b.buildLoad(g.symbols[-pr.sym.id], "")
+          v = g.genNode(p, param.typ.kind in {tyVar, tyLent}).v
+          len = g.b.buildLoad(g.symbols[-pr.sym.id].v, g.nn("call.seq.oa.len", n))
         of tyArray, tyUncheckedArray:
-          v = g.genNode(p, true)
+          v = g.genNode(p, true).v
           len = g.constNimInt(g.config.lengthOrd(pr.typ).int)
         of tyPtr, tyRef:
           case pr.typ.lastSon().kind
           of tyString, tySequence:
-            v = g.genNode(pr, true)
+            v = g.genNode(pr, true).v
             v = g.b.buildLoad(v, g.nn("call.seq.load", n))
-            len = g.buildNimSeqLenGEP(v)
-            len = g.b.buildLoad(len, g.nn("call.seq.len", n))
+            len = g.loadNimSeqLen(v)
             len = g.b.buildZExt(len, g.primitives[tyInt], g.nn("call.seq.len.ext", n))
-            v = g.buildNimSeqDataGEP(v)
+            v = g.getNimSeqDataPtr(v)
           else:
             g.config.internalError(n.info, "Unhandled ref length: " & $pr.typ)
         else:
@@ -2480,7 +2705,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
       args.add(v)
       args.add(len)
     else:
-      v = g.genNode(p, not g.llPassAsPtr(param.typ))
+      v = g.genNode(p, not g.llPassAsPtr(param.typ)).v
 
       # We need to use the type from the function, because with multimethods,
       # it looks like the type in param.typ changes during compilation!
@@ -2490,7 +2715,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
 
   result = args
 
-proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genCall(g: LLGen, n: PNode, load: bool): LLValue =
   if g.genFakeCall(n, result):
     return
 
@@ -2514,8 +2739,8 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
     if tfIterator in typ.flags:
       let cft = g.llProcType(typ, true).pointerType()
-      let cfx = g.b.buildBitCast(prc, cft, g.nn("call.iter.prc", n))
-      let clargs = args & @[env]
+      let cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.iter.prc", n))
+      let clargs = args & @[env.v]
       callres = g.b.buildCall(cfx, clargs)
     else:
       let pre = g.b.getInsertBlock()
@@ -2526,22 +2751,22 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       let cloend = f.appendBasicBlock(g.nn("call.clo.end", n))
 
       let cmp = g.b.buildICmp(
-        llvm.IntEQ, env, llvm.constNull(env.typeOfX()), g.nn("call.clo.noenv", n))
+        llvm.IntEQ, env.v, llvm.constNull(env.v.typeOfX()), g.nn("call.clo.noenv", n))
       discard g.b.buildCondBr(cmp, clonil, cloenv)
 
       g.b.positionBuilderAtEnd(clonil)
 
-      fx = g.b.buildBitCast(prc, nft, g.nn("call.clo.prc.noenv", n))
+      let fxc = g.b.buildBitCast(prc.v, nft, g.nn("call.clo.prc.noenv", n))
 
-      let res = g.b.buildCall(fx, args)
+      let res = g.b.buildCall(fxc, args)
       discard g.b.buildBr(cloend)
 
       g.b.positionBuilderAtEnd(cloenv)
 
       let cft = g.llProcType(typ, true).pointerType()
-      let cfx = g.b.buildBitCast(prc, cft, g.nn("call.clo.prc", n))
+      let cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.clo.prc", n))
 
-      let clargs = args & @[env]
+      let clargs = args & @[env.v]
       let cres = g.b.buildCall(cfx, clargs)
 
       discard g.b.buildBr(cloend)
@@ -2552,245 +2777,278 @@ proc genCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
         callres = g.b.buildPHI(res.typeOfX(), g.nn("call.clo.res", n))
         callres.addIncoming([res, cres], [clonil, cloenv])
   else:
-    if fx.typeOfX().getElementType().getTypeKind() != llvm.FunctionTypeKind:
-      fx = g.b.buildBitCast(fx, nft, g.nn("call.fx", n))
+    let fxc =
+      if fx.v.typeOfX().getElementType().getTypeKind() != llvm.FunctionTypeKind:
+        g.b.buildBitCast(fx.v, nft, g.nn("call.fx", n))
+      else:
+        fx.v
 
-    let args = g.genCallArgs(n, fx.typeOfX().getElementType(), typ)
+    let args = g.genCallArgs(n, fxc.typeOfX().getElementType(), typ)
     let varname =
       if retty.getTypeKind() != llvm.VoidTypeKind: g.nn("call.res", n) else: ""
-    callres = g.b.buildCall(fx, args, varname)
+    callres = g.b.buildCall(fxc, args, varname)
 
   if retty.getTypeKind() != llvm.VoidTypeKind and not load and
       nf.typ.sons[0].kind != tyRef:
     # if the originator of the call wants a pointer, we'll have
     # to create one for them - this is interesting for example
     # when a struct is returned "by value"
-    result = g.localAlloca(retty, g.nn("call.res.ptr", n))
-    discard g.b.buildStore(callres, result)
+    let v = g.localAlloca(retty, g.nn("call.res.ptr", n))
+    discard g.b.buildStore(callres, v)
+    LLValue(v: v)
   else:
-    result = callres
+    LLValue(v: callres)
 
-proc genMagicCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genMagicCall(g: LLGen, n: PNode, load: bool): LLValue =
   let s = n[namePos].sym
   if lfNoDecl notin s.loc.flags:
     let m = g.graph.getCompilerProc($s.loc.r)
     if m == nil: g.config.internalError(n.info, "Missing magic: " & $s.loc.r)
     discard g.genFunctionWithBody(m)
 
-  result = g.genCall(n, load)
+  g.genCall(n, load)
 
-proc genRefAssign(g: LLGen, v, t: llvm.ValueRef) =
-  if g.config.usesWriteBarrier():
-    discard g.callCompilerProc("unsureAsgnRef", [t, v])
+proc genRefAssign(g: LLGen, dest, src: LLValue) =
+  if (dest.storage == OnStack and g.config.selectedGC != gcGo) or
+      not usesWriteBarrier(g.config):
+    discard g.b.buildStore(g.b.buildBitCast(
+      src.v, dest.v.typeOfX().getElementType(), g.nn("bc", dest.v)), dest.v)
+  elif dest.storage == OnHeap:
+    discard g.callCompilerProc("asgnRef", [dest.v, src.v])
   else:
-    discard g.b.buildStore(
-      g.b.buildBitCast(v, t.typeOfX().getElementType(), g.nn("bc", v)), t)
+    discard g.callCompilerProc("unsureAsgnRef", [dest.v, src.v])
 
-proc callGenericAssign(g: LLGen, t, x: llvm.ValueRef, ty: PType, deep: bool) =
-  let f = if deep: "genericAssign" else: "genericShallowAssign"
-  discard g.callCompilerProc(f, [t, x, g.genTypeInfo(ty)])
+proc callGenericAssign(
+    g: LLGen, dest, src: LLValue, ty: PType, flags: TAssignmentFlags) =
+  if needToCopy notin flags or
+      tfShallow in ty.skipTypes(abstractVarRange).flags:
+    if (dest.storage == OnStack and g.config.selectedGC != gcGo) or
+        not usesWriteBarrier(g.config):
+      g.callMemcpy(dest.v, src.v, dest.v.typeOfX.getElementType().sizeOfX())
+    else:
+      discard g.callCompilerProc(
+        "genericShallowAssign", [dest.v, src.v, g.genTypeInfo(ty)])
+  else:
+    discard g.callCompilerProc(
+      "genericAssign", [dest.v, src.v, g.genTypeInfo(ty)])
 
-proc genAsgnFromRef(g: LLGen, v, t: llvm.ValueRef, typ: PType, deep = true) =
-  let tt = t.typeOfX()
+proc genAsgnFromRef(g: LLGen, dest, src: LLValue, typ: PType,
+    flags: TAssignmentFlags) =
+  let destt = dest.v.typeOfX()
 
-  if tt.getTypeKind() != llvm.PointerTypeKind:
-    g.config.internalError("Ptr required in genAssignment: " & $t)
+  if destt.getTypeKind() != llvm.PointerTypeKind:
+    g.config.internalError("Ptr required in genAssignment: " & $dest)
 
-  let tet = tt.getElementType()
+  let destet = destt.getElementType()
 
   let ty = typ.skipTypes(abstractRange)
   case ty.kind
   of tyRef:
-    let x = g.buildLoadValue(v)
-    g.genRefAssign(x, t)
+    let srcl = g.buildLoadValue(src)
+    g.genRefAssign(dest, srcl)
   of tySequence:
-    let x = g.buildLoadValue(v)
-    if deep:  # TODO or OnStack?
-      discard g.callCompilerProc("genericSeqAssign", [t, x, g.genTypeInfo(ty)])
+    let srcl = g.buildLoadValue(src)
+    if (needToCopy notin flags and src.storage != OnStatic) or
+        canMove(g, src.lode):
+      g.genRefAssign(dest, srcl)
     else:
-      g.genRefAssign(x, t)
+      discard g.callCompilerProc(
+        "genericSeqAssign", [dest.v, srcl.v, g.genTypeInfo(ty)])
   of tyString:
-    let x = g.buildLoadValue(v)
-    if deep:
-      let sx = g.callCompilerProc("copyString", [x])
-      g.genRefAssign(sx, t)
+    let srcl = g.buildLoadValue(src)
+    if (needToCopy notin flags and src.storage != OnStatic) or
+        canMove(g, src.lode):
+      g.genRefAssign(dest, srcl)
     else:
-      g.genRefAssign(x, t)
+      if (dest.storage == OnStack and g.config.selectedGC != gcGo) or
+          not usesWriteBarrier(g.config):
+        let srcc = g.callCompilerProc("copyString", [srcl.v])
+        discard g.b.buildStore(
+          g.b.buildBitCast(srcc, destet, g.nn("asgn.xc", src)), dest.v)
+      elif dest.storage == OnHeap:
+        let destl = g.b.buildLoad(dest.v, g.nn("asgn.old", dest))
+        let srcc = g.callCompilerProc("copyStringRC1", [srcl.v])
+        discard g.b.buildStore(
+          g.b.buildBitCast(srcc, destet, g.nn("asgn.xc", src)), dest.v)
+        g.withNotNil(destl):
+          discard g.callCompilerProc("nimGCunrefNoCycle", [destl])
+      else:
+        let srcc = g.callCompilerProc("copyString", [srcl.v])
+        discard g.callCompilerProc("unsureAsgnRef", [dest.v, srcc])
   of tyProc:
-    let x = g.buildLoadValue(v)
+    let srcl = g.buildLoadValue(src)
 
     if ty.containsGarbageCollectedRef():
-      let tp = g.b.buildGEP(t, [g.gep0, g.gep0])
-      let p = g.b.buildExtractValue(x, 0, g.nn("asgn.p", v))
+      let destp = g.b.buildGEP(dest, [g.gep0, g.gep0], g.nn("asgn.dest.p", dest))
+      let srcp = g.b.buildExtractValue(srcl, 0, g.nn("asgn.p", src))
       discard g.b.buildStore(
-        g.b.buildBitCast(p, tp.typeOfX().getElementType(), g.nn("asgn.pc", v)), tp)
+        g.b.buildBitCast(
+          srcp.v, destp.v.typeOfX().getElementType(), g.nn("asgn.pc", src)), destp.v)
 
-      let te = g.b.buildGEP(t, [g.gep0, g.gep1])
-      let e = g.b.buildExtractValue(x, 1, g.nn("asgn.e", v))
+      let deste = g.b.buildGEP(dest, [g.gep0, g.gep1], "asgn.dest.e")
+      let srce = g.b.buildExtractValue(srcl, 1, g.nn("asgn.e", src))
 
-      g.genRefAssign(e, te)
+      g.genRefAssign(deste, srce)
     else:
-      discard g.b.buildStore(g.b.buildBitCast(x, tet, g.nn("asgn.xc")), t)
+      discard g.b.buildStore(
+        g.b.buildBitCast(srcl.v, destet, g.nn("asgn.xc")), dest.v)
   of tyTuple:
     if ty.containsGarbageCollectedRef():
-      g.callGenericAssign(t, v, ty, deep)
+      g.callGenericAssign(dest, src, ty, flags)
     else:
-      g.callMemcpy(t, v, t.typeOfX().getElementType().sizeOfX())
+      g.callMemcpy(dest.v, src.v, destet.sizeOfX())
 
   of tyObject:
     if ty.hasTypeField() or ty.containsGarbageCollectedRef():
-      g.callGenericAssign(t, v, ty, deep)
+      g.callGenericAssign(dest, src, ty, flags)
     else:
-      g.callMemcpy(t, v, t.typeOfX().getElementType().sizeOfX())
+      g.callMemcpy(dest.v, src.v, destet.sizeOfX())
 
   of tyArray:
     if ty.containsGarbageCollectedRef():
-      g.callGenericAssign(t, v, ty, deep)
+      g.callGenericAssign(dest, src, ty, flags)
     else:
-      g.callMemcpy(t, v, t.typeOfX().getElementType().sizeOfX())
+      g.callMemcpy(dest.v, src.v, destet.sizeOfX())
 
   of tySet:
     let size = g.config.getSize(ty)
 
     if size <= 8:
-      let x = g.buildLoadValue(v)
-      discard g.b.buildStore(x, t)
+      let srcl = g.buildLoadValue(src)
+      discard g.b.buildStore(srcl.v, dest.v)
     else:
-      g.callMemcpy(t, v, t.typeOfX().getElementType().sizeOfX())
+      g.callMemcpy(dest.v, src.v, destet.sizeOfX())
   of tyPtr, tyPointer, tyChar, tyBool, tyEnum, tyCString,
-     tyInt..tyUInt64, tyRange, tyVar:
-    let x = g.buildLoadValue(v)
-    discard g.b.buildStore(g.b.buildBitCast(x, tet, g.nn("asgn.c", v)), t)
+     tyInt..tyUInt64, tyRange, tyVar, tyLent:
+    let srcl = g.buildLoadValue(src)
+    discard g.b.buildStore(
+      g.b.buildBitCast(srcl.v, destet, g.nn("asgn.c", src)), dest.v)
 
   else: g.config.internalError("genAssignment: " & $ty.kind)
 
 proc genAssignment(
-  g: LLGen, v: PNode, t: llvm.ValueRef, typ: PType, deep = true) =
+    g: LLGen, dest: LLValue, src: PNode, typ: PType,
+    flags: TAssignmentFlags) =
 
-  let tt = t.typeOfX()
+  # This can happen in constants like array[4, xx] which only have a few for the
+  # first elements set - see tseq_badinit
+  if src.kind == nkEmpty: return
 
-  if tt.getTypeKind() != llvm.PointerTypeKind:
-    g.config.internalError("Ptr required in genAssignment: " & $t)
+  let destt = dest.v.typeOfX()
 
-  let tet = tt.getElementType()
+  if destt.getTypeKind() != llvm.PointerTypeKind:
+    g.config.internalError(src.info, "Ptr required in genAssignment: " & $dest.v)
+
+  let destet = destt.getElementType()
 
   let ty = typ.skipTypes(abstractRange + tyUserTypeClasses + {tyStatic})
   case ty.kind
   of tyRef:
-    g.genRefAssign(g.genNode(v, true), t)
+    let srcx = g.genNode(src, true)
+    g.genRefAssign(dest, srcx)
+
   of tySequence:
-    let x = g.genNode(v, true)
-    if deep:  # TODO or OnStack?
-      discard g.callCompilerProc("genericSeqAssign", [t, x, g.genTypeInfo(ty)])
+    let srcx = g.genNode(src, true)
+    if (needToCopy notin flags and srcx.storage != OnStatic) or
+        canMove(g, srcx.lode):
+      g.genRefAssign(dest, srcx)
     else:
-      g.genRefAssign(x, t)
+      discard g.callCompilerProc(
+        "genericSeqAssign", [dest.v, srcx.v, g.genTypeInfo(ty)])
+
   of tyString:
-    let x = g.genNode(v, true)
-    if deep:
-      let sx = g.callCompilerProc("copyString", [x])
-      g.genRefAssign(sx, t)
+    let srcx = g.genNode(src, true)
+    if (needToCopy notin flags and srcx.storage != OnStatic) or
+        canMove(g, srcx.lode):
+      g.genRefAssign(dest, srcx)
     else:
-      g.genRefAssign(x, t)
+      if (dest.storage == OnStack and g.config.selectedGC != gcGo) or
+          not usesWriteBarrier(g.config):
+        let srcc = g.callCompilerProc("copyString", [srcx.v])
+        discard g.b.buildStore(
+          g.b.buildBitCast(srcc, destet, g.nn("asgn.xc", src)), dest.v)
+      elif dest.storage == OnHeap:
+        let destl = g.b.buildLoad(dest.v, g.nn("asgn.old", dest))
+        let srcc = g.callCompilerProc("copyStringRC1", [srcx.v])
+        discard g.b.buildStore(
+          g.b.buildBitCast(srcc, destet, g.nn("asgn.xc", src)), dest.v)
+        g.withNotNil(destl):
+          discard g.callCompilerProc("nimGCunrefNoCycle", [destl])
+      else:
+        let srcc = g.callCompilerProc("copyString", [srcx.v])
+        discard g.callCompilerProc("unsureAsgnRef", [dest.v, srcc])
+
   of tyProc:
-    let x = g.genNode(v, true)
+    let srcx = g.genNode(src, true)
     if ty.containsGarbageCollectedRef():
-      let tp = g.b.buildGEP(t, [g.gep0, g.gep0])
-      let p = g.b.buildExtractValue(x, 0, g.nn("asgn.p", v))
+      let destp =
+        g.b.buildGEP(dest, [g.gep0, g.gep0], g.nn("asgn.dest.p", dest))
+      let srcp = g.b.buildExtractValue(srcx, 0, g.nn("asgn.p", src))
       discard g.b.buildStore(
-        g.b.buildBitCast(p, tp.typeOfX().getElementType(), g.nn("asgn.pc", v)), tp)
+        g.b.buildBitCast(
+          srcp.v, destp.v.typeOfX().getElementType(), g.nn("asgn.pc", srcx)),
+          destp.v)
 
-      let te = g.b.buildGEP(t, [g.gep0, g.gep1])
-      let e = g.b.buildExtractValue(x, 1, g.nn("asgn.e", v))
+      let deste = g.b.buildGEP(dest, [g.gep0, g.gep1], g.nn("asgn.dest.e"))
+      let srce = g.b.buildExtractValue(srcx, 1, g.nn("asgn.e", src))
 
-      g.genRefAssign(e, te)
+      g.genRefAssign(deste, srce)
     else:
-      discard g.b.buildStore(g.b.buildBitCast(x, tet, g.nn("asgn.xc")), t)
+      discard g.b.buildStore(
+        g.b.buildBitCast(srcx.v, destet, g.nn("asgn.xc")), dest.v)
+
   of tyTuple:
-    let x = g.genNode(v, false)
+    let srcx = g.genNode(src, false)
     if ty.containsGarbageCollectedRef():
-      g.callGenericAssign(t, x, ty, deep)
+      g.callGenericAssign(dest, srcx, ty, flags)
     else:
-      g.callMemcpy(t, x, t.typeOfX().getElementType().sizeOfX())
+      g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
 
   of tyObject:
-    let x = g.genNode(v, false)
+    let srcx = g.genNode(src, false)
     if ty.hasTypeField() or ty.containsGarbageCollectedRef():
-      g.callGenericAssign(t, x, ty, deep)
+      g.callGenericAssign(dest, srcx, ty, flags)
     else:
-      g.callMemcpy(t, x, t.typeOfX().getElementType().sizeOfX())
+      g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
 
   of tyArray:
-    let x = g.genNode(v, false)
+    let srcx = g.genNode(src, false)
     if ty.containsGarbageCollectedRef():
-      g.callGenericAssign(t, x, ty, deep)
+      g.callGenericAssign(dest, srcx, ty, flags)
     else:
-      g.callMemcpy(t, x, t.typeOfX().getElementType().sizeOfX())
+      g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
+
   of tyOpenArray, tyVarargs:
-    let s = if v.kind == nkHiddenDeref: v[0] else: v
-    let p = g.b.buildLoad(g.symbols[s.sym.id], "")
-    let len = g.b.buildLoad(g.symbols[-s.sym.id], "")
+    let s = if src.kind == nkHiddenDeref: src[0] else: src
+    let p = g.b.buildLoad(g.symbols[s.sym.id].v, "asgn.oa.p")
+    let len = g.b.buildLoad(g.symbols[-s.sym.id].v, "asgn.oa.l")
     if ty.containsGarbageCollectedRef():
       discard g.callCompilerProc(
-        "genericAssignOpenArray", [t, p, len, g.genTypeInfo(ty)])
+        "genericAssignOpenArray", [dest.v, p, len, g.genTypeInfo(ty)])
     else:
-      g.callMemcpy(t, p, t.typeOfX().getElementType().sizeOfX())
+      g.callMemcpy(dest.v, p, destet.sizeOfX())
+
   of tySet:
     let size = g.config.getSize(ty)
 
     if size <= 8:
-      let x = g.genNode(v, true)
-      discard g.b.buildStore(x, t)
+      let srcx = g.genNode(src, true)
+      discard g.b.buildStore(srcx.v, dest.v)
     else:
-      let x = g.genNode(v, false)
-      g.callMemcpy(t, x, t.typeOfX().getElementType().sizeOfX())
+      let srcx = g.genNode(src, false)
+      g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
+
   of tyPtr, tyPointer, tyChar, tyBool, tyEnum, tyCString,
-     tyInt..tyUInt64, tyRange, tyVar:
-    let x = g.genNode(v, true)
-    let pc = g.preCast(g.isUnsigned(typ), x, typ, tet)
-    discard g.b.buildStore(pc, t)
+     tyInt..tyUInt64, tyRange, tyVar, tyLent:
+    let srcx = g.genNode(src, true)
+    let pc = g.preCast(g.isUnsigned(typ), srcx.v, typ, destet)
+    discard g.b.buildStore(pc, dest.v)
 
   of tyNil:
-    discard g.b.buildStore(constNull(tet), t)
+    discard g.b.buildStore(constNull(destet), dest.v)
 
   else:
-    g.config.internalError(v.info, "genAssignment: " & $ty.kind)
-
-proc isDeepConstExprLL(n: PNode, strict: bool): bool =
-  # strict means that anything involving a separate constant and a cast is
-  # not allowed - as would happen with strings for example in a var string
-  # initializer
-  # note; callers are only using strict mode now because otherwise, string and
-  # seq constants end up being passed to the garbage collector that tries to
-  # incref them - c compiler keeps track of where a var is allocated and avoids
-  # this
-  case n.kind
-  of nkCharLit..nkFloat128Lit, nkNilLit: result = true
-  of nkStrLit..nkTripleStrLit: result = not strict
-  of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
-    result = n[1].isDeepConstExprLL(strict)
-  of nkPar:
-    if strict: return false
-    for s in n.sons:
-      if not s.isDeepConstExprLL(strict): return false
-    result = true
-
-  of nkCurly: result = nfAllConst in n.flags
-  of nkBracket:
-    if n.typ.kind notin {tyArray, tySequence, tyUncheckedArray}: return false
-    if n.typ.kind == tySequence and strict: return false
-
-    for s in n.sons:
-      if not s.isDeepConstExprLL(strict): return false
-    result = true
-  of nkObjConstr:
-    let typ = n.typ.skipTypes(abstractInst)
-    # TODO inheritance can be done, just being lazy...
-    if typ.sons[0] != nil: return false
-
-    for s in n.sons[1..<n.sonsLen]:
-      if not s.isDeepConstExprLL(strict): return false
-    result = true
-  else: result = false
+    g.config.internalError(src.info, "genAssignment: " & $ty.kind)
 
 proc isSeqLike(n: PNode): bool =
   case n.kind
@@ -2803,143 +3061,160 @@ proc isSeqLike(n: PNode): bool =
     else:
       result = false
 
+proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef
+
+proc genConstSeq(g: LLGen, n: PNode): llvm.ValueRef =
+  if n.typ.elemType.kind == tyEmpty or n.len == 0:
+    llvm.constNull(g.llType(n.typ))
+  else:
+    let
+      et = g.llType(n.typ.elemType)
+
+    var vals = newSeq[llvm.ValueRef](n.len)
+    for i, s in n.sons:
+      vals[i] =
+        if s.isSeqLike():
+          # Need pointer for string literals
+          g.genNode(s, false).v
+        else:
+          g.genConstInitializer(s)
+
+    let s = constArray(et, vals)
+    if n.typ.kind in {tyArray, tyUncheckedArray}:
+      s
+    else:
+      let ll = g.constNimInt(vals.len)
+      let cap = g.constNimInt(vals.len + g.strLitFlag)
+      let x = llvm.constNamedStruct(g.seqBaseType, [ll, cap])
+      llvm.constStruct([x, s])
+
+proc genConstObjConstr(g: LLGen, n: PNode): llvm.ValueRef =
+  let
+    typ = n.typ.skipTypes(abstractInst)
+    t = g.llType(typ)
+
+  if typ.kind == tyRef: g.config.internalError(n.info, "no const objs with refs")
+
+  var vals = newSeq[llvm.ValueRef](t.countStructElementTypes())
+  for i in 0..<vals.len:
+    vals[i] = llvm.constNull(t.structGetTypeAtIndex(i.cuint))
+
+  for i in 1 ..< n.len:
+    let s = n[i]
+    let ind = g.fieldIndex(typ, s[0].sym)
+    if ind.len != 1: g.config.internalError(s.info, "unexpected field depth")
+
+    if s.isSeqLike():
+      # Need pointer for string literals
+      vals[ind[0]] = g.genNode(s, true).v
+    else:
+      vals[ind[0]] = g.genConstInitializer(s)
+
+  constNamedStruct(t, vals)
+
+proc genConstTupleConstr(g: LLGen, n: PNode): llvm.ValueRef =
+  let
+    typ = n.typ.skipTypes(abstractInst)
+    t = g.llType(typ)
+
+  var vals = newSeq[llvm.ValueRef](t.countStructElementTypes())
+  for i in 0..<vals.len:
+    vals[i] = llvm.constNull(t.structGetTypeAtIndex(i.cuint))
+
+  for i in 0 ..< n.len:
+    let s = n[i]
+    if s.isSeqLike():
+      # Need pointer for string literals
+      vals[i] = g.genNode(s, true).v
+    else:
+      vals[i] = g.genConstInitializer(s)
+
+  constNamedStruct(t, vals)
+
 proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef =
   case n.kind
-  of nkCharLit..nkFloat128Lit, nkNilLit: result = g.genNode(n, true)
-  of nkStrLit..nkTripleStrLit: result = g.constNimString(n)
-  of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
+  of nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
     result = g.genConstInitializer(n[1])
+  of nkCurly: result = g.constNimSet(n)
+  of nkBracket: result = g.genConstSeq(n)
+  of nkObjConstr: result = g.genConstObjConstr(n)
+  of nkTupleConstr, nkPar, nkClosure: result = g.genConstTupleConstr(n)
+  of nkCharLit..nkFloat128Lit, nkNilLit: result = g.genNode(n, true).v
+  of nkStrLit..nkTripleStrLit: result = g.constNimString(n)
+  of nkEmpty: result = constNull(g.llType(n.typ))
+  else: g.config.internalError(n.info, "Can't gen const initializer " & $n.kind)
 
-  of nkPar:
-    let t = g.llType(n.typ)
-    var vals: seq[llvm.ValueRef] = @[]
-    for i in 0..<n.sonsLen:
-      let s = n[i]
-
-      if s.isSeqLike():
-        # Need pointer for string literals
-        vals.add(constBitCast(g.genNode(s, false), t.structGetTypeAtIndex(i.cuint)))
-      else:
-        vals.add(g.genConstInitializer(s))
-
-    result = llvm.constNamedStruct(t, vals)
-
-  of nkCurly: result = if n.isDeepConstExpr(): g.constNimSet(n) else: nil
-  of nkBracket:
-    if n.typ.kind notin {tyArray, tySequence, tyUncheckedArray}: return nil
-
-    var vals: seq[llvm.ValueRef] = @[]
-    for s in n.sons:
-      if s.isSeqLike():
-        # Need pointer for string literals
-        vals.add(g.genNode(s, false))
-      else:
-        vals.add(g.genConstInitializer(s))
-
-    if n.typ.elemType.kind == tyEmpty:
-      assert n.typ.kind == tySequence
-
-      let x = llvm.constNamedStruct(g.seqBaseType, [g.ni0, g.ni0])
-      result = llvm.constStruct([x])
-    else:
-      let et = g.llType(n.typ.elemType)
-
-      let s = constArray(et, vals)
-      if n.typ.kind in {tyArray, tyUncheckedArray}:
-        result = s
-      else:
-        let ll = g.constNimInt(vals.len)
-        let x = llvm.constNamedStruct(g.seqBaseType, [ll, ll])
-        result = llvm.constStruct([x, s])
-
-  of nkObjConstr:
-    let t = g.llType(n.typ)
-    if n.isDeepConstExprLL(false):
-      var vals = newSeq[llvm.ValueRef](t.countStructElementTypes())
-      for i in 0..<vals.len:
-        vals[i] = llvm.constNull(t.structGetTypeAtIndex(i.cuint))
-      for i in 1..<n.len:
-        let s = n[i]
-        let ind = g.fieldIndex(n.typ, s[0].sym)[0]
-        if n[i].isSeqLike():
-          # Need pointer for string literals
-          vals[ind] = g.genNode(n[i], true)
-        else:
-          vals[ind] = g.genConstInitializer(n[i])
-      result = constNamedStruct(t, vals)
-    else:
-      result = nil
-  else: result = nil
-
-proc genConst(g: LLGen, n: PNode): llvm.ValueRef =
+proc genConst(g: LLGen, n: PNode): LLValue =
   let sym = n.sym
   if sym.id in g.symbols: return g.symbols[sym.id]
 
   let init = sym.ast
 
-  if init.isDeepConstExprLL(true):
-    result = g.genGlobal(n)
-
-    result.setGlobalConstant(llvm.True)
+  if init.isDeepConstExprLL():
+    result = g.genGlobal(n, true)
 
     let ci = g.genConstInitializer(init)
-    if ci == nil: g.config.internalError(n.info, "Unable to generate const initializer: " & $init)
+    if ci == nil:
+      g.config.internalError(n.info, "Unable to generate const initializer: " & $init)
 
     # TODO when enabled, ptr equality checks (for example in isObj) get
     #      optimized away - need to consider when it's safe
     # result.setUnnamedAddr(llvm.True)
 
     case sym.typ.kind
-    of tyArray, tyUncheckedArray, tySet, tyTuple: result.setInitializer(ci)
+    of tyArray, tyUncheckedArray, tySet, tyTuple: result.v.setInitializer(ci)
     else:
       let c = g.m.addPrivateConstant(ci.typeOfX(), g.nn(".const.init", n))
       c.setInitializer(ci)
-      result.setInitializer(llvm.constBitCast(c, result.typeOfX().getElementType()))
+      result.v.setInitializer(
+        llvm.constBitCast(c, result.v.typeOfX().getElementType()))
     return
 
   if sfGlobal in sym.flags:
-    result = g.genGlobal(n)
-    g.registerGcRoot(sym, result)
+    result = g.genGlobal(n, false)
+    g.registerGcRoot(sym, result.v)
   else:
     if sym.id in g.symbols: return g.symbols[sym.id]
 
-    result = g.localAlloca(g.llType(sym.typ), sym.llName)
+    result = LLValue(
+      v: g.localAlloca(g.llType(sym.typ), sym.llName), storage: OnStack)
     # Some initializers expect value to be null, so we always set it so
-    g.buildStoreNull(result)
+    g.buildStoreNull(result.v)
+    g.genObjectInit(sym.typ, result.v)
 
   if init.kind != nkEmpty:
-    g.genAssignment(init, result, sym.typ)
+    g.genAssignment(result, init, sym.typ, sym.assignCopy)
 
   if sfGlobal notin sym.flags:
     g.symbols[sym.id] = result
 
-proc genMagicHigh(g: LLGen, n: PNode): llvm.ValueRef =
-  let len = g.genMagicLength(n)
-  result = g.b.buildSub(
-    len, llvm.constInt(len.typeOfX(), 1, llvm.False), g.nn("high", len))
+proc genMagicHigh(g: LLGen, n: PNode): LLValue =
+  let len = g.genMagicLength(n).v
+  LLValue(v: g.b.buildSub(
+    len, llvm.constInt(len.typeOfX(), 1, llvm.False), g.nn("high", len)))
 
-proc genMagicSizeOf(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicSizeOf(g: LLGen, n: PNode): LLValue =
   let t = n[1].typ.skipTypes({tyTypeDesc})
 
-  result = llvm.sizeOfX(g.llType(t))
+  LLValue(v: llvm.sizeOfX(g.llType(t)))
 
-proc genMagicOf(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicOf(g: LLGen, n: PNode): LLValue =
   var ax = g.genNode(n[1], false)
 
   # C generator does this extra dereferencing here - looks odd that it's needed
   # but there are test case fails because of it - needs more investigation
   var t = skipTypes(n[1].typ, abstractInst)
-  while t.kind in {tyVar, tyPtr, tyRef}:
+  while t.kind in {tyVar, tyPtr, tyRef, tyLent}:
     t = skipTypes(t.lastSon, typedescInst)
 
-  while ax.typeOfX().getElementType().getTypeKind() == llvm.PointerTypeKind:
-    ax = g.b.buildLoad(ax, g.nn("of.ind.load", n))
+  while ax.v.typeOfX().getElementType().getTypeKind() == llvm.PointerTypeKind:
+    ax = g.buildLoadValue(ax)
 
   let mt_gep = g.b.buildGEP(ax, g.mtypeIndex(t), g.nn("mtype", ax))
-  let m_type = g.b.buildLoad(mt_gep, g.nn("of.load", n))
+  let m_type = g.buildLoadValue(mt_gep)
   let typ = n[2].typ.skipTypes(typedescPtrs)
   # TODO nil check if n is a pointer
-  result = g.callCompilerProc("isObj", [m_type, g.genTypeInfo(typ)])
+  LLValue(v: g.callCompilerProc("isObj", [m_type.v, g.genTypeInfo(typ)]))
 
 proc genMagicEcho(g: LLGen, n: PNode) =
   let b = n[1].skipConv
@@ -2947,28 +3222,29 @@ proc genMagicEcho(g: LLGen, n: PNode) =
   if b.len == 0:
     let t = g.nimStringDescPtrType.pointerType()
     discard g.callCompilerProc("echoBinSafe", [constNull(t), g.constNimInt(0)])
-
-  let x = g.genNode(b, true)
-  let y = g.constNimInt(b.len)
-  discard g.callCompilerProc("echoBinSafe", [x, y])
-
-proc genMagicUnaryLt(g: LLGen, n: PNode): llvm.ValueRef =
-  let
-    ax = g.genNode(n[1], true)
-    bx = llvm.constInt(ax.typeOfX(), 1, False)
-  if optOverflowCheck in g.f.options:
-    result = g.callBinOpWithOver(ax, bx, llvm.Sub, n)
   else:
-    result = g.b.buildSub(ax, bx, g.nn("lt", n))
+    let x = g.genNode(b, true).v
+    let y = g.constNimInt(b.len)
+    discard g.callCompilerProc("echoBinSafe", [x, y])
+
+proc genMagicUnaryLt(g: LLGen, n: PNode): LLValue =
+  let
+    ax = g.genNode(n[1], true).v
+    bx = llvm.constInt(ax.typeOfX(), 1, False)
+  LLValue(v:
+    if optOverflowCheck in g.f.options:
+      g.callBinOpWithOver(ax, bx, llvm.Sub, n)
+    else:
+      g.b.buildSub(ax, bx, g.nn("lt", n)))
 
 proc genMagicIncDec(g: LLGen, n: PNode, op: Opcode) =
   let
-    ax = g.genNode(n[1], false)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], false).v
+    bx = g.genNode(n[2], true).v
     a = g.b.buildLoad(ax, g.nn("inc.a", n))
     b = g.buildTruncOrExt(bx, a.typeOfX(), n[2].typ)
 
-  let t = n[1].typ.skipTypes({tyGenericInst, tyVar, tyRange})
+  let t = n[1].typ.skipTypes({tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyRange})
   if optOverflowCheck notin g.f.options or t.kind in {tyUInt..tyUInt64}:
     let nv = g.b.buildBinOp(op, a, b, g.nn("inc.nv", n))
     discard g.b.buildStore(nv, ax)
@@ -2976,27 +3252,64 @@ proc genMagicIncDec(g: LLGen, n: PNode, op: Opcode) =
     let nv = g.callBinOpWithOver(a, b, op, n[1])
     discard g.b.buildStore(nv, ax)
 
-proc genMagicOrd(g: LLGen, n: PNode): llvm.ValueRef =
-  var ax = g.genNode(n[1], true)
+proc genMagicOrd(g: LLGen, n: PNode): LLValue =
+  var ax = g.genNode(n[1], true).v
 
   if n[1].typ.skipTypes(abstractRange).kind == tyBool:
     # make sure we don't get more bits set than necessary
     ax = g.b.buildAnd(ax, llvm.constInt(ax.typeOfX(), 1.cuint, llvm.False),
       g.nn("ord.bool", n))
-  result = g.buildTruncOrExt(ax, g.llType(n.typ), n[1].typ)
+  LLValue(v: g.buildTruncOrExt(ax, g.llType(n.typ), n[1].typ))
+
+proc rawGenNew(g: LLGen, dest: LLValue, typ: PType) =
+  let
+    refType = typ.skipTypes(abstractInst)
+    bt = refType.lastSon
+    lbt = g.llType(bt)
+    sizeExpr = lbt.sizeOfX()
+    ti = g.genTypeInfo(typ)
+
+  assert refType.kind == tyRef
+
+  if dest.storage == OnHeap and usesWriteBarrier(g.config):
+    let destl = g.buildLoadValue(dest)
+    g.withNotNil(destl.v):
+      if canFormAcycle(typ):
+        discard g.callCompilerProc("nimGCunrefRC1", [destl.v])
+      else:
+        discard g.callCompilerProc("nimGCunrefNoCycle", [destl.v])
+      discard g.b.buildStore(constNull(destl.v.typeOfX()), dest.v)
+
+    if g.config.selectedGC == gcGo:
+      # newObjRC1() would clash with unsureAsgnRef() - which is used by gcGo to
+      # implement the write barrier
+      let src = g.callCompilerProc("newObj", [ti, sizeExpr])
+      discard g.callCompilerProc("unsureAsgnRef", [dest.v, src])
+    else:
+      # use newObjRC1 as an optimization
+      let src = g.callCompilerProc("newObjRC1", [ti, sizeExpr])
+      discard g.b.buildStore(
+        g.b.buildBitCast(
+          src, dest.v.typeOfX.getElementType(), g.nn("new", src)), dest.v)
+  else:
+    let src = g.callCompilerProc("newObj", [ti, sizeExpr])
+    g.genRefAssign(dest, LLValue(v: src, storage: OnHeap))
+
+  g.genObjectInit(bt, g.b.buildLoad(dest.v, g.nn("new.load")))
 
 proc genMagicNew(g: LLGen, n: PNode) =
-  let
-    ax = g.genNode(n[1], false)
-    a = g.cpNewObj(n[1].typ.skipTypes(abstractVarRange))
-  g.genRefAssign(a, ax)
+  if n.len == 3: g.config.internalError(n.info, "unsafeNew unimplemented")
+  let ax = g.genNode(n[1], false)
+
+  g.rawGenNew(ax, n[1].typ)
 
 proc genMagicNewFinalize(g: LLGen, n: PNode) =
-  let typ = n[1].typ.skipTypes(abstractVarRange)
-
-  let f = g.genNode(n[2], false)
-
-  let ti = g.genTypeInfo(typ)
+  let
+    dest = g.genNode(n[1], false)
+    refType = n[1].typ.skipTypes(abstractVarRange)
+    f = g.genNode(n[2], false).v
+    ti = g.genTypeInfo(refType)
+    bt = refType.lastSon.skipTypes(abstractRange)
 
   # Funny enough, the finalizer is set for all objects of this type, not
   # just the one that's being created (!)
@@ -3012,36 +3325,66 @@ proc genMagicNewFinalize(g: LLGen, n: PNode) =
     init.getOperand(7)]))
 
   let
-    ax = g.genNode(n[1], false)
-    a = g.cpNewObj(typ)
-  g.genRefAssign(a, ax)
+    src = LLValue(v: g.callCompilerProc(
+      "newObj", [ti, g.llType(bt).sizeOfX()]),
+      storage: OnHeap)
+  g.genRefAssign(dest, src)
+  g.genObjectInit(bt, dest.v)
+
+proc genNewSeqAux(g: LLGen, dest: LLValue, destTyp: PType, len: llvm.ValueRef) =
+  let
+    seqType = destTyp.skipTypes(abstractVarRange)
+    ti = g.genTypeInfo(seqType)
+    args = [ti, len]
+
+  if dest.storage == OnHeap and usesWriteBarrier(g.config):
+    let destl = g.buildLoadValue(dest)
+    g.withNotNil(destl.v):
+      if canFormAcycle(destTyp):
+        discard g.callCompilerProc("nimGCunrefRC1", [destl.v])
+      else:
+        discard g.callCompilerProc("nimGCunrefNoCycle", [destl.v])
+      discard g.b.buildStore(constNull(destl.v.typeOfX()), dest.v)
+
+    if not len.isZero():
+      if g.config.selectedGC == gcGo:
+        # we need the write barrier
+        let src = g.callCompilerProc("newSeq", args)
+        discard g.callCompilerProc("unsureAsgnRef", [dest.v, src])
+      else:
+        let src = g.callCompilerProc("newSeqRC1", args)
+        discard g.b.buildStore(
+          g.b.buildBitCast(src, g.llType(seqType), g.nn("newseq", src)), dest.v)
+  else:
+    let src =
+      if len.isZero():
+        llvm.constNull(g.llType(seqType))
+      else:
+        let v = g.callCompilerProc("newSeq", args)
+        g.b.buildBitCast(v, g.llType(seqType), g.nn("newseq", v))
+    g.genRefAssign(dest, LLValue(v: src, storage: OnHeap))
 
 proc genMagicNewSeq(g: LLGen, n: PNode) =
   let
     ax = g.genNode(n[1], false)
-    bx = g.genNode(n[2], true)
-    at = ax.typeOfX()
+    bx = g.genNode(n[2], true).v
 
-  if at.getTypeKind() != llvm.PointerTypeKind:
-    g.config.internalError("expected pointer, not " & $at)
+  g.genNewSeqAux(ax, n[1].typ, bx)
 
-  let x = g.cpNewSeq(n[1].typ, bx, g.nn("newseq", n))
-  g.genRefAssign(x, ax)
-
-proc genMagicNewSeqOfCap(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicNewSeqOfCap(g: LLGen, n: PNode): LLValue =
   let seqtype = n.typ.skipTypes(abstractVarRange)
-  let ax = g.genNode(n[1], true)
+  let ax = g.genNode(n[1], true).v
   let ti =  g.genTypeInfo(seqtype)
 
-  result = g.callCompilerProc("nimNewSeqOfCap", [ti, ax])
+  LLValue(v: g.callCompilerProc("nimNewSeqOfCap", [ti, ax]), storage: OnHeap)
 
-proc genMagicLengthOpenArray(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicLengthOpenArray(g: LLGen, n: PNode): LLValue =
   # openarray must be a parameter so we should find it in the scope
   let s = if n[1].kind == nkHiddenDeref: n[1][0] else: n[1]
-  result = g.b.buildLoad(g.symbols[-s.sym.id], "")
+  LLValue(v: g.b.buildLoad(g.symbols[-s.sym.id].v, g.nn("oa.len", n)))
 
-proc genMagicLengthStr(g: LLGen, n: PNode): llvm.ValueRef =
-  let v = g.genNode(n[1], true)
+proc genMagicLengthStr(g: LLGen, n: PNode): LLValue =
+  let v = g.genNode(n[1], true).v
 
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
@@ -3061,7 +3404,8 @@ proc genMagicLengthStr(g: LLGen, n: PNode): llvm.ValueRef =
     strlenType = llvm.functionType(g.csizetType, [g.primitives[tyCString]])
     strlen = g.m.getOrInsertFunction("strlen", strlenType)
 
-  let v1 = g.b.buildCall(strlen, [v])
+  let v1 = g.buildTruncOrExt(
+    g.b.buildCall(strlen, [v]), g.primitives[tyInt], false)
   discard g.b.buildBr(ldone)
 
   g.b.positionBuilderAtEnd(ldone)
@@ -3072,70 +3416,47 @@ proc genMagicLengthStr(g: LLGen, n: PNode): llvm.ValueRef =
   let v0 = g.ni0
   phi.addIncoming([v0, v1], [pre, lload])
 
-  result = phi
+  LLValue(v: phi)
 
-proc genMagicLengthSeq(g: LLGen, n: PNode): llvm.ValueRef =
-  let v = g.genNode(n[1], true)
+proc genMagicLengthSeq(g: LLGen, n: PNode): LLValue =
+  let v = g.genNode(n[1], true).v
 
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
+  LLValue(v: g.loadNimSeqLen(v))
 
-  let lload = f.appendBasicBlock(g.nn("seq.len.load", n))
-  let ldone = f.appendBasicBlock(g.nn("seq.len.done", n))
-
-  # nil check
-  let cond = g.b.buildICmp(
-    llvm.IntEQ, v, llvm.constNull(v.typeOfX()), g.nn("seq.len.isnil", n))
-
-  discard g.b.buildCondBr(cond, ldone, lload)
-
-  # load length if v is not nil
-  g.b.positionBuilderAtEnd(lload)
-  let gep = g.buildNimSeqLenGEP(v)
-  let v1 = g.b.buildLoad(gep, g.nn("seq.len.load", n))
-  discard g.b.buildBr(ldone)
-
-  g.b.positionBuilderAtEnd(ldone)
-
-  # 0 from pre block or loaded length
-  let phi = g.b.buildPHI(g.primitives[tyInt], g.nn("seq.len", n))
-
-  let v0 = g.ni0
-  phi.addIncoming([v0, v1], [pre, lload])
-
-  result = phi
-
-proc genMagicLength(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicLength(g: LLGen, n: PNode): LLValue =
   let typ = skipTypes(n[1].typ, abstractVar + tyUserTypeClasses)
   case typ.kind
-  of tyOpenArray, tyVarargs: result = g.genMagicLengthOpenArray(n)
-  of tyCString: result = g.genMagicLengthStr(n)
-  of tySequence, tyString: result = g.genMagicLengthSeq(n)
-  of tyArray: result = g.constNimInt(g.config.lengthOrd(typ).int)
-  else: g.config.internalError(n.info, "genMagicLength " & $n[1].typ)
+  of tyOpenArray, tyVarargs: g.genMagicLengthOpenArray(n)
+  of tyCString: g.genMagicLengthStr(n)
+  of tySequence, tyString: g.genMagicLengthSeq(n)
+  of tyArray: LLValue(v: g.constNimInt(g.config.lengthOrd(typ).int))
+  else:
+    g.config.internalError(n.info, "genMagicLength " & $n[1].typ)
+    LLValue()
 
-proc genMagicXLen(g: LLGen, n: PNode): llvm.ValueRef =
-  let v = g.genNode(n[1], true)
+proc genMagicXLen(g: LLGen, n: PNode): LLValue =
+  let v = g.genNode(n[1], true).v
 
   # load length if v is not nil
   let gep = g.buildNimSeqLenGEP(v)
-  result = g.b.buildLoad(gep, g.nn("seq.len.load", n))
+  LLValue(v: g.b.buildLoad(gep, g.nn("seq.len.load", n)))
 
 proc genMagicIncl(g: LLGen, n: PNode) =
   let
-    ax = g.genNode(n[1], false)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], false).v
+    bx = g.genNode(n[2], true).v
     typ = skipTypes(n[1].typ, abstractVar)
     size = g.config.getSize(typ)
 
   if size <= 8:
-    let b = g.buildSetMask(ax.typeOfX().getElementType(), g.setElemIndex(typ, bx), size)
+    let b = g.buildSetMask(
+      ax.typeOfX().getElementType(), g.setElemIndex(typ, bx), size)
     let res = g.b.buildOr(g.b.buildLoad(ax, ""), b, "")
     discard g.b.buildStore(res, ax)
   else:
     let
-      ax = g.genNode(n[1], false)
-      bx = g.genNode(n[2], true)
+      ax = g.genNode(n[1], false).v
+      bx = g.genNode(n[2], true).v
 
     let (gep, mask) = g.buildSetGEPMask(ax, g.setElemIndex(typ, bx))
     let a = g.b.buildLoad(gep, "")
@@ -3144,34 +3465,35 @@ proc genMagicIncl(g: LLGen, n: PNode) =
 
 proc genMagicExcl(g: LLGen, n: PNode) =
   let
-    ax = g.genNode(n[1], false)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], false).v
+    bx = g.genNode(n[2], true).v
     typ = skipTypes(n[1].typ, abstractVar)
     size = g.config.getSize(typ)
 
   if size <= 8:
-    let b = g.buildSetMask(ax.typeOfX().getElementType(), g.setElemIndex(typ, bx), size)
+    let b = g.buildSetMask(
+      ax.typeOfX().getElementType(), g.setElemIndex(typ, bx), size)
     let res = g.b.buildAnd(g.b.buildLoad(ax, ""), g.buildBitnot(b), "")
     discard g.b.buildStore(res, ax)
   else:
     let
-      ax = g.genNode(n[1], false)
-      bx = g.genNode(n[2], true)
+      ax = g.genNode(n[1], false).v
+      bx = g.genNode(n[2], true).v
 
     let (gep, mask) = g.buildSetGEPMask(ax, g.setElemIndex(typ, bx))
     let a = g.b.buildLoad(gep, "")
     let res = g.b.buildAnd(a, g.buildBitnot(mask), "")
     discard g.b.buildStore(res, gep)
 
-proc genMagicCard(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicCard(g: LLGen, n: PNode): LLValue =
   let
-    ax = g.genNode(n[1], true)
+    ax = g.genNode(n[1], true).v
     typ = skipTypes(n[1].typ, abstractVar)
     size = g.config.getSize(typ)
 
   if size <= 8:
-    result = g.callCtpop(ax, size)
-    result = g.buildTruncOrExt(result, g.llType(n.typ), true)
+    let ctp = g.callCtpop(ax, size)
+    LLValue(v: g.buildTruncOrExt(ctp, g.llType(n.typ), true))
   else:
     # loop! init idx
     let i = g.localAlloca(g.primitives[tyInt], g.nn("card.i", n))
@@ -3217,29 +3539,31 @@ proc genMagicCard(g: LLGen, n: PNode): llvm.ValueRef =
     # continue at the end
     g.b.positionBuilderAtEnd(rdone)
 
-    result = g.b.buildLoad(tot, g.nn("card", n))
+    LLValue(v: g.b.buildLoad(tot, g.nn("card", n)))
 
-proc genMagicChr(g: LLGen, n: PNode): llvm.ValueRef =
-  let ax = g.genNode(n[1], true)
+proc genMagicChr(g: LLGen, n: PNode): LLValue =
+  let ax = g.genNode(n[1], true).v
 
   let t = g.llType(n.typ)
-  if t != ax.typeOfX():
-    result = g.b.buildTrunc(ax, t, g.nn("chr.t", n))
-  else:
-    result = ax
+  LLValue(v:
+    if t != ax.typeOfX(): g.b.buildTrunc(ax, t, g.nn("chr.t", n))
+    else: ax
+  )
 
 proc genMagicGCref(g: LLGen, n: PNode) =
-  let ax = g.genNode(n[1], false)
-  discard g.callCompilerProc("nimGCref", [ax])
+  let ax = g.genNode(n[1], false).v
+  g.withNotNil(ax):
+    discard g.callCompilerProc("nimGCref", [ax])
 
 proc genMagicGCunref(g: LLGen, n: PNode) =
-  let ax = g.genNode(n[1], false)
-  discard g.callCompilerProc("nimGCunref", [ax])
+  let ax = g.genNode(n[1], false).v
+  g.withNotNil(ax):
+    discard g.callCompilerProc("nimGCunref", [ax])
 
-proc genMagicBinOp(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
+proc genMagicBinOp(g: LLGen, n: PNode, op: Opcode): LLValue =
   var
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
 
   if ax.typeOfX().getTypeKind() == llvm.IntegerTypeKind and
       bx.typeOfX().getTypeKind() == llvm.IntegerTypeKind and
@@ -3251,15 +3575,15 @@ proc genMagicBinOp(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
     bx = g.buildNimIntExt(bx, g.isUnsigned(n[2].typ))
 
   let bo = g.b.buildBinOp(op, ax, bx, g.nn("binop." & $op, n))
-  result = g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.trunc", n))
+  LLValue(v: g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.trunc", n)))
 
-proc genMagicBinOpOverflow(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
+proc genMagicBinOpOverflow(g: LLGen, n: PNode, op: Opcode): LLValue =
   if optOverflowCheck notin g.f.options:
     return g.genMagicBinOp(n, op)
 
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
 
   if g.isUnsigned(n.typ) or g.isUnsigned(n[1].typ) or g.isUnsigned(n[2].typ):
     g.config.internalError(n.info, "Unsigned types shouldn't use overflow semantics")
@@ -3272,15 +3596,15 @@ proc genMagicBinOpOverflow(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
     g.config.internalError(n.info, "Expected nkHiddenStdConv to take care of this")
 
   let bo = g.callBinOpWithOver(ax, bx, op, n)
-  result = g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.over.trunc", n))
+  LLValue(v: g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.over.trunc", n)))
 
-proc genMagicBinOpCall(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
+proc genMagicBinOpCall(g: LLGen, n: PNode, op: Opcode): LLValue =
   if optOverflowCheck notin g.f.options:
     return g.genMagicBinOp(n, op)
 
   var
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
 
   ax = g.buildNimIntExt(ax, g.isUnsigned(n[1].typ))
   bx = g.buildNimIntExt(bx, g.isUnsigned(n[2].typ))
@@ -3292,66 +3616,66 @@ proc genMagicBinOpCall(g: LLGen, n: PNode, op: Opcode): llvm.ValueRef =
   else: g.config.internalError("Unexpected op: " & $op)
 
   let bo = g.callCompilerProc(opfn, [ax, bx])
-  result = g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.call.trunc", n))
+  LLValue(v: g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.call.trunc", n)))
 
-proc genMagicBinOpF(g: LLGen, n: PNode, op: Opcode, unsigned = false): llvm.ValueRef =
+proc genMagicBinOpF(g: LLGen, n: PNode, op: Opcode, unsigned = false): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
 
-  result = g.b.buildBinOp(op, ax, bx, g.nn("binop." & $op, n))
+  let v = g.b.buildBinOp(op, ax, bx, g.nn("binop." & $op, n))
 
   if optNaNCheck in g.f.options:
-    discard g.callCompilerProc("nanCheck", [result])
+    discard g.callCompilerProc("nanCheck", [v])
   if optInfCheck in g.f.options:
-    discard g.callCompilerProc("infCheck", [result])
+    discard g.callCompilerProc("infCheck", [v])
 
-proc genMagicShr(g: LLGen, n: PNode): llvm.ValueRef =
+  LLValue(v: v)
+
+proc genMagicShr(g: LLGen, n: PNode): LLValue =
   var
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
 
   if ax.typeOfX().getIntTypeWidth() != bx.typeOfX().getIntTypeWidth():
-
     # This seems to happen with unsigned ints for example, see
     # https://github.com/nim-lang/Nim/issues/4176
     bx = g.buildTruncOrExt(bx, ax.typeOfX(), true)
 
-  result = g.b.buildBinOp(llvm.LShr, ax, bx, g.nn("binop." & $llvm.LShr, n))
+  LLValue(v: g.b.buildBinOp(llvm.LShr, ax, bx, g.nn("binop." & $llvm.LShr, n)))
 
-proc genMagicAShr(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicAShr(g: LLGen, n: PNode): LLValue =
   var
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
 
   if ax.typeOfX().getIntTypeWidth() != bx.typeOfX().getIntTypeWidth():
-
     # This seems to happen with unsigned ints for example, see
     # https://github.com/nim-lang/Nim/issues/4176
     bx = g.buildTruncOrExt(bx, ax.typeOfX(), true)
 
-  result = g.b.buildBinOp(llvm.AShr, ax, bx, g.nn("binop." & $llvm.AShr, n))
+  LLValue(v: g.b.buildBinOp(llvm.AShr, ax, bx, g.nn("binop." & $llvm.AShr, n)))
 
-proc genMagicMinMaxI(g: LLGen, n: PNode, op: IntPredicate): llvm.ValueRef =
+proc genMagicMinMaxI(g: LLGen, n: PNode, op: IntPredicate): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
     cmp = g.b.buildICmp(op, ax, bx, g.nn($op & ".cmp", n))
 
-  result = g.b.buildSelect(cmp, ax, bx, g.nn($op, n))
+  LLValue(v: g.b.buildSelect(cmp, ax, bx, g.nn($op, n)))
 
-proc genMagicMinMaxF(g: LLGen, n: PNode, op: RealPredicate): llvm.ValueRef =
+proc genMagicMinMaxF(g: LLGen, n: PNode, op: RealPredicate): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
     cmp = g.b.buildFCmp(op, ax, bx, g.nn($op & ".cmp", n))
 
-  result = g.b.buildSelect(cmp, ax, bx, g.nn($op, n))
+  LLValue(v: g.b.buildSelect(cmp, ax, bx, g.nn($op, n)))
 
-proc genMagicCmpI(g: LLGen, n: PNode, op: IntPredicate): llvm.ValueRef =
+proc genMagicCmpI(g: LLGen, n: PNode, op: IntPredicate): LLValue =
   var
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
 
   if ax.typeOfX().getTypeKind() == llvm.IntegerTypeKind and
       bx.typeOfX().getTypeKind() == llvm.IntegerTypeKind and
@@ -3362,53 +3686,54 @@ proc genMagicCmpI(g: LLGen, n: PNode, op: IntPredicate): llvm.ValueRef =
     bx = g.buildNimIntExt(bx, g.isUnsigned(n[2].typ))
 
   # unsigned doesn't matter here - we've already normalized ints
-  result = g.buildI8(g.b.buildICmp(
+  LLValue(v: g.buildI8(g.b.buildICmp(
     op, g.preCast(false, ax, n[1].typ), g.preCast(false, bx, n[1].typ),
-    g.nn("icmp." & $op, n)))
+    g.nn("icmp." & $op, n))))
 
-proc genMagicCmpF(g: LLGen, n: PNode, op: RealPredicate): llvm.ValueRef =
+proc genMagicCmpF(g: LLGen, n: PNode, op: RealPredicate): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
 
-  result = g.buildI8(g.b.buildFCmp(op, ax, bx, g.nn($op, n)))
+  LLValue(v: g.buildI8(g.b.buildFCmp(op, ax, bx, g.nn($op, n))))
 
-proc genMagicEqProc(g: LLGen, n: PNode): llvm.ValueRef =
-  if n[1].typ.skipTypes(abstractInst).callConv == ccClosure:
-    let
-      ax = g.genNode(n[1], false)
-      bx = g.genNode(n[2], false)
-      a0 = g.b.buildGEP(ax, [g.gep0, g.gep0])
-      a1 = g.b.buildGEP(ax, [g.gep0, g.gep1])
-      b0 = g.b.buildGEP(bx, [g.gep0, g.gep0])
-      b1 = g.b.buildGEP(bx, [g.gep0, g.gep1])
+proc genMagicEqProc(g: LLGen, n: PNode): LLValue =
+  let v =
+    if n[1].typ.skipTypes(abstractInst).callConv == ccClosure:
+      let
+        ax = g.genNode(n[1], false).v
+        bx = g.genNode(n[2], false).v
+        a0 = g.b.buildGEP(ax, [g.gep0, g.gep0])
+        a1 = g.b.buildGEP(ax, [g.gep0, g.gep1])
+        b0 = g.b.buildGEP(bx, [g.gep0, g.gep0])
+        b1 = g.b.buildGEP(bx, [g.gep0, g.gep1])
 
-    let x0 = g.b.buildICmp(
-      llvm.IntEQ,
-      g.b.buildLoad(a0, g.nn("eq.prc.a0", n)),
-      g.b.buildLoad(b0, g.nn("eq.prc.b0", n)), g.nn("eq.prc.0", n))
-    let x1 = g.b.buildICmp(
-      llvm.IntEQ,
-      g.b.buildLoad(a1, g.nn("eq.prc.a1", n)),
-      g.b.buildLoad(b1, g.nn("eq.prc.b1", n)), g.nn("eq.prc.1", n))
+      let x0 = g.b.buildICmp(
+        llvm.IntEQ,
+        g.b.buildLoad(a0, g.nn("eq.prc.a0", n)),
+        g.b.buildLoad(b0, g.nn("eq.prc.b0", n)), g.nn("eq.prc.0", n))
+      let x1 = g.b.buildICmp(
+        llvm.IntEQ,
+        g.b.buildLoad(a1, g.nn("eq.prc.a1", n)),
+        g.b.buildLoad(b1, g.nn("eq.prc.b1", n)), g.nn("eq.prc.1", n))
 
-    result = g.b.buildAnd(x0, x1, g.nn("eq.prc", n))
-  else:
-    let
-      ax = g.genNode(n[1], true)
-      bx = g.genNode(n[2], true)
+      g.b.buildAnd(x0, x1, g.nn("eq.prc", n))
+    else:
+      let
+        ax = g.genNode(n[1], true).v
+        bx = g.genNode(n[2], true).v
 
-    result = g.b.buildICmp(llvm.IntEQ, ax, bx, g.nn("eq.prc", n))
-  result = g.buildI8(result)
+      g.b.buildICmp(llvm.IntEQ, ax, bx, g.nn("eq.prc", n))
+  LLValue(v: g.buildI8(v))
 
-proc genMagicUnaryMinus(g: LLGen, n: PNode): llvm.ValueRef =
-  let ax = g.genNode(n[1], true)
+proc genMagicUnaryMinus(g: LLGen, n: PNode): LLValue =
+  let ax = g.genNode(n[1], true).v
 
-  return g.b.buildSub(llvm.constInt(ax.typeOfX(), 0, llvm.False),
-                      ax, g.nn("neg", ax))
+  LLValue(v: g.b.buildSub(
+    llvm.constInt(ax.typeOfX(), 0, llvm.False), ax, g.nn("neg", ax)))
 
-proc genMagicAbsI(g: LLGen, n: PNode): llvm.ValueRef =
-  let ax = g.genNode(n[1], true)
+proc genMagicAbsI(g: LLGen, n: PNode): LLValue =
+  let ax = g.genNode(n[1], true).v
 
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
@@ -3435,70 +3760,65 @@ proc genMagicAbsI(g: LLGen, n: PNode): llvm.ValueRef =
 
   phi.addIncoming([ax, v1], [pre, linv])
 
-  result = phi
+  LLValue(v: phi)
 
-proc genMagicNot(g: LLGen, n: PNode): llvm.ValueRef =
-  let ax = g.genNode(n[1], true)
+proc genMagicNot(g: LLGen, n: PNode): LLValue =
+  let ax = g.genNode(n[1], true).v
+  LLValue(v: g.buildNot(ax))
 
-  result = g.buildNot(ax)
+proc genMagicBitnot(g: LLGen, n: PNode): LLValue =
+  let ax = g.genNode(n[1], true).v
+  LLValue(v: g.buildBitnot(ax))
 
-proc genMagicBitnot(g: LLGen, n: PNode): llvm.ValueRef =
-  let ax = g.genNode(n[1], true)
+proc genMagicUnaryMinusF64(g: LLGen, n: PNode): LLValue =
+  let ax = g.genNode(n[1], true).v
+  LLValue(v: g.b.buildFSub(
+    llvm.constReal(ax.typeOfX(), 0.0.cdouble), ax, g.nn("neg", ax)))
 
-  result = g.buildBitnot(ax)
-
-proc genMagicUnaryMinusF64(g: LLGen, n: PNode): llvm.ValueRef =
-  let ax = g.genNode(n[1], true)
-
-  result = g.b.buildFSub(
-    llvm.constReal(ax.typeOfX(), 0.0.cdouble), ax, g.nn("neg", ax))
-
-proc genMagicAbsF64(g: LLGen, n: PNode): llvm.ValueRef =
-  let ax = g.genNode(n[1], true)
+proc genMagicAbsF64(g: LLGen, n: PNode): LLValue =
+  let ax = g.genNode(n[1], true).v
 
   let
     fabsType = llvm.functionType(llvm.doubleTypeInContext(g.lc), [llvm.doubleTypeInContext(g.lc)])
     fabs = g.m.getOrInsertFunction("llvm.fabs.f64", fabsType)
 
-  result = g.b.buildCall(fabs, [ax], g.nn("fabs", n))
+  LLValue(v: g.b.buildCall(fabs, [ax], g.nn("fabs", n)))
 
-proc genMagicZe(g: LLGen, n: PNode): llvm.ValueRef =
-  let a = g.genNode(n[1], true)
+proc genMagicZe(g: LLGen, n: PNode): LLValue =
+  let a = g.genNode(n[1], true).v
 
-  result = g.b.buildZExt(a, g.llType(n.typ), g.nn("zext", n))
+  LLValue(v: g.b.buildZExt(a, g.llType(n.typ), g.nn("zext", n)))
 
-proc genMagicToU(g: LLGen, n: PNode): llvm.ValueRef =
-  let a = g.genNode(n[1], true)
+proc genMagicToU(g: LLGen, n: PNode): LLValue =
+  let a = g.genNode(n[1], true).v
+  LLValue(v: g.b.buildTrunc(a, g.llType(n.typ), g.nn("trunc", n)))
 
-  result = g.b.buildTrunc(a, g.llType(n.typ), g.nn("trunc", n))
+proc genMagicToFloat(g: LLGen, n:PNode): LLValue =
+  let a = g.genNode(n[1], true).v
+  LLValue(v: g.b.buildSIToFP(a, g.llType(n.typ), g.nn("sitofp", n)))
 
-proc genMagicToFloat(g: LLGen, n:PNode): llvm.ValueRef =
-  let a = g.genNode(n[1], true)
+proc genMagicToInt(g: LLGen, n:PNode): LLValue =
+  let a = g.genNode(n[1], true).v
+  LLValue(v: g.b.buildFPToSI(a, g.llType(n.typ), g.nn("fptosi", n)))
 
-  result = g.b.buildSIToFP(a, g.llType(n.typ), g.nn("sitofp", n))
+proc genMagicToStr(g: LLGen, n: PNode, f: string): LLValue =
+  let a = g.genNode(n[1], true).v
+  LLValue(v: g.callCompilerProc(f, [a]))
 
-proc genMagicToInt(g: LLGen, n:PNode): llvm.ValueRef =
-  let a = g.genNode(n[1], true)
+proc genMagicStrToStr(g: LLGen, n: PNode): LLValue =
+  g.genNode(n[1], true)
 
-  result = g.b.buildFPToSI(a, g.llType(n.typ), g.nn("fptosi", n))
-
-proc genMagicToStr(g: LLGen, n: PNode, f: string): llvm.ValueRef =
-  let a = g.genNode(n[1], true)
-
-  result = g.callCompilerProc(f, [a])
-
-proc genMagicStrToStr(g: LLGen, n: PNode): llvm.ValueRef =
-  return g.genNode(n[1], true)
-
-proc genMagicEnumToStr(g: LLGen, n: PNode): llvm.ValueRef =
-  let ax = g.genNode(n[1], true)
+proc genMagicEnumToStr(g: LLGen, n: PNode): LLValue =
+  let ax = g.genNode(n[1], true).v
 
   let typ = skipTypes(n[1].typ, abstractVarRange)
-  result = g.callCompilerProc(
-    "reprEnum", [g.buildTruncOrExt(ax, g.primitives[tyInt], typ), g.genTypeInfo(typ)])
+  LLValue(v:
+    g.callCompilerProc(
+      "reprEnum", [g.buildTruncOrExt(ax, g.primitives[tyInt], typ),
+        g.genTypeInfo(typ)]))
 
-proc genMagicAndOr(g: LLGen, n: PNode): llvm.ValueRef =
-  let ax = g.genNode(n[1], true)
+proc genMagicAndOr(g: LLGen, n: PNode): LLValue =
+  let ax = g.genNode(n[1], true).v
   let a = g.buildI1(ax)
 
   let pre = g.b.getInsertBlock()
@@ -3514,7 +3834,7 @@ proc genMagicAndOr(g: LLGen, n: PNode): llvm.ValueRef =
 
   g.b.positionBuilderAtEnd(aonext)
 
-  let bx = g.genNode(n[2], true)
+  let bx = g.genNode(n[2], true).v
   let bend = g.b.getInsertBlock()
   discard g.b.buildBr(aoend)
 
@@ -3524,35 +3844,35 @@ proc genMagicAndOr(g: LLGen, n: PNode): llvm.ValueRef =
 
   phi.addIncoming([ax, bx], [pre, bend])
 
-  result = phi
+  LLValue(v:  phi)
 
-proc genMagicEqStr(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicEqStr(g: LLGen, n: PNode): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
 
-  result = g.callCompilerProc("eqStrings", [ax, bx])
+  LLValue(v: g.callCompilerProc("eqStrings", [ax, bx]))
 
-proc genMagicLeStr(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicLeStr(g: LLGen, n: PNode): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
     cmp = g.callCompilerProc("cmpStrings", [ax, bx])
 
-  result = g.buildI8(g.b.buildICmp(llvm.IntSLE, cmp, g.ni0, g.nn("le.str", n)))
+  LLValue(v: g.buildI8(g.b.buildICmp(llvm.IntSLE, cmp, g.ni0, g.nn("le.str", n))))
 
-proc genMagicLtStr(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicLtStr(g: LLGen, n: PNode): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
     cmp = g.callCompilerProc("cmpStrings", [ax, bx])
 
-  result = g.buildI8(g.b.buildICmp(llvm.IntSLT, cmp, g.ni0, g.nn("lt.str", n)))
+  LLValue(v: g.buildI8(g.b.buildICmp(llvm.IntSLT, cmp, g.ni0, g.nn("lt.str", n))))
 
-proc genMagicSetCmp(g: LLGen, strict: bool, n: PNode): llvm.ValueRef =
+proc genMagicSetCmp(g: LLGen, strict: bool, n: PNode): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
     typ = skipTypes(n[1].typ, abstractVar)
     size = g.config.getSize(typ)
 
@@ -3561,12 +3881,13 @@ proc genMagicSetCmp(g: LLGen, strict: bool, n: PNode): llvm.ValueRef =
     let ab = g.b.buildAnd(ax, b, g.nn("setcmp.ab"))
     let le = g.b.buildICmp(
       llvm.IntEQ, ab, llvm.constInt(ab.typeOfX(), 0, llvm.False), g.nn("setcmp.le", n))
-    if strict:
-      let ne = g.b.buildICmp(llvm.IntNE, ax, bx, g.nn("setcmp.ne", n))
-      result = g.b.buildAnd(le, ne, g.nn("setcmp.res", n))
-    else:
-      result = le
-    result = g.buildI8(result)
+    let v =
+      if strict:
+        let ne = g.b.buildICmp(llvm.IntNE, ax, bx, g.nn("setcmp.ne", n))
+        g.b.buildAnd(le, ne, g.nn("setcmp.res", n))
+      else:
+        le
+    LLValue(v: g.buildI8(v))
   else:
     let o = g.localAlloca(g.primitives[tyBool], g.nn("setcmp.o", n))
     discard g.b.buildStore(g.nb[true], o)
@@ -3629,17 +3950,17 @@ proc genMagicSetCmp(g: LLGen, strict: bool, n: PNode): llvm.ValueRef =
     # continue at the end
     g.b.positionBuilderAtEnd(rdone)
 
-    result = g.buildLoadValue(o)
+    LLValue(v: g.buildLoadValue(o))
 
-proc genMagicEqSet(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicEqSet(g: LLGen, n: PNode): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
     typ = skipTypes(n[1].typ, abstractVar)
     size = g.config.getSize(typ)
 
   if size <= 8:
-    result = g.buildI8(g.b.buildICmp(llvm.IntEQ, ax, bx, g.nn("seteq.eq", n)))
+    LLValue(v: g.buildI8(g.b.buildICmp(llvm.IntEQ, ax, bx, g.nn("seteq.eq", n))))
   else:
     # loop! init idx
     let i = g.localAlloca(g.primitives[tyInt], g.nn("seteq.i", n))
@@ -3686,13 +4007,14 @@ proc genMagicEqSet(g: LLGen, n: PNode): llvm.ValueRef =
     # continue at the end
     g.b.positionBuilderAtEnd(rdone)
 
-    result = g.b.buildPHI(g.primitives[tyBool], g.nn("set.eq", n))
-    result.addIncoming([g.nb[false], g.nb[true]], [rne, rcmp])
+    let phi = g.b.buildPHI(g.primitives[tyBool], g.nn("set.eq", n))
+    phi.addIncoming([g.nb[false], g.nb[true]], [rne, rcmp])
+    LLValue(v: phi)
 
-proc genMagicSetBinOp(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): llvm.ValueRef =
+proc genMagicSetBinOp(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): LLValue =
   let
-    ax = g.genNode(n[1], true)
-    bx = g.genNode(n[2], true)
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
     typ = skipTypes(n[1].typ, abstractVar)
 
   let size = g.config.getSize(typ)
@@ -3702,7 +4024,7 @@ proc genMagicSetBinOp(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): llvm.V
       b = bx
     let s = if invert: g.buildBitnot(b)
             else: b
-    result = g.b.buildBinOp(op, a, s, g.nn("setbo.res"))
+    LLValue(v: g.b.buildBinOp(op, a, s, g.nn("setbo.res")))
   else:
     let tmp = g.localAlloca(g.llType(typ), g.nn("setbo.tmp", n))
 
@@ -3747,17 +4069,16 @@ proc genMagicSetBinOp(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): llvm.V
     # continue at the end
     g.b.positionBuilderAtEnd(rdone)
 
-    result = g.buildLoadValue(tmp)
+    LLValue(v: g.buildLoadValue(tmp))
 
-proc genMagicConStrStr(g: LLGen, n: PNode): llvm.ValueRef =
-  # First, find out total length of all strings
+proc genMagicConStrStr(g: LLGen, n: PNode): LLValue =
   var tgtlen = g.ni0
 
   var constlen = 0
   var exprs: seq[llvm.ValueRef] = @[]
 
   for s in n.sons[1..<n.sonsLen]:
-    let sx = g.genNode(s, true)
+    let sx = g.genNode(s, true).v
     exprs.add(sx)
 
     if skipTypes(s.typ, abstractVarRange).kind == tyChar:
@@ -3765,7 +4086,7 @@ proc genMagicConStrStr(g: LLGen, n: PNode): llvm.ValueRef =
     elif s.kind in {nkStrLit..nkTripleStrLit}:
       inc(constlen, len(s.strVal))
     else:
-      let slen = g.b.buildLoad(g.buildNimSeqLenGEP(sx), g.nn("constrstr.slen", n))
+      let slen = g.loadNimSeqLen(sx)
       tgtlen = g.b.buildAdd(tgtlen, slen, g.nn("constrstr.tgtlen", n))
 
   if constlen > 0:
@@ -3785,12 +4106,12 @@ proc genMagicConStrStr(g: LLGen, n: PNode): llvm.ValueRef =
     else:
       discard g.callCompilerProc("appendString", [tgt, sx])
 
-  result = tgt
+  LLValue(v: tgt, storage: OnHeap)
 
-proc genMagicDotDot(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genMagicDotDot(g: LLGen, n: PNode, load: bool): LLValue =
   # a compiler magic with implementation in system.nim.. hm.
   let s = n[namePos].sym
-  let f = g.genFunctionWithBody(s)
+  let f = g.genFunctionWithBody(s).v
   # will be generated in multiple modules, so hide it..
   f.setLinkage(llvm.PrivateLinkage)
 
@@ -3799,15 +4120,15 @@ proc genMagicDotDot(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 proc genMagicAppendStrCh(g: LLGen, n: PNode) =
   let
     ax = g.genNode(n[1], false)
-    bx = g.genNode(n[2], true)
-    a = g.b.buildLoad(ax, g.nn("load.str.addc", n))
-    ret = g.callCompilerProc("addChar", [a, bx])
+    bx = g.genNode(n[2], true).v
+    a = g.buildLoadValue(ax)
+    ret = LLValue(v: g.callCompilerProc("addChar", [a.v, bx]), storage: OnHeap)
 
-  discard g.b.buildStore(ret, ax)
+  g.genRefAssign(ax, ret)
 
 proc genMagicAppendStrStr(g: LLGen, n: PNode) =
   let tgtp = g.genNode(n[1], false)
-  var tgt = g.b.buildLoad(tgtp, g.nn("load.str.adds", n))
+  var tgt = g.buildLoadValue(tgtp)
 
   # First, find out total length of the new strings
   var tgtlen = g.ni0
@@ -3816,7 +4137,7 @@ proc genMagicAppendStrStr(g: LLGen, n: PNode) =
   var exprs: seq[llvm.ValueRef] = @[]
   for i in 2..<n.sonsLen:
     let s = n[i]
-    let sx = g.genNode(s, true)
+    let sx = g.genNode(s, true).v
     exprs.add(sx)
 
     if skipTypes(s.typ, abstractVarRange).kind == tyChar:
@@ -3824,8 +4145,7 @@ proc genMagicAppendStrStr(g: LLGen, n: PNode) =
     elif s.kind in {nkStrLit..nkTripleStrLit}:
       inc(constlen, len(s.strVal))
     else:
-      let slen = g.b.buildLoad(
-        g.buildNimSeqLenGEP(sx), g.nn("load.str.adds.len." & $i, n))
+      let slen = g.loadNimSeqLen(sx)
       tgtlen = g.b.buildAdd(tgtlen, slen, g.nn("str.adds.tot." & $i, n))
 
   if constlen > 0:
@@ -3833,8 +4153,9 @@ proc genMagicAppendStrStr(g: LLGen, n: PNode) =
       tgtlen, g.constNimInt(constlen), g.nn("str.adds.tot.const", n))
 
   # Make room
-  tgt = g.callCompilerProc("resizeString", [tgt, tgtlen])
-  discard g.b.buildStore(tgt, tgtp)
+  let newstr = LLValue(
+    v: g.callCompilerProc("resizeString", [tgt.v, tgtlen]), storage: OnHeap)
+  g.genRefAssign(tgtp, newstr)
 
   # Copy data
   for i in 2..<n.sonsLen:
@@ -3842,25 +4163,26 @@ proc genMagicAppendStrStr(g: LLGen, n: PNode) =
 
     let s = n[i]
     if skipTypes(s.typ, abstractVarRange).kind == tyChar:
-      discard g.callCompilerProc("appendChar", [tgt, sx])
+      discard g.callCompilerProc("appendChar", [newstr.v, sx])
     else:
-      discard g.callCompilerProc("appendString", [tgt, sx])
+      discard g.callCompilerProc("appendString", [newstr.v, sx])
 
 proc genMagicAppendSeqElem(g: LLGen, n: PNode) =
   let
     ax = g.genNode(n[1], false)
-    bx = g.genNode(n[2], false)
-    seqType = n[1].typ.skipTypes({tyVar})
-    a = g.b.buildLoad(ax, g.nn("seq.add.old", n))
-    ap = g.b.buildGEP(a, [g.gep0, g.gep0])
-    newseq = g.callCompilerProc("incrSeqV3", [ap, g.genTypeInfo(seqType)])
-    tgt = g.b.buildBitCast(newseq, a.typeOfX(), g.nn("seq.add.new", n))
-    lenp = g.buildNimSeqLenGEP(tgt)
+    seqType = n[1].typ.skipTypes({tyVar, tyLent})
+    a = g.buildLoadValue(ax)
+    ap = g.b.buildGEP(a, [g.gep0, g.gep0], g.nn("seq.add.gep", n))
+    newseq = g.callCompilerProc("incrSeqV3", [ap.v, g.genTypeInfo(seqType)])
+    tgt = LLValue(
+      v: g.b.buildBitCast(newseq, a.v.typeOfX(), g.nn("seq.add.new", n)),
+      storage: OnHeap)
+    lenp = g.buildNimSeqLenGEP(tgt.v) # guaranteed not nil!
     len = g.b.buildLoad(lenp, g.nn("load.seq.add.last", n))
 
-  discard g.b.buildStore(tgt, ax)
-
-  g.genAssignment(n[2], g.buildNimSeqDataGEP(tgt, len), seqType.elemType)
+  g.genRefAssign(ax, tgt)
+  g.genAssignment(g.buildNimSeqDataGEP(tgt, len), n[2], seqType.elemType,
+    {needToCopy})
 
   let newlen = g.b.buildAdd(
     len, llvm.constInt(len.typeOfX(), 1, llvm.False), g.nn("seq.add.newlen", n))
@@ -3882,11 +4204,11 @@ proc fewCmps(g: LLGen, s: PNode): bool =
   else:
     result = s.sonsLen <= 8  # 8 seems to be a good value
 
-proc genMagicInSet(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicInSet(g: LLGen, n: PNode): LLValue =
   if (n[1].kind == nkCurly) and g.fewCmps(n[1]):
     let s = if n[2].kind in {nkChckRange, nkChckRange64}: n[2][0]
             else: n[2]
-    let sx = g.genNode(s, true)
+    let sx = g.genNode(s, true).v
 
     let res = g.localAlloca(g.primitives[tyBool], g.nn("inset.res", n))
     discard g.b.buildStore(g.nb[false], res)
@@ -3901,8 +4223,8 @@ proc genMagicInSet(g: LLGen, n: PNode): llvm.ValueRef =
       var cmp: llvm.ValueRef
       if n[1][i].kind == nkRange:
         let
-          ax = g.genNode(n[1][i][0], true)
-          bx = g.genNode(n[1][i][1], true)
+          ax = g.genNode(n[1][i][0], true).v
+          bx = g.genNode(n[1][i][1], true).v
           acmp = g.b.buildICmp(
             if u: llvm.IntUGE else: llvm.IntSGE, sx,
             g.buildTruncOrExt(ax, sx.typeOfX(), u), g.nn("inset.acmp", n))
@@ -3910,9 +4232,9 @@ proc genMagicInSet(g: LLGen, n: PNode): llvm.ValueRef =
             if u: llvm.IntULE else: llvm.IntSLE, sx,
             g.buildTruncOrExt(bx, sx.typeOfX(), u), g.nn("inset.bcmp", n))
 
-        cmp = g.b.buildAnd(acmp, bcmp, "")
+        cmp = g.b.buildAnd(acmp, bcmp, g.nn("inset.and", n))
       else:
-        let ax = g.genNode(n[1][i], true)
+        let ax = g.genNode(n[1][i], true).v
         cmp = g.b.buildICmp(llvm.IntEQ, sx, g.buildTruncOrExt(ax, sx.typeOfX(), u), "")
 
       let snext = f.appendBasicBlock(g.nn("inset.cmp", n))
@@ -3927,97 +4249,102 @@ proc genMagicInSet(g: LLGen, n: PNode): llvm.ValueRef =
     discard g.b.buildBr(send)
 
     g.b.positionAndMoveToEnd(send)
-    result = g.b.buildLoad(res, g.nn("inset.result", n))
-    return
+    return LLValue(v: g.b.buildLoad(res, g.nn("inset.result", n)))
 
   let typ = skipTypes(n[1].typ, abstractVar)
   let size = g.config.getSize(typ)
 
-  if size <= 8:
-    let
-      ax = g.genNode(n[1], true)
-      bx = g.genNode(n[2], true)
+  let v =
+    if size <= 8:
+      let
+        ax = g.genNode(n[1], true).v
+        bx = g.genNode(n[2], true).v
 
-    let b = g.buildSetMask(ax.typeOfX(), g.setElemIndex(typ, bx), size)
-    let res = g.b.buildAnd(ax, b, g.nn("inset.res", n))
-    result = g.b.buildICmp(
-      llvm.IntNE, res, llvm.constInt(ax.typeOfX(), 0, llvm.False),
-      g.nn("inset.result", n))
-  else:
-    let
-      ax = g.genNode(n[1], false)
-      bx = g.genNode(n[2], true)
+      let b = g.buildSetMask(ax.typeOfX(), g.setElemIndex(typ, bx), size)
+      let res = g.b.buildAnd(ax, b, g.nn("inset.res", n))
+      g.b.buildICmp(
+        llvm.IntNE, res, llvm.constInt(ax.typeOfX(), 0, llvm.False),
+        g.nn("inset.result", n))
+    else:
+      let
+        ax = g.genNode(n[1], false).v
+        bx = g.genNode(n[2], true).v
 
-    let (gep, mask) = g.buildSetGEPMask(ax, g.setElemIndex(typ, bx))
-    let a = g.b.buildLoad(gep, g.nn("inset.a", n))
-    let res = g.b.buildAnd(a, mask, g.nn("inset.res", n))
-    result = g.b.buildICmp(
-      llvm.IntNE, res, llvm.constInt(a.typeOfX(), 0, llvm.False),
-      g.nn("inset.result", n))
-  result = g.buildI8(result)
+      let (gep, mask) = g.buildSetGEPMask(ax, g.setElemIndex(typ, bx))
+      let a = g.b.buildLoad(gep, g.nn("inset.a", n))
+      let res = g.b.buildAnd(a, mask, g.nn("inset.res", n))
+      g.b.buildICmp(
+        llvm.IntNE, res, llvm.constInt(a.typeOfX(), 0, llvm.False),
+        g.nn("inset.result", n))
+  LLValue(v: g.buildI8(v))
 
-proc genMagicRepr(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicRepr(g: LLGen, n: PNode): LLValue =
   let t = skipTypes(n[1].typ, abstractVarRange)
-  case t.kind
-  of tyInt..tyInt64, tyUInt..tyUInt64:
-    let ax = g.genNode(n[1], true)
-    result = g.callCompilerProc("reprInt", [g.buildTruncOrExt(ax, g.primitives[tyInt], t)])
-  of tyFloat..tyFloat128:
-    let ax = g.genNode(n[1], true)
-    result = g.callCompilerProc("reprFloat", [ax])
-  of tyBool:
-    let ax = g.genNode(n[1], true)
-    result = g.callCompilerProc("reprBool", [ax])
-  of tyChar:
-    let ax = g.genNode(n[1], true)
-    result = g.callCompilerProc("reprChar", [ax])
-  of tyEnum, tyOrdinal:
-    let ax = g.genNode(n[1], true)
-    let a = g.buildTruncOrExt(ax, g.primitives[tyInt], t)
-    result = g.callCompilerProc("reprEnum", [a, g.genTypeInfo(t)])
-  of tyString:
-    let ax = g.genNode(n[1], true)
-    result = g.callCompilerProc("reprStr", [ax])
-  of tySet:
-    let ax = g.genNode(n[1], false)
-    result = g.callCompilerProc("reprSet", [ax, g.genTypeInfo(t)])
-  of tyOpenArray, tyVarargs:
-    let s = if n[1].kind == nkHiddenDeref: n[1][0] else: n[1]
-    let a = g.b.buildLoad(g.symbols[s.sym.id], "")
-    let l = g.b.buildLoad(g.symbols[-s.sym.id], "")
-    result = g.callCompilerProc("reprOpenArray", [a, l, g.genTypeInfo(t.elemType)])
-  of tyCString, tyArray, tyUncheckedArray, tyRef, tyPtr, tyPointer, tyNil,
-     tySequence:
-    let ax = g.genNode(n[1], t.kind in {tyRef, tyPtr, tyVar, tyPointer})
-    result = g.callCompilerProc("reprAny", [ax, g.genTypeInfo(t)])
-  of tyEmpty:
-    g.config.localError(n.info, "'repr' doesn't support 'void' type")
-  else:
-    let ax = g.genNode(n[1], false)
-    result = g.callCompilerProc("reprAny", [ax, g.genTypeInfo(t)])
+  let v = case t.kind
+    of tyInt..tyInt64, tyUInt..tyUInt64:
+      let ax = g.genNode(n[1], true).v
+      g.callCompilerProc("reprInt", [g.buildTruncOrExt(ax, g.primitives[tyInt], t)])
+    of tyFloat..tyFloat128:
+      let ax = g.genNode(n[1], true).v
+      g.callCompilerProc("reprFloat", [ax])
+    of tyBool:
+      let ax = g.genNode(n[1], true).v
+      g.callCompilerProc("reprBool", [ax])
+    of tyChar:
+      let ax = g.genNode(n[1], true).v
+      g.callCompilerProc("reprChar", [ax])
+    of tyEnum, tyOrdinal:
+      let ax = g.genNode(n[1], true).v
+      let a = g.buildTruncOrExt(ax, g.primitives[tyInt], t)
+      g.callCompilerProc("reprEnum", [a, g.genTypeInfo(t)])
+    of tyString:
+      let ax = g.genNode(n[1], true).v
+      g.callCompilerProc("reprStr", [ax])
+    of tySet:
+      let ax = g.genNode(n[1], false).v
+      g.callCompilerProc("reprSet", [ax, g.genTypeInfo(t)])
+    of tyOpenArray, tyVarargs:
+      let s = if n[1].kind == nkHiddenDeref: n[1][0] else: n[1]
+      let a = g.b.buildLoad(g.symbols[s.sym.id].v, g.nn("repr.a", s))
+      let l = g.b.buildLoad(g.symbols[-s.sym.id].v, g.nn("repr.l", s))
+      g.callCompilerProc("reprOpenArray", [a, l, g.genTypeInfo(t.elemType)])
+    of tyCString, tyArray, tyUncheckedArray, tyRef, tyPtr, tyPointer, tyNil,
+      tySequence:
+      let ax = g.genNode(n[1], t.kind in {tyRef, tyPtr, tyVar, tyPointer, tyLent}).v
+      g.callCompilerProc("reprAny", [ax, g.genTypeInfo(t)])
+    of tyEmpty:
+      g.config.localError(n.info, "'repr' doesn't support 'void' type")
+      nil
+    else:
+      let ax = g.genNode(n[1], false).v
+      g.callCompilerProc("reprAny", [ax, g.genTypeInfo(t)])
+  LLValue(v: v)
 
 proc genMagicSetLengthStr(g: LLGen, n: PNode) =
   let
     ax = g.genNode(n[1], false)
-    bx = g.genNode(n[2], true)
-    a = g.b.buildLoad(ax, g.nn("setlen.str", n))
+    bx = g.genNode(n[2], true).v
+    a = g.buildLoadValue(ax)
+    newstr = LLValue(
+      v: g.callCompilerProc("setLengthStr", [a.v, bx]), storage: OnHeap)
 
-  discard g.b.buildStore(g.callCompilerProc("setLengthStr", [a, bx]), ax)
+  g.genRefAssign(ax, newstr)
 
 proc genMagicSetLengthSeq(g: LLGen, n: PNode) =
   let
-    ax = g.genNode(n[1], false)
-    bx = g.genNode(n[2], true)
-    a = g.b.buildLoad(ax, g.nn("setlen.seq", n))
-    ap = g.b.buildGEP(a, [g.gep0, g.gep0])
-    at = a.typeOfX()
-    so = at.getElementType().structGetTypeAtIndex(1).getElementType().sizeOfX()
-    x = g.callCompilerProc("setLengthSeq", [ap, so, bx])
+    axn = if n[1].kind in {nkAddr, nkHiddenAddr}: n[1][0] else: n[1]
+    ax = g.genNode(axn, false)
+    bx = g.genNode(n[2], true).v
+    a = g.buildLoadValue(ax)
+    ap = g.b.buildGEP(a.v, [g.gep0, g.gep0])
+    typ = n[1].typ.skipTypes({tyVar, tyLent} + abstractInst)
+    x = LLValue(
+      v: g.callCompilerProc("setLengthSeqV2", [ap, g.genTypeInfo(typ), bx]),
+      storage: OnHeap)
 
-  discard g.b.buildStore(g.b.buildBitCast(x, at, g.nn("setlen.cast", n)), ax)
+  g.genRefAssign(ax, x)
 
 proc genMagicParallel(g: LLGen, n: PNode) =
-  # oddly, semparallel is called from the c gen (!)
   let n2 = g.graph.liftParallel(g.module.sym, n)
   g.genNode(n2)
 
@@ -4026,60 +4353,74 @@ proc genMagicSwap(g: LLGen, n: PNode) =
     ax = g.genNode(n[1], false)
     bx = g.genNode(n[2], false)
     t = g.llType(n[1].typ)
-    tmpx = g.localAlloca(t, g.nn("swap.tmp", n))
-  g.buildStoreNull(tmpx)
+    tmpx = LLValue(v: g.localAlloca(t, g.nn("swap.tmp", n)), storage: OnStack)
+  g.buildStoreNull(tmpx.v)
+  g.genObjectInit(n[1].typ, tmpx.v)
 
-  g.genAsgnFromRef(ax, tmpx, n[1].typ)
-  g.genAsgnFromRef(bx, ax, n[1].typ)
-  g.genAsgnFromRef(tmpx, bx, n[1].typ)
+  g.genAsgnFromRef(tmpx, ax, n[1].typ, {})
+  g.genAsgnFromRef(ax, bx, n[1].typ, {})
+  g.genAsgnFromRef(bx, tmpx, n[1].typ, {})
 
 proc genMagicReset(g: LLGen, n: PNode) =
-  let ax = g.genNode(n[1], false)
+  let ax = g.genNode(n[1], false).v
 
   discard g.callCompilerProc("genericReset",
     [ax, g.genTypeInfo(skipTypes(n[1].typ, abstractVarRange))])
 
-proc genMagicIsNil(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicIsNil(g: LLGen, n: PNode): LLValue =
   let ax = g.genNode(n[1], true)
 
   let typ = skipTypes(n[1].typ, abstractPtrs)
-  if typ.kind == tyProc and typ.callConv == ccClosure:
-    result = g.b.buildICmp(
-      llvm.IntEQ, g.b.buildExtractValue(ax, 0, g.nn("isnil.prc", n)),
-        llvm.constNull(g.voidPtrType), g.nn("isnil", n))
-  else:
-    result = g.b.buildICmp(
-      llvm.IntEQ, ax, llvm.constNull(ax.typeOfX()), g.nn("isnil", n))
-  result = g.buildI8(result)
+  let v =
+    if typ.kind == tyProc and typ.callConv == ccClosure:
+      g.b.buildICmp(
+        llvm.IntEQ, g.b.buildExtractValue(ax, 0, g.nn("isnil.prc", n)).v,
+          llvm.constNull(g.voidPtrType), g.nn("isnil", n))
+    else:
+      g.b.buildICmp(
+        llvm.IntEQ, ax.v, llvm.constNull(ax.v.typeOfX()), g.nn("isnil", n))
+  LLValue(v: g.buildI8(v))
 
-proc genMagicArrToSeq(g: LLGen, n: PNode): llvm.ValueRef =
-  let l = int(g.config.lengthOrd(skipTypes(n[1].typ, abstractInst)))
-  let t = n.typ.skipTypes(abstractVarRange)
-  result = g.cpNewSeq(t, g.constNimInt(l), g.nn("arrtoseq", n))
+proc genMagicArrToSeq(g: LLGen, n: PNode): LLValue =
+  if n[1].kind == nkBracket:
+    n[1].typ = n.typ
+    return g.genNode(n[1], true)
 
-  let ax = g.genNode(n[1], true)
+  let
+    tmp = LLValue(v:
+      g.localAlloca(g.llType(n.typ), g.nn("arrtoseq", n)), storage: OnStack)
+    l = int(g.config.lengthOrd(skipTypes(n[1].typ, abstractInst)))
+
+  g.buildStoreNull(tmp.v)
+  g.genNewSeqAux(tmp, n.typ, g.constNimInt(l))
+  # In-flight values can be considered to live OnHeap
+  let tmpl = g.buildLoadValue(tmp)
+  let src = g.genNode(n[1], true)
 
   for i in 0..<l:
-    let tgt = g.buildNimSeqDataGEP(result, g.constGEPIdx(i))
-    let src = g.b.buildGEP(ax, [g.constGEPIdx(i)])
-    g.genAsgnFromRef(src, tgt, t.elemType)
+    let tgt = g.buildNimSeqDataGEP(tmpl, g.constGEPIdx(i))
+    let srcg = g.b.buildGEP(src, [g.constGEPIdx(i)], g.nn("arrtoseq.gep", n))
+    g.genAsgnFromRef(
+      tgt, srcg, n[1].typ.skipTypes(abstractInst).elemType(), {needToCopy})
 
-proc genMagicSpawn(g: LLGen, n: PNode): llvm.ValueRef =
+  tmpl
+
+proc genMagicSpawn(g: LLGen, n: PNode): LLValue =
   let n2 = g.graph.wrapProcForSpawn(n.typ.sym.getModule(), n, n.typ, nil, nil)
-  result = g.genNode(n2, true)
+  g.genNode(n2, true)
 
 proc genMagicDeepCopy(g: LLGen, n: PNode) =
   let x = if n[1].kind in {nkAddr, nkHiddenAddr}: n[1][0] else: n[1]
-  let ax = g.genNode(x, false)
+  let ax = g.genNode(x, false).v
 
   let ty = n[2].typ.skipTypes(abstractVarRange)
   case ty.kind
   of tyPtr, tyRef, tyProc, tyTuple, tyObject, tyArray, tyUncheckedArray:
-    let bx = g.genNode(n[2], false)
+    let bx = g.genNode(n[2], false).v
     discard g.callCompilerProc("genericDeepCopy", [ax, bx, g.genTypeInfo(ty)])
 
   of tySequence, tyString:
-    let bx = g.genNode(n[2], false)
+    let bx = g.genNode(n[2], false).v
     discard g.callCompilerProc("genericSeqDeepCopy", [ax, bx, g.genTypeInfo(ty)])
 
   of tyOpenArray, tyVarargs:
@@ -4089,23 +4430,23 @@ proc genMagicDeepCopy(g: LLGen, n: PNode) =
     let size = g.config.getSize(ty)
 
     if size <= 8:
-      let bx = g.genNode(n[2], true)
+      let bx = g.genNode(n[2], true).v
       discard g.b.buildStore(bx, ax)
     else:
-      let bx = g.genNode(n[2], false)
+      let bx = g.genNode(n[2], false).v
       g.callMemcpy(ax, bx, ax.typeOfX().getElementType().sizeOfX())
   of tyPointer, tyChar, tyBool, tyEnum, tyCString,
-     tyInt..tyUInt64, tyRange, tyVar:
-    let bx = g.genNode(n[2], true)
+     tyInt..tyUInt64, tyRange, tyVar, tyLent:
+    let bx = g.genNode(n[2], true).v
     discard g.b.buildStore(bx, ax)
   else:
     g.config.internalError(n.info, "genDeepCopy: " & $ty.kind)
 
-proc genMagicGetTypeInfo(g: LLGen, n: PNode): llvm.ValueRef =
+proc genMagicGetTypeInfo(g: LLGen, n: PNode): LLValue =
   let typ = n[1].typ.skipTypes(abstractVarRange)
-  result = g.genTypeInfo(typ)
+  LLValue(v: g.genTypeInfo(typ))
 
-proc genMagic(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   var op = n[0].sym.magic
   p("genMagic " & $op, n[0], g.depth + 1)
   case op
@@ -4236,112 +4577,126 @@ proc genMagic(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   else: g.config.internalError(n.info, "Unhandled magic: " & $op)
 
 # Nodes
-proc genNodeSym(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeSym(g: LLGen, n: PNode, load: bool): LLValue =
   let sym = n.sym
   case sym.kind
   of skVar, skLet, skTemp, skResult, skForVar:
-    var v: llvm.ValueRef
-    if lfHeader in sym.loc.flags or lfNoDecl in sym.loc.flags:
-      v = g.externGlobal(sym)
-    elif sfGlobal in sym.flags:
-      v = g.genGlobal(n)
-    else:
-      v = g.symbols[sym.id]
+    let v =
+      if lfHeader in sym.loc.flags or lfNoDecl in sym.loc.flags:
+        g.externGlobal(sym)
+      elif sfGlobal in sym.flags:
+        g.genGlobal(n, false)
+      else:
+        g.symbols[sym.id]
 
-    if load and v.typeOfX().getTypeKind() == llvm.PointerTypeKind:
-      result = g.buildLoadValue(v)
+    if load and v.v.typeOfX().getTypeKind() == llvm.PointerTypeKind:
+      let tmp = g.buildLoadValue(v)
       if sfVolatile in sym.flags:
         # TODO writes...
-        result.setVolatile(llvm.True)
+        tmp.v.setVolatile(llvm.True)
+      tmp
     else:
-      result = v
+      v
   of skParam:
     var v = g.symbols[sym.id]
 
     var toload = g.llPassAsPtr(n.typ)
     if toload and load and
-        v.typeOfX().getElementType().getTypeKind() == llvm.PointerTypeKind:
-      v = g.b.buildLoad(v, "")
-      result = g.buildLoadValue(v)
+        v.v.typeOfX().getElementType().getTypeKind() == llvm.PointerTypeKind:
+      let tmp = g.buildLoadValue(v)
+      g.buildLoadValue(tmp)
     elif not load and not toload and
-        sym.typ.kind notin {tyPtr, tyVar, tyRef, tyPointer}:
+        sym.typ.kind notin {tyPtr, tyVar, tyRef, tyPointer, tyLent}:
       # Someone wants an address, but all we have is a value...
-      result = v
+      v
     else:
-      result = g.b.buildLoad(v, "")
+      g.buildLoadValue(v)
   of skType:
-    result = g.genTypeInfo(sym.typ)
+    LLValue(v: g.genTypeInfo(sym.typ))
   of skMethod:
     if {sfDispatcher, sfForward} * sym.flags != {}:
-      result = g.genFunction(sym)
+      g.genFunction(sym)
     else:
-      result = g.genFunctionWithBody(sym)
+      g.genFunctionWithBody(sym)
+
   of skProc, skConverter, skIterator, skFunc:
     if (lfNoDecl in sym.loc.flags or sym.magic != mNone or
          {sfImportc, sfInfixCall} * sym.flags != {}) and
          lfImportCompilerProc notin sym.loc.flags:
-      result = g.genFunction(sym)
+      g.genFunction(sym)
     else:
-      result = g.genFunctionWithBody(sym)
+      g.genFunctionWithBody(sym)
   of skConst:
     let v = g.genConst(n)
 
-    if load and v.typeOfX().getTypeKind() == llvm.PointerTypeKind:
-      result = g.buildLoadValue(v)
-    else:
-      result = v
+    g.maybeLoadValue(
+      v, load and v.v.typeOfX().getTypeKind() == llvm.PointerTypeKind)
 
   of skEnumField:
-    result = llvm.constInt(g.llType(sym.typ), sym.position.culonglong, llvm.False)
+    LLValue(v: llvm.constInt(g.llType(sym.typ), sym.position.culonglong, llvm.False))
 
   else:
     g.config.internalError(n.info, "Unhandled nodesym kind: " & $sym.kind)
+    LLValue()
 
-proc genNodeIntLit(g: LLGen, n: PNode): llvm.ValueRef =
+proc genNodeIntLit(g: LLGen, n: PNode): LLValue =
   let nt = g.llType(n.typ)
-  if nt.getTypeKind == llvm.PointerTypeKind:
-    result = llvm.constIntToPtr(
-      llvm.constInt(g.primitives[tyInt], n.intVal.culonglong, llvm.False), nt)
-  else:
-    result = llvm.constInt(nt, n.intVal.culonglong, llvm.False)
+  let v =
+    if nt.getTypeKind == llvm.PointerTypeKind:
+      llvm.constIntToPtr(
+        llvm.constInt(g.primitives[tyInt], n.intVal.culonglong, llvm.False), nt)
+    else:
+      llvm.constInt(nt, n.intVal.culonglong, llvm.False)
 
-proc genNodeFloatLit(g: LLGen, n: PNode): llvm.ValueRef =
-  llvm.constReal(g.llType(n.typ), n.floatVal)
+  LLValue(v: v, lode: n, storage: OnStatic)
 
-proc genNodeStrLit(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  if n.typ.skipTypes(abstractVarRange).kind == tyString:
-    let ss = g.constNimString(n)
-    let s = g.m.addPrivateConstant(ss.typeOfX(), g.nn(".str", n))
-    s.setInitializer(ss)
-    result = constBitCast(s, g.nimStringDescPtrType)
-  else:
-    let init = constString(n.strVal)
-    let s = g.m.addPrivateConstant(init.typeOfX(), g.nn(".cstr", n))
-    s.setInitializer(init)
-    result = constBitCast(s, g.primitives[tyCString])
+proc genNodeFloatLit(g: LLGen, n: PNode): LLValue =
+  let v = llvm.constReal(g.llType(n.typ), n.floatVal)
+  LLValue(v: v, lode: n, storage: OnStatic)
 
-proc genNodeNilLit(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeStrLit(g: LLGen, n: PNode, load: bool): LLValue =
+  let v =
+    if n.typ.skipTypes(
+        abstractVarRange + {tyStatic, tyUserTypeClass, tyUserTypeClassInst}).kind == tyString:
+      if n.strVal.len == 0:
+        constNull(g.nimStringDescPtrType)
+      else:
+        let ss = g.constNimString(n)
+        let s = g.m.addPrivateConstant(ss.typeOfX(), g.nn(".str", n))
+        s.setInitializer(ss)
+        constBitCast(s, g.nimStringDescPtrType)
+    else:
+      let init = g.lc.constStringInContext(n.strVal)
+      let s = g.m.addPrivateConstant(init.typeOfX(), g.nn(".cstr", n))
+      s.setInitializer(init)
+      constBitCast(s, g.primitives[tyCString])
+
+  LLValue(v: v, lode: n, storage: OnStatic)
+
+proc genNodeNilLit(g: LLGen, n: PNode, load: bool): LLValue =
   # proc x() = nil
   if n.typ.isEmptyType:
-    return nil
+    return LLValue()
 
   let t = g.llType(n.typ.skipTypes(abstractVarRange))
-  if load:
-    result = llvm.constNull(t)
-  else:
-    result = g.m.addPrivateConstant(t, g.nn("nil", n))
-    result.setInitializer(llvm.constNull(t))
+  let v =
+    if load:
+      llvm.constNull(t)
+    else:
+      let tmp = g.m.addPrivateConstant(t, g.nn("nil", n))
+      tmp.setInitializer(llvm.constNull(t))
+      tmp
+  LLValue(v: v, lode: n, storage: OnStatic)
 
-proc genNodeCall(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeCall(g: LLGen, n: PNode, load: bool): LLValue =
   let nf = n[namePos]
 
   if nf.kind == nkSym:
     let sym = nf.sym
     if sym.magic != mNone:
-      result = g.genMagic(n, load)
-      return
+      return g.genMagic(n, load)
 
-  result = g.genCall(n, load)
+  g.genCall(n, load)
 
 proc genSingleVar(g: LLGen, n: PNode) =
   let vn = n[0]
@@ -4350,46 +4705,72 @@ proc genSingleVar(g: LLGen, n: PNode) =
   if sfCompileTime in v.flags: return
   if sfGoto in v.flags: g.config.internalError(n.info, "Goto vars not supported")
 
-  var x: llvm.ValueRef
-
   let init = n[2]
-  if sfGlobal in v.flags:
-    if v.flags * {sfImportc, sfExportc} == {sfImportc} and
-        n[2].kind == nkEmpty and
-        v.loc.flags * {lfHeader, lfNoDecl} != {}:
-      return
+  let x =
+    if sfGlobal in v.flags:
+      if v.flags * {sfImportc, sfExportc} == {sfImportc} and
+          n[2].kind == nkEmpty and
+          v.loc.flags * {lfHeader, lfNoDecl} != {}:
+        return
 
-    x = g.genGlobal(vn)
+      let isConst =
+        (v.kind == skLet and g.f.withinLoop == 0) and init.isDeepConstExprLL()
+      var tmp = g.genGlobal(vn, isConst)
 
-    if v.kind == skLet or g.f.withinLoop == 0:
-      if init.isDeepConstExprLL(true):
-        let i = g.genConstInitializer(init)
-        if i != nil:
-          x.setInitializer(i)
-          return
+      if isConst:
+        let ci = g.genConstInitializer(init)
+        if ci == nil:
+          g.config.internalError(n.info, "Unable to generate const initializer: " & $init)
 
-    g.genObjectInit(v.typ, x)
-    g.registerGcRoot(v, x)
+        # TODO when enabled, ptr equality checks (for example in isObj) get
+        #      optimized away - need to consider when it's safe
+        # result.setUnnamedAddr(llvm.True)
+        case v.typ.kind
+        of tySequence, tyString, tyCString:
+          let c = g.m.addPrivateConstant(ci.typeOfX(), g.nn(".const.init", n))
+          c.setInitializer(ci)
+          tmp.v.setInitializer(constPointerCast(c, tmp.v.typeOfX.getElementType))
+        else:
+          tmp.v.setInitializer(ci)
+        return
 
-    # oddly, variables in a loop in the global scope are tagged "global" even
-    # though they're local to the looping block
-    if g.f.withinLoop > 0:
-      discard g.callCompilerProc("genericReset", [x, g.genTypeInfo(v.typ)])
-  else:
-    x = g.genLocal(vn)
+      g.genObjectInit(v.typ, tmp.v)
+      g.registerGcRoot(v, tmp.v)
+      # oddly, variables in a loop in the global scope are tagged "global" even
+      # though they're local to the looping block
+      if g.f.withinLoop > 0:
+        discard g.callCompilerProc("genericReset", [tmp.v, g.genTypeInfo(v.typ)])
 
-    # Some initializers expect value to be null, so we always set it so
-    g.buildStoreNull(x)
-    g.genObjectInit(v.typ, x)
+      if init.kind != nkEmpty and sfPure in v.flags:
+        if g.init.sections[secLastGlobalInit] == nil:
+          g.init.sections[secLastGlobalInit] = g.section(g.init, secGlobalInit)
 
-  if init.kind != nkEmpty:
-    g.genAssignment(init, x, v.typ)
+        g.withFunc(g.init): g.withBlock(g.section(g.init, secLastGlobalInit)):
+          g.genAssignment(tmp, init, v.typ, v.assignCopy)
+          g.init.sections[secLastGlobalInit] = g.b.getInsertBlock()
+
+        LLValue()
+      else:
+        tmp
+    else:
+      let tmp = g.genLocal(vn)
+
+      # Some initializers expect value to be null, so we always set it so
+      g.buildStoreNull(tmp.v)
+      g.genObjectInit(v.typ, tmp.v)
+      tmp
+
+  if init.kind != nkEmpty and x.v != nil:
+    g.genAssignment(x, init, v.typ, v.assignCopy)
 
 proc genClosureVar(g: LLGen, n: PNode) =
-  if n[2].kind == nkEmpty: return
-
   let x = g.genNode(n[0], false)
-  g.genAssignment(n[2], x, n[0].typ)
+
+  if n[2].kind == nkEmpty:
+    g.buildStoreNull(x.v)
+    g.genObjectInit(n[0].typ, x.v)
+  else:
+    g.genAssignment(x, n[2], n[0].typ, {needToCopy})
 
 proc genNodeIdentDefs(g: LLGen, n: PNode) =
   for s in n.sons: p("genIdentDefsStmt", s, g.depth + 1)
@@ -4410,71 +4791,81 @@ proc genNodeVarTuple(g: LLGen, n: PNode) =
     let vn = n[i]
     let v = vn.sym
 
-    var x: llvm.ValueRef
-
-    if sfGlobal in v.flags:
-      x = g.genGlobal(vn)
-      g.genObjectInit(v.typ, x)
-      g.registerGcRoot(v, x)
-    else:
-      x = g.genLocal(vn)
-      g.buildStoreNull(x)
-      g.genObjectInit(v.typ, x)
+    let x =
+      if sfGlobal in v.flags:
+        let tmp = g.genGlobal(vn, false)
+        g.genObjectInit(v.typ, tmp.v)
+        g.registerGcRoot(v, tmp.v)
+        tmp
+      else:
+        let tmp = g.genLocal(vn)
+        g.buildStoreNull(tmp.v)
+        g.genObjectInit(v.typ, tmp.v)
+        tmp
 
     let tv = g.b.buildGEP(t, [g.gep0, g.constGEPIdx(i)], g.nn("vartuple." & $i, vn))
 
-    g.genAsgnFromRef(tv, x, vn.typ)
+    g.genAsgnFromRef(x, tv, vn.typ, v.assignCopy)
 
-proc genNodePar(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  if n.isDeepConstExprLL(true):
+proc genNodePar(g: LLGen, n: PNode, load: bool): LLValue =
+  if n.isDeepConstExprLL():
     let init = g.genConstInitializer(n)
-    result = g.m.addPrivateConstant(init.typeOfX(), g.nn("par.init", n))
-    result.setInitializer(init)
-    return
+    if load: return LLValue(v: init, lode: n, storage: OnStatic)
 
-  result = g.localAlloca(g.llType(n.typ), g.nn("par", n))
-  g.buildStoreNull(result)
+    let v = g.m.addPrivateConstant(init.typeOfX(), g.nn("par.init", n))
+    v.setInitializer(init)
+    return LLValue(v: v, lode: n, storage: OnStatic)
+
+  let v = LLValue(
+    v: g.localAlloca(g.llType(n.typ), g.nn("par", n)), storage: OnStack)
+  g.buildStoreNull(v.v)
 
   for i in 0..<n.sonsLen:
     var s = n[i]
 
     if s.kind == nkExprColonExpr: s = s[1]
-    let tgt = g.b.buildGEP(result, [g.gep0, g.constGEPIdx(i.int32)])
-    g.genAssignment(s, tgt, s.typ)
+    let tgt = g.b.buildGEP(v, [g.gep0, g.constGEPIdx(i.int32)], g.nn("par.gep", n))
+    g.genAssignment(tgt, s, s.typ, {needToCopy})
 
-  if load:
-    result = g.b.buildLoad(result, g.nn("load.par", n))
+  g.maybeLoadValue(v, load)
 
-proc genNodeObjConstr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeObjConstr(g: LLGen, n: PNode, load: bool): LLValue =
   var
     typ = n.typ.skipTypes(abstractInst)
     t = g.llType(typ)
     isRef = typ.kind == tyRef
 
-  if isRef:
-    result = g.cpNewObj(typ)
-    typ = typ.lastSon.skipTypes(abstractInst)
-  else:
-    result = g.localAlloca(t, g.nn("objconstr", n))
 
-    g.buildStoreNull(result)
-    g.genObjectInit(typ, result)
+  let v =
+    if isRef:
+      let tmp = LLValue(v:
+        g.localAlloca(t, g.nn("objconstr", n)), storage: OnStack)
+      g.rawGenNew(tmp, typ)
+      typ = typ.lastSon.skipTypes(abstractInst)
+      LLValue(v: g.b.buildLoad(tmp.v, ""), storage: OnHeap)
+    else:
+      let tmp = LLValue(v:
+        g.localAlloca(t, g.nn("objconstr", n)), storage: OnStack)
+      g.buildStoreNull(tmp.v)
+      g.genObjectInit(typ, tmp.v)
+      tmp
 
   for i in 1 ..< n.len:
     let s = n[i]
     let ind = g.fieldIndex(typ, s[0].sym)
-    proc cgi(v: int): llvm.ValueRef = g.constGEPIdx(v)
-    let gep = g.b.buildInBoundsGEP(result, (@[0] & ind).map(cgi))
-    g.genAssignment(s[1], gep, s[1].typ) # TODO should be dest typ
+    let gep = g.b.buildGEP(v, (@[0] & ind).mapIt(g.constGEPIdx(it)), g.nn("objconstr", n))
+    g.genAssignment(gep, s[1], s[1].typ, {needToCopy}) # TODO should be dest typ
 
   if load and not isRef:
-    result = g.b.buildLoad(result, g.nn("objconstr.load", n))
+    LLValue(v: g.b.buildLoad(v.v, g.nn("objconstr.load", n)), storage: OnStack)
   elif not load and isRef:
     let tmp = g.localAlloca(t, g.nn("objconstr", n))
-    discard g.b.buildStore(result, tmp)
-    result = tmp
+    discard g.b.buildStore(v.v, tmp)
+    LLValue(v: tmp, storage: OnStack)
+  else:
+    v
 
-proc genNodeCurly(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeCurly(g: LLGen, n: PNode, load: bool): LLValue =
   let
     typ = n.typ
     size = g.config.getSize(skipTypes(n.typ, abstractVar))
@@ -4483,7 +4874,7 @@ proc genNodeCurly(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if size <= 8:
     let tmp = g.localAlloca(t, g.nn("curly", n))
 
-    if n.isDeepConstExpr():
+    if n.isDeepConstExprLL():
       discard g.b.buildStore(g.constNimSet(n), tmp)
     else:
       discard g.b.buildStore(llvm.constNull(t), tmp)
@@ -4495,81 +4886,92 @@ proc genNodeCurly(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
             let v = g.b.buildLoad(tmp, g.nn("curly.v", n))
             let nv = g.b.buildOr(v, mask, g.nn("curly.nv", n))
             discard g.b.buildStore(nv, tmp)
-
         else:
-          let ax = g.genNode(s, true)
+          let ax = g.genNode(s, true).v
 
           let mask = g.buildSetMask(t, g.setElemIndex(typ, ax), size)
           let v = g.b.buildLoad(tmp, g.nn("curly.v"))
           let nv = g.b.buildOr(v, mask, g.nn("curly.nv", n))
           discard g.b.buildStore(nv, tmp)
-    if load:
-      result = g.b.buildLoad(tmp, g.nn("curly.load", n))
+    g.maybeLoadValue(LLValue(v: tmp), load)
   else:
-    result = g.localAlloca(t, g.nn("curly", n))
-    if n.isDeepConstExpr():
-      discard g.b.buildStore(g.constNimSet(n), result)
+    let v = g.localAlloca(t, g.nn("curly", n))
+    if n.isDeepConstExprLL():
+      discard g.b.buildStore(g.constNimSet(n), v)
     else:
-      g.callMemset(g.b.buildGEP(result, [g.gep0, g.gep0]), g.constInt8(0), g.constInt64(size))
+      g.callMemset(g.b.buildGEP(
+        v, [g.gep0, g.gep0]), g.constInt8(0), g.constInt64(size))
 
       for s in n:
         if s.kind == nkRange:
           withRangeItems(it, s):
-            let (gep, mask) = g.buildSetGEPMask(result, g.setElemIndex(typ, it))
+            let (gep, mask) = g.buildSetGEPMask(v, g.setElemIndex(typ, it))
             let v = g.b.buildLoad(gep, g.nn("curly.v", n))
             let nv = g.b.buildOr(v, mask, g.nn("curly.nv", n))
             discard g.b.buildStore(nv, gep)
         else:
-          let ax = g.genNode(s, true)
+          let ax = g.genNode(s, true).v
 
-          let (gep, mask) = g.buildSetGEPMask(result, g.setElemIndex(typ, ax))
+          let (gep, mask) = g.buildSetGEPMask(v, g.setElemIndex(typ, ax))
           let v = g.b.buildLoad(gep, g.nn("curly.v", n))
           let nv = g.b.buildOr(v, mask, g.nn("curly.nv", n))
           discard g.b.buildStore(nv, gep)
-    if load:
-      result = g.buildLoadValue(result)
+    g.maybeLoadValue(LLValue(v: v), load)
 
-proc genNodeBracket(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeBracket(g: LLGen, n: PNode, load: bool): LLValue =
   let typ = n.typ.skipTypes(abstractVarRange)
   let t = g.llType(typ)
-  if n.isDeepConstExprLL(true):
+  if n.isDeepConstExprLL():
+    if typ.kind == tySequence and n.len == 0:
+      return LLValue(v: constNull(g.llType(typ)), lode: n, storage: OnStatic)
+
     let init = g.genConstInitializer(n)
     let c = g.m.addPrivateConstant(init.typeOfX(), g.nn("bracket.init", n))
     c.setInitializer(init)
 
-    if load and c.typeOfX().isArrayPtr():
-      result = g.b.buildGEP(c, [g.gep0, g.gep0], g.nn("bracket.const", n))
-    else:
-      result = c
+    let v =
+      if n.isSeqLike() and c != g.llType(n.typ):
+        llvm.constBitCast(c, g.llType(n.typ))
+      else:
+        if load and c.typeOfX().isArrayPtr():
+          g.b.buildGEP(c, [g.gep0, g.gep0], g.nn("bracket.const", n))
+        else:
+          c
 
-    if n.isSeqLike() and c != g.llType(n.typ):
-      result = llvm.constBitCast(c, g.llType(n.typ))
-
-    return
+    return LLValue(v: v, lode: n, storage: OnStatic)
 
   case typ.kind
   of tyArray, tyUncheckedArray:
-    result = g.localAlloca(t, g.nn("bracket.arr", n))
-    g.buildStoreNull(result)
+    result = LLvalue(
+      v: g.localAlloca(t, g.nn("bracket.arr", n)), lode: n, storage: OnStack)
+    g.buildStoreNull(result.v)
 
     for i in 0..<n.sonsLen:
-      let gep = g.b.buildGEP(result, [g.gep0, g.constGEPIdx(i)])
-      g.genAssignment(n[i], gep, typ.elemType)
+      let gep =
+        g.b.buildGEP(result, [g.gep0, g.constGEPIdx(i)], g.nn("bracket.n", n))
+      g.genAssignment(gep, n[i], typ.elemType, {needToCopy})
 
-    if load:
-      result = g.buildLoadValue(result)
+    result = g.maybeLoadValue(result, load)
   of tySequence:
-    result = g.cpNewSeq(typ, g.constNimInt(n.sonsLen), g.nn("bracket.seq", n))
-    for i in 0..<n.sonsLen:
-      let gep = g.buildNimSeqDataGEP(result, g.constGEPIdx(i))
-      g.genAssignment(n[i], gep, typ.elemType)
+    let
+      tmp = LLValue(v: g.localAlloca(t, g.nn("bracket", n)), storage: OnStack)
+      l = int(n.sonsLen)
+
+    g.buildStoreNull(tmp.v)
+    g.genNewSeqAux(tmp, n.typ, g.constNimInt(l))
+    let tmpl = g.buildLoadValue(tmp)
+
+    for i in 0..<l:
+      let tgt = g.buildNimSeqDataGEP(tmpl, g.constGEPIdx(i))
+      g.genAssignment(tgt, n[i], typ.elemType, {needToCopy})
+    result = tmpl
   else:
     g.config.internalError(n.info, "Unhandled nodebracket kind: " & $typ.kind)
 
-proc genNodeBracketExprArray(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeBracketExprArray(g: LLGen, n: PNode, load: bool): LLValue =
   let
     ax = g.genNode(n[0], false)
-    bx = g.genNode(n[1], true)
+    bx = g.genNode(n[1], true).v
     ty = n[0].typ.skipTypes(abstractVarRange + abstractPtrs + tyUserTypeClasses)
     first = g.config.firstOrd(ty)
 
@@ -4583,18 +4985,17 @@ proc genNodeBracketExprArray(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       g.b.buildSub(bi, g.constNimInt(first.int), g.nn("bra.arr.first", n))
     else: bi
 
-  if ax.typeOfX().isArrayPtr():
-    result = g.b.buildGEP(ax, [g.gep0, b])
-  else:
-    result = g.b.buildGEP(ax, [b])
+  g.maybeLoadValue(
+    if ax.v.typeOfX().isArrayPtr():
+      g.b.buildGEP(ax, [g.gep0, b], g.nn("bra.arr.geparr"))
+    else:
+      g.b.buildGEP(ax, [b], g.nn("bra.arr.gep"))
+  , load)
 
-  if load:
-    result = g.b.buildLoad(result, g.nn("bra.arr.load", n))
-
-proc genNodeBracketExprUncheckedArray(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeBracketExprUncheckedArray(g: LLGen, n: PNode, load: bool): LLValue =
   let
-    ax = g.genNode(n[0], false)
-    bx = g.genNode(n[1], true)
+    ax = g.genNode(n[0], false).v
+    bx = g.genNode(n[1], true).v
     ty = n[0].typ.skipTypes(abstractVarRange + abstractPtrs + tyUserTypeClasses)
     first = g.config.firstOrd(ty)
 
@@ -4608,99 +5009,95 @@ proc genNodeBracketExprUncheckedArray(g: LLGen, n: PNode, load: bool): llvm.Valu
       g.b.buildSub(bi, g.constNimInt(first.int), g.nn("bra.arr.first", n))
     else: bi
 
-  if ax.typeOfX().isArrayPtr():
-    result = g.b.buildGEP(ax, [g.gep0, b])
-  else:
-    result = g.b.buildGEP(ax, [b])
+  g.maybeLoadValue(LLValue(v:
+    if ax.typeOfX().isArrayPtr():
+      g.b.buildGEP(ax, [g.gep0, b])
+    else:
+      g.b.buildGEP(ax, [b])
+  ), load)
 
-  if load:
-    result = g.b.buildLoad(result, g.nn("bra.arr.load", n))
-
-proc genNodeBracketExprOpenArray(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeBracketExprOpenArray(g: LLGen, n: PNode, load: bool): LLValue =
   let
     s = if n[0].kind == nkHiddenDeref: n[0][0] else: n[0]
-    ax = g.b.buildLoad(g.symbols[s.sym.id], "")
-    bx = g.genNode(n[1], true)
-  result = g.b.buildGEP(ax, [bx])
+    ax = g.buildLoadValue(g.symbols[s.sym.id])
+    bx = g.genNode(n[1], true).v
+  g.maybeLoadValue(g.b.buildGEP(ax, [bx], g.nn("brexpr.gep")), load)
 
-  if load:
-    result = g.b.buildLoad(result, g.nn("bra.oa.load", n))
-
-proc genNodeBracketExprSeq(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeBracketExprSeq(g: LLGen, n: PNode, load: bool): LLValue =
   let
     ax = g.genNode(n[0], true)
-    bx = g.genNode(n[1], true)
+    bx = g.genNode(n[1], true).v
 
-  result = g.buildNimSeqDataGEP(ax, bx)
+  g.maybeLoadValue(g.buildNimSeqDataGEP(ax, bx), load)
 
-  if load:
-    result = g.b.buildLoad(result, g.nn("bra.seq.load", n))
-
-proc genNodeBracketExprCString(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeBracketExprCString(g: LLGen, n: PNode, load: bool): LLValue =
   let
     ax = g.genNode(n[0], true)
-    bx = g.genNode(n[1], true)
+    bx = g.genNode(n[1], true).v
 
-  result = g.b.buildGEP(ax, [bx], g.nn("bra.cstr.gep", n))
+  g.maybeLoadValue(
+    g.b.buildGEP(ax, [bx], g.nn("bra.cstr.gep", n)), load)
 
-  if load:
-    result = g.b.buildLoad(result, g.nn("bra.cstr.load", n))
-
-proc genNodeBracketExprTuple(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeBracketExprTuple(g: LLGen, n: PNode, load: bool): LLValue =
   var
     ax = g.genNode(n[0], false)
-    bx = g.genNode(n[1], true)
+    bx = g.genNode(n[1], true).v
 
   if bx.typeOfX().getIntTypeWidth() > 32.cuint:
     bx = g.b.buildTrunc(bx, llvm.int32TypeInContext(g.lc), g.nn("bra.tup.trunc", n))
-  result = g.b.buildGEP(ax, [g.gep0, bx], g.nn("bra.tup.gep", n))
 
-  if load:
-    result = g.b.buildLoad(result, g.nn("bra.tup.load", n))
+  g.maybeLoadValue(
+    g.b.buildGEP(ax, [g.gep0, bx], g.nn("bra.tup.gep", n)), load)
 
-proc genNodeBracketExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeBracketExpr(g: LLGen, n: PNode, load: bool): LLValue =
   var typ = skipTypes(n[0].typ, abstractVarRange + tyUserTypeClasses)
   if typ.kind in {tyRef, tyPtr}: typ = typ.lastSon.skipTypes(abstractVarRange)
   case typ.kind
-  of tyArray: result = g.genNodeBracketExprArray(n, load)
-  of tyUncheckedArray: result = g.genNodeBracketExprUncheckedArray(n, load)
-  of tyOpenArray, tyVarargs: result = g.genNodeBracketExprOpenArray(n, load)
-  of tySequence, tyString: result = g.genNodeBracketExprSeq(n, load)
-  of tyCString: result = g.genNodeBracketExprCString(n, load)
-  of tyTuple: result = g.genNodeBracketExprTuple(n, load)
-  else: g.config.internalError(n.info, "Unhandled nodebracketexpr kind: " & $typ.kind)
+  of tyArray: g.genNodeBracketExprArray(n, load)
+  of tyUncheckedArray: g.genNodeBracketExprUncheckedArray(n, load)
+  of tyOpenArray, tyVarargs: g.genNodeBracketExprOpenArray(n, load)
+  of tySequence, tyString: g.genNodeBracketExprSeq(n, load)
+  of tyCString: g.genNodeBracketExprCString(n, load)
+  of tyTuple: g.genNodeBracketExprTuple(n, load)
+  else:
+    g.config.internalError(n.info, "Unhandled nodebracketexpr kind: " & $typ.kind)
+    LLValue()
 
-proc genNodeDot(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeDot(g: LLGen, n: PNode, load: bool): LLValue =
   p("genDotExpr", n[1].sym, g.depth + 1)
   let v = g.genNode(n[0], false)
 
   let typ = skipTypes(n[0].typ, abstractInst + tyUserTypeClasses)
 
   let i = g.fieldIndex(typ, n[1].sym)
-  proc cgi(v: int): llvm.ValueRef = g.constGEPIdx(v)
-  result = g.b.buildInBoundsGEP(v, (@[0] & i).map(cgi), g.nn("dot.gep", n))
+  g.maybeLoadValue(
+    g.b.buildGEP(v, (@[0] & i).mapIt(g.constGEPIdx(it)), g.nn("dot.gep", n)),
+    load)
 
-  if load:
-    result = g.buildLoadValue(result)
+proc genNodeCheckedField(g: LLGen, n: PNode, load: bool): LLValue =
+  g.genNode(n[0], load)
 
-proc genNodeCheckedField(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  result = g.genNode(n[0], load)
-
-proc genNodeDeref(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeDeref(g: LLGen, n: PNode, load: bool): LLValue =
   let v = g.genNode(n[0], true)
 
-  result = if load: g.buildLoadValue(v) else: v
+  let tmp =
+    if n[0].typ.skipTypes(abstractInst).kind == tyRef:
+      LLValue(v: v.v, lode: v.lode, storage: OnHeap)
+    else:
+      v
+  g.maybeLoadValue(tmp, load)
 
-proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): LLValue =
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
 
   # Sometimes an nkIfStmt appears in the ast even though it looks more like
   # an expression (see tcasestmt with an if in a case else).. it won't have
   # a type of its own so we'll have to cheat..
-  let typ = if n.typ == nil: n[0][1].typ else: n.typ
-  result = g.localAlloca(g.llType(typ), g.nn("ifx.res", n))
-  g.buildStoreNull(result)
+  let typ = n.deepTyp
+  let v = LLValue(v:
+    g.localAlloca(g.llType(typ), g.nn("ifx.res", n)), storage: OnStack)
+  g.buildStoreNull(v.v)
 
   let iend = f.appendBasicBlock(g.nn("ifx.end", n))
 
@@ -4709,15 +5106,17 @@ proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
     if s.sonsLen == 1:
       # else branch
-      if not typ.isEmptyType():
-        discard g.f.startBlock(n, nil)
-        g.genAssignment(s[0], result, typ)
-
-        g.f.endBlock()
+      discard g.f.startBlock(n, nil)
+      # branches might lack return value if they exit instead (quit?)
+      if not typ.isEmptyType() and not s[0].typ.isEmptyType():
+        g.genAssignment(v, s[0], typ, {needToCopy})
+      else:
+        g.genNode(s[0])
+      g.f.endBlock()
 
       discard g.b.buildBr(iend)
     else:
-      let cond = g.buildI1(g.genNode(s[0], true))
+      let cond = g.buildI1(g.genNode(s[0], true).v)
 
       let itrue = f.appendBasicBlock(g.nn("ifx.true", n))
       let ifalse = f.appendBasicBlock(g.nn("ifx.false", n))
@@ -4725,10 +5124,13 @@ proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       discard g.b.buildCondBr(cond, itrue, ifalse)
 
       g.b.positionBuilderAtEnd(itrue)
-      if not typ.isEmptyType():
-        discard g.f.startBlock(n, nil)
-        g.genAssignment(s[1], result, typ)
-        g.f.endBlock()
+      discard g.f.startBlock(n, nil)
+      # branches might lack return value if they exit instead (quit?)
+      if not typ.isEmptyType() and not s[1].typ.isEmptyType():
+        g.genAssignment(v, s[1], typ, {needToCopy})
+      else:
+        g.genNode(s[1])
+      g.f.endBlock()
 
       discard g.b.buildBr(iend)
 
@@ -4739,17 +5141,16 @@ proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
   g.b.positionAndMoveToEnd(iend)
 
-  if load:
-    result = g.b.buildLoad(result, g.nn("ifx.load", n))
+  g.maybeLoadValue(v, load)
 
-proc genNodeLambda(g: LLGen, n: PNode): llvm.ValueRef =
+proc genNodeLambda(g: LLGen, n: PNode): LLValue =
   let sym = n[namePos].sym
-  result = g.genFunctionWithBody(sym)
+  g.genFunctionWithBody(sym)
 
-proc genNodeConv(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeConv(g: LLGen, n: PNode, load: bool): LLValue =
   let
     v = g.genNode(n[1], load)
-    vt = v.typeOfX()
+    vt = v.v.typeOfX()
     nt = if load: g.llType(n.typ) else: llvm.pointerType(g.llType(n.typ))
     vtk = vt.getTypeKind()
     ntk = nt.getTypeKind()
@@ -4757,96 +5158,101 @@ proc genNodeConv(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     ntyp = skipTypes(n.typ, abstractInst)
 
   if vt == nt:
-    result = v
+    v
   elif vtk == llvm.IntegerTypeKind and ntk == llvm.IntegerTypeKind:
-    result = g.buildTruncOrExt(v, nt, n[1].typ)
+    LLValue(v: g.buildTruncOrExt(v.v, nt, n[1].typ))
   elif vtk in {llvm.HalfTypeKind..llvm.PPC_FP128TypeKind} and ntk == llvm.IntegerTypeKind:
     if ntyp.kind in {tyUInt..tyUInt64}:
-      result = g.b.buildFPToUI(v, nt, g.nn("conv.fptoui", n))
+      LLValue(v: g.b.buildFPToUI(v.v, nt, g.nn("conv.fptoui", n)))
     else:
-      result = g.b.buildFPToSI(v, nt, g.nn("conv.fptosi", n))
+      LLValue(v: g.b.buildFPToSI(v.v, nt, g.nn("conv.fptosi", n)))
   elif vtk == llvm.IntegerTypeKind and ntk in {llvm.HalfTypeKind..llvm.PPC_FP128TypeKind}:
     if vtyp.kind in {tyUInt..tyUInt64}:
-      result = g.b.buildUIToFP(v, nt, g.nn("conv.uitofp", n))
+      LLValue(v: g.b.buildUIToFP(v.v, nt, g.nn("conv.uitofp", n)))
     else:
-      result = g.b.buildSIToFP(v, nt, g.nn("conv.sitofp", n))
+      LLValue(v: g.b.buildSIToFP(v.v, nt, g.nn("conv.sitofp", n)))
   elif n[1].typ.kind == tyPtr and n.typ.kind == tyPointer:
-    result = g.b.buildBitCast(v, nt, g.nn("conv.ptr", n))
+    LLValue(v: g.b.buildBitCast(v.v, nt, g.nn("conv.ptr", n)))
   elif vtk == llvm.FloatTypeKind and ntk == llvm.DoubleTypeKind:
-    result = g.b.buildFPExt(v, nt, g.nn("conv.fd", n))
+    LLValue(v: g.b.buildFPExt(v.v, nt, g.nn("conv.fd", n)))
   elif vtk == llvm.PointerTypeKind and ntk == llvm.PointerTypeKind:
-    result = g.b.buildBitCast(v, nt, g.nn("conv.pointer", n))
+    LLValue(v: g.b.buildBitCast(v.v, nt, g.nn("conv.pointer", n)))
   elif n.typ.kind == tyProc and ntk == llvm.PointerTypeKind or nt == g.closureType:
-    result = g.b.buildBitCast(v, g.voidPtrType, g.nn("conv.proc", n))
+    LLValue(v: g.b.buildBitCast(v.v, g.voidPtrType, g.nn("conv.proc", n)))
   elif vtk == llvm.DoubleTypeKind and ntk == llvm.FloatTypeKind:
-    result = g.b.buildFPTrunc(v, nt, g.nn("conv.df", n))
+    LLValue(v: g.b.buildFPTrunc(v.v, nt, g.nn("conv.df", n)))
   elif vtyp.kind == tyArray and ntyp.kind == tyArray:
-    result = v
-
-  if result == nil:
+    v
+  else:
     g.config.internalError(n.info, "Unhandled conversion: " & $vt & " " & $nt & " " &
       $n[1].typ.kind & " " & $n.typ.kind)
+    LLValue()
 
-proc genNodeCast(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+
+proc genNodeCast(g: LLGen, n: PNode, load: bool): LLValue =
   let ntyp = n[1].typ.skipTypes(abstractRange)
 
   let v =
-    if ntyp.kind in {tyOpenArray, tyVarargs}: g.genNode(n[1], false)
-    else: g.genNode(n[1], load)
+    if ntyp.kind in {tyOpenArray, tyVarargs}: g.genNode(n[1], false).v
+    else: g.genNode(n[1], load).v
 
   let nt = g.llType(n.typ)
 
   let vtk = v.typeOfX().getTypeKind()
   let ntk = nt.getTypeKind()
-  if vtk == llvm.PointerTypeKind and ntk == llvm.IntegerTypeKind:
-    result = g.b.buildPtrToInt(v, nt, g.nn("cast.pi", n))
-  elif vtk == llvm.IntegerTypeKind and ntk == llvm.PointerTypeKind:
-    result = g.b.buildIntToPtr(v, nt, g.nn("cast.ip", n))
-  elif vtk == llvm.IntegerTypeKind and ntk == llvm.IntegerTypeKind:
-    result = g.buildTruncOrExt(v, nt, ntyp)
-  else:
-    result = g.b.buildBitCast(v, nt, g.nn("cast.bit", n))
+  LLValue(v:
+    if vtk == llvm.PointerTypeKind and ntk == llvm.IntegerTypeKind:
+      g.b.buildPtrToInt(v, nt, g.nn("cast.pi", n))
+    elif vtk == llvm.IntegerTypeKind and ntk == llvm.PointerTypeKind:
+      g.b.buildIntToPtr(v, nt, g.nn("cast.ip", n))
+    elif vtk == llvm.IntegerTypeKind and ntk == llvm.IntegerTypeKind:
+      g.buildTruncOrExt(v, nt, ntyp)
+    else:
+      g.b.buildBitCast(v, nt, g.nn("cast.bit", n))
+  )
 
-proc genNodeAddr(g: LLGen, n: PNode): llvm.ValueRef =
+proc genNodeAddr(g: LLGen, n: PNode): LLValue =
   g.genNode(n[0], false)
 
-proc genNodeObjDownConv(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeObjDownConv(g: LLGen, n: PNode, load: bool): LLValue =
   let ax = g.genNode(n[0], load)
 
-  let at = ax.typeOfX()
+  let at = ax.v.typeOfX()
   var nt = g.llType(n.typ)
 
   if nt.getTypeKind() != llvm.PointerTypeKind:
     nt = llvm.pointerType(nt)
 
   if at == nt:
-    result = ax
+    ax
   elif at.getTypeKind() == PointerTypeKind and nt.getTypeKind() == PointerTypeKind:
-    result = g.b.buildBitCast(ax, nt, g.nn("obj.down", n))
+    LLValue(v: g.b.buildBitCast(ax.v, nt, g.nn("obj.down", n)))
   else:
     g.config.internalError(n.info, "Unhandled nkObjDownConv")
+    LLValue()
 
-proc genNodeObjUpConv(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeObjUpConv(g: LLGen, n: PNode, load: bool): LLValue =
   let ax = g.genNode(n[0], n.typ.kind == tyRef)
 
-  let at = ax.typeOfX()
+  let at = ax.v.typeOfX()
   var nt = g.llType(n.typ)
 
   if nt.getTypeKind() != llvm.PointerTypeKind:
     nt = llvm.pointerType(nt)
 
-  if at == nt:
-    result = ax
-  elif at.getTypeKind() == PointerTypeKind and nt.getTypeKind() == PointerTypeKind:
-    result = g.b.buildBitCast(ax, nt, g.nn("obj.up", n))
-  else:
-    g.config.internalError(n.info, "Unhandled nkUpDownConv")
+  let v =
+    if at == nt:
+      ax
+    elif at.getTypeKind() == PointerTypeKind and nt.getTypeKind() == PointerTypeKind:
+      LLValue(v: g.b.buildBitCast(ax.v, nt, g.nn("obj.up", n)))
+    else:
+      g.config.internalError(n.info, "Unhandled nkUpDownConv")
+      LLValue()
 
-  if load and n.typ.kind notin {tyRef, tyVar}:
-    result = g.b.buildLoad(result, g.nn("load.obj.up", n))
+  g.maybeLoadValue(v, load and n.typ.kind notin {tyRef, tyVar, tyLent})
 
-proc genNodeChckRange(g: LLGen, n: PNode, fn: string): llvm.ValueRef =
-  let v = g.genNode(n[0], true)
+proc genNodeChckRange(g: LLGen, n: PNode, fn: string): LLValue =
+  let v = g.genNode(n[0], true).v
 
   let
     nt = g.llType(n.typ)
@@ -4855,26 +5261,38 @@ proc genNodeChckRange(g: LLGen, n: PNode, fn: string): llvm.ValueRef =
   if optRangeCheck in g.f.options and
       n.typ.skipTypes(abstractVarRange).kind notin {tyUInt..tyUInt64}:
     let
-      bx = g.genNode(n[1], true)
-      cx = g.genNode(n[2], true)
+      bx = g.genNode(n[1], true).v
+      cx = g.genNode(n[2], true).v
       b = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
       c = g.buildNimIntExt(cx, g.isUnsigned(n[2].typ))
     discard g.callCompilerProc(fn, [v, b, c])
 
-  result = g.buildTruncOrExt(v, nt, n.typ)
+  LLValue(v: g.buildTruncOrExt(v, nt, n.typ))
 
-proc genNodeStringToCString(g: LLGen, n: PNode): llvm.ValueRef =
+proc genNodeStringToCString(g: LLGen, n: PNode): LLValue =
   let ax = g.genNode(n[0], true)
 
-  result = g.buildNimSeqDataGEP(ax)
+  let init = g.lc.constStringInContext("")
+  let s = g.m.addPrivateConstant(init.typeOfX(), g.nn(".cstr", n))
+  s.setInitializer(init)
+
+  let cs = g.withNotNil(ax.v, constBitCast(s, g.primitives[tyCString])):
+    g.buildNimSeqDataGEP(ax.v)
+
+  LLValue(
+    v: cs,
+    storage: if ax.storage == OnStatic: OnStatic else: OnHeap)
 
 proc genNodeAsgn(g: LLGen, n: PNode) =
   let ax = g.genNode(n[0], false)
-  g.genAssignment(n[1], ax, n[0].typ, true)
+  g.genAssignment(ax, n[1], n[0].typ, {needToCopy})
 
 proc genNodeFastAsgn(g: LLGen, n: PNode) =
   let ax = g.genNode(n[0], false)
-  g.genAssignment(n[1], ax, n[0].typ, false)
+  # there's a strange if p.prc == nil check in the cgen noting that transf
+  # is too aggressive.. let's try to replicated it here, though it's probably
+  # buggy:
+  g.genAssignment(ax, n[1], n[0].typ, if g.f == g.init: {needToCopy} else: {})
 
 proc genNodeProcDef(g: LLGen, n: PNode) =
   if n.sons[genericParamsPos].kind != nkEmpty: return
@@ -4891,7 +5309,7 @@ proc genNodeProcDef(g: LLGen, n: PNode) =
       (s.kind == skMethod):
     discard g.genFunctionWithBody(s)
 
-proc genNodeIfStmt(g: LLGen, n: PNode): llvm.ValueRef =
+proc genNodeIfStmt(g: LLGen, n: PNode): LLValue =
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
 
@@ -4912,7 +5330,7 @@ proc genNodeIfStmt(g: LLGen, n: PNode): llvm.ValueRef =
           iend = f.appendBasicBlock(g.nn("if.end", n))
         discard g.b.buildBr(iend)
     else:
-      let cond = g.buildI1(g.genNode(s[0], true))
+      let cond = g.buildI1(g.genNode(s[0], true).v)
 
       let itrue = f.appendBasicBlock(g.nn("if.true", n))
       let ifalse = f.appendBasicBlock(g.nn("if.false", n))
@@ -4937,7 +5355,7 @@ proc genNodeIfStmt(g: LLGen, n: PNode): llvm.ValueRef =
     g.b.positionAndMoveToEnd(iend)
   discard g.f.endBlock()
 
-proc genNodeWhenStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeWhenStmt(g: LLGen, n: PNode, load: bool): LLValue =
   g.genNode(n[1][0], load)
 
 proc genNodeWhileStmt(g: LLGen, n: PNode) =
@@ -4956,7 +5374,7 @@ proc genNodeWhileStmt(g: LLGen, n: PNode) =
 
     # generate condition expression in cmp block
     g.b.positionBuilderAtEnd(wcmp)
-    let cond = g.buildI1(g.genNode(n[0], true))
+    let cond = g.buildI1(g.genNode(n[0], true).v)
 
     discard g.b.buildCondBr(cond, wtrue, wfalse)
 
@@ -4975,20 +5393,23 @@ proc genNodeWhileStmt(g: LLGen, n: PNode) =
 
   dec(g.f.withinLoop)
 
-proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
 
   let isString = skipTypes(n[0].typ, abstractVarRange).kind == tyString
 
-  let ax = g.genNode(n[0], true)
+  let ax = g.genNode(n[0], true).v
   let u = g.isUnsigned(n[0].typ)
 
   let caseend = f.appendBasicBlock(g.nn("case.end", n))
 
   if not n.typ.isEmptyType():
-    result = g.localAlloca(g.llType(n.typ), g.nn("case.res", n))
-    g.buildStoreNull(result)
+    result = LLValue(
+      v: g.localAlloca(g.llType(n.typ), g.nn("case.res", n)),
+      storage: OnStack)
+    g.buildStoreNull(result.v)
+    g.genObjectInit(n.typ, result.v)
 
   for i in 1..<n.sonsLen:
     let s = n[i]
@@ -5008,8 +5429,9 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
     discard g.f.startBlock(n, caseend)
     g.b.positionBuilderAtEnd(casedo)
-    if not n.typ.isEmptyType():
-      g.genAssignment(s.lastSon, result, n.typ)
+    # branches might not have a return value if they exit instead (quit?)
+    if result.v != nil and not s.lastSon.typ.isEmptyType():
+      g.genAssignment(result, s.lastSon, n.typ, {needToCopy})
     else:
       g.genNode(s.lastSon)
 
@@ -5026,8 +5448,8 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
         let cond = s[j]
         if cond.kind == nkRange:
           let
-            bx = g.genNode(cond.sons[0], true)
-            cx = g.genNode(cond.sons[1], true)
+            bx = g.genNode(cond.sons[0], true).v
+            cx = g.genNode(cond.sons[1], true).v
             ub = if u: llvm.IntUGE else: llvm.IntSGE
             cmpb = g.b.buildICmp(ub, ax, bx, g.nn("case.cmpb", n))
             uc = if u: llvm.IntULE else: llvm.IntSLE
@@ -5041,7 +5463,7 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
           g.b.positionBuilderAtEnd(casenext)
         else:
-          let bx = g.genNode(cond, true)
+          let bx = g.genNode(cond, true).v
 
           var cmp: llvm.ValueRef
           if isString:
@@ -5064,6 +5486,10 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
         if not isLast2:
           g.b.getInsertBlock().moveBasicBlockBefore(casedo)
 
+      # it's actually possible to have a case without condition!
+      if s.sonsLen < 2:
+        discard g.b.buildBr(next)
+        g.b.positionBuilderAtEnd(next)
     of nkElse:
       discard g.b.buildBr(casedo)
     else:
@@ -5075,21 +5501,23 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if f.getLastBasicBlock() != caseend:
     caseend.moveBasicBlockAfter(f.getLastBasicBlock())
 
-  if load and result != nil:
-    result = g.buildLoadValue(result)
+  result = g.maybeLoadValue(result, load and result.v != nil)
 
 proc genNodeConstDef(g: LLGen, n: PNode) =
   # we emit these on demand!
   discard
 
-proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
   # create safe point
-  let tsp = g.graph.getCompilerProc("TSafePoint").typ
-  let spt = g.llStructType(tsp)
+  let
+    tsp = g.graph.getCompilerProc("TSafePoint").typ
+    spt = g.llStructType(tsp)
+    typ = n[0].deepTyp
 
-  if not n.typ.isEmptyType():
-    result = g.localAlloca(g.llType(n.typ), g.nn("case.res", n))
-    g.buildStoreNull(result)
+  if not typ.isEmptyType():
+    result = LLValue(
+      v: g.localAlloca(g.llType(typ), g.nn("case.res", n)), storage: OnStack)
+    g.buildStoreNull(result.v)
 
   let sp = g.localAlloca(spt, g.nn("sp", n))
   g.buildStoreNull(sp)
@@ -5125,8 +5553,8 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   discard g.f.startBlock(nil, nil)
   g.f.nestedTryStmts.add((n, false))
 
-  if not n.typ.isEmptyType():
-    g.genAssignment(n[0], result, n.typ)
+  if result.v != nil:
+    g.genAssignment(result, n[0], typ, {needToCopy})
   else:
     g.genNode(n[0])
 
@@ -5151,8 +5579,8 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
     if blen == 1:
       # catch-all
       discard g.b.buildStore(g.ni0, statusP)
-      if not n.typ.isEmptyType():
-        g.genAssignment(b[0], result, n.typ)
+      if result.v != nil:
+        g.genAssignment(result, b[0], typ, {needToCopy})
       else:
         g.genNode(b[0])
 
@@ -5169,7 +5597,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
         let exc = g.callCompilerProc("getCurrentException", [])
         let m_type = g.b.buildLoad(
-          g.b.buildGEP(exc, [g.gep0, g.gep0, g.gep0]), "")
+          g.b.buildGEP(exc, [g.gep0, g.gep0, g.gep0]), g.nn("exc.m_type", exc))
         let ti = g.genTypeInfo(b[j].typ)
         let found = g.buildI1(g.callCompilerProc("isObj", [m_type, ti]))
 
@@ -5184,8 +5612,8 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
       g.b.positionBuilderAtEnd(sjfound)
       discard g.b.buildStore(g.ni0, statusP)
-      if not n.typ.isEmptyType():
-        g.genAssignment(b[blen-1], result, n.typ)
+      if result.v != nil and not b[blen-1].typ.isEmptyType():
+        g.genAssignment(result, b[blen-1], typ, {needToCopy})
       else:
         g.genNode(b[blen-1])
       discard g.callCompilerProc("popCurrentException", [])
@@ -5205,10 +5633,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   if i < length and n[i].kind == nkFinally:
     g.f.finallySafePoints.add(sp)
     discard g.f.startBlock(nil, nil)
-    if not n.typ.isEmptyType():
-      g.genAssignment(n[i][0], result, n.typ)
-    else:
-      g.genNode(n[i][0])
+    g.genNode(n[i][0])
     g.f.endBlock()
     discard g.f.finallySafePoints.pop()
 
@@ -5229,8 +5654,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   sjend.moveBasicBlockBefore(sjrr)
   g.f.endBlock()
 
-  if load and result != nil:
-    result = g.buildLoadValue(result)
+  result = g.maybeLoadValue(result, load and result.v != nil)
 
 proc genNodeRaiseStmt(g: LLGen, n: PNode) =
   if g.f.nestedTryStmts.len > 0 and g.f.nestedTryStmts[^1].inExcept:
@@ -5241,7 +5665,7 @@ proc genNodeRaiseStmt(g: LLGen, n: PNode) =
       g.f.endBlock()
 
   if n[0].kind != nkEmpty:
-    let ax = g.genNode(n[0], true)
+    let ax = g.genNode(n[0], true).v
 
     let typ = skipTypes(n[0].typ, abstractPtrs)
     let name = g.b.buildGlobalStringPtr(typ.sym.name.s, "raise." & typ.sym.name.s)
@@ -5292,7 +5716,7 @@ proc genNodeReturnStmt(g: LLGen, n: PNode) =
     discard g.b.buildBr(retdone)
     g.b.positionBuilderAtEnd(retdone)
 
-  discard g.b.buildBr(g.f.ret)
+  discard g.b.buildBr(g.section(g.f, secReturn))
 
   # Sometimes, there might be dead code after the return statement.. as a hack
   # we add a block that will have no predecessors, to avoid dealing with it
@@ -5356,14 +5780,15 @@ proc genNodeDiscardStmt(g: LLGen, n: PNode) =
   if n[0].kind != nkEmpty:
     discard g.genNode(n[0], true)
 
-proc genNodeStmtListExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
-  let length = n.sonsLen
-  for i in 0..length - 2:
-    g.genNode(n[i])
-  if length > 0:
-    result = g.genNode(n[length - 1], load)
+proc genNodeStmtListExpr(g: LLGen, n: PNode, load: bool): LLValue =
+  for s in n.sons[0..^2]:
+    g.genNode(s)
+  if n.sons.len > 0:
+    g.genNode(n[^1], load)
+  else:
+    LLValue()
 
-proc genNodeBlockExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeBlockExpr(g: LLGen, n: PNode, load: bool): LLValue =
   g.f.preserveBreakIdx:
     g.f.breakIdx = g.f.startBlock(n[0], nil)
     if n[0].kind != nkEmpty:
@@ -5379,10 +5804,10 @@ proc genNodeBlockExpr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
       g.b.buildBrFallthrough(scope.exit)
       g.b.positionAndMoveToEnd(scope.exit)
 
-proc genNodeClosure(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeClosure(g: LLGen, n: PNode, load: bool): LLValue =
   var
-    ax = g.genNode(n[0], true)
-    bx = g.genNode(n[1], true)
+    ax = g.genNode(n[0], true).v
+    bx = g.genNode(n[1], true).v
 
   # TODO workaround for how params are loaded by nkSym - this needs a review
   if bx.typeOfX().getElementType().getTypeKind() == llvm.PointerTypeKind:
@@ -5391,20 +5816,20 @@ proc genNodeClosure(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
   let
     a = g.b.buildBitCast(ax, g.voidPtrType, g.nn("clox.ptr", n))
     b = g.b.buildBitCast(bx, g.voidPtrType, g.nn("clox.env", n))
-  result = g.localAlloca(g.llType(n.typ), g.nn("clox.res", n))
+    v = g.localAlloca(g.llType(n.typ), g.nn("clox.res", n))
 
-  discard g.b.buildStore(a, g.b.buildGEP(result, [g.gep0, g.gep0]))
-  discard g.b.buildStore(b, g.b.buildGEP(result, [g.gep0, g.gep1]))
+  discard g.b.buildStore(a, g.b.buildGEP(v, [g.gep0, g.gep0]))
+  discard g.b.buildStore(b, g.b.buildGEP(v, [g.gep0, g.gep1]))
 
-  if load:
-    result = g.b.buildLoad(result, g.nn("load.clox.res", n))
+  g.maybeLoadValue(LLValue(v: v, storage: OnStack), load)
 
 proc genNodeGotoState(g: LLGen, n: PNode) =
-  let ax = g.genNode(n[0], true)
+  let ax = g.genNode(n[0], true).v
 
   let l = g.config.lastOrd(n[0].typ)
 
-  g.f.blocks[g.f.blocks.len - 1].goto = g.b.buildSwitch(ax, g.f.ret, (l + 1).cuint)
+  g.f.blocks[g.f.blocks.len - 1].goto =
+    g.b.buildSwitch(ax, g.section(g.f, secReturn), (l + 1).cuint)
 
 proc genNodeState(g: LLGen, n: PNode) =
   let pre = g.b.getInsertBlock()
@@ -5417,31 +5842,31 @@ proc genNodeState(g: LLGen, n: PNode) =
       g.f.blocks[g.f.blocks.len - i - 1].goto.addCase(g.constNimInt(n[0].intVal.int), state)
       break
 
-proc genNodeBreakState(g: LLGen, n: PNode): llvm.ValueRef =
+proc genNodeBreakState(g: LLGen, n: PNode): LLValue =
   # TODO C code casts to int* and reads second value.. uh, I guess we should be
   # able to do better
   var ax: llvm.ValueRef
   if n[0].kind == nkClosure:
-    ax = g.genNode(n[0][1], false)
+    ax = g.genNode(n[0][1], false).v
     ax = g.b.buildLoad(ax, g.nn("load.state.break", n))
     ax = g.b.buildGEP(ax, [g.gep0, g.gep1])
   else:
-    ax = g.genNode(n[0], false)
+    ax = g.genNode(n[0], false).v
     ax = g.b.buildGEP(ax, [g.gep0, g.gep1])
     ax = g.b.buildLoad(ax, g.nn("load.state.break", n))
     ax = g.b.buildBitCast(ax, g.primitives[tyInt].pointerType(), "")
     ax = g.b.buildGEP(ax, [g.gep1])
 
   let s = g.b.buildLoad(ax, g.nn("state.break.s", n))
-  result = g.b.buildICmp(llvm.IntSLT, s, g.ni0, g.nn("state.break.cmp", n))
+  LLValue(v: g.b.buildICmp(llvm.IntSLT, s, g.ni0, g.nn("state.break.cmp", n)))
 
-proc genNodeTupleConstr(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNodeTupleConstr(g: LLGen, n: PNode, load: bool): LLValue =
   genNodePar(g, n, load)
 
 proc genSons(g: LLGen, n: PNode) =
   for s in n: g.genNode(s)
 
-proc genNode(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
+proc genNode(g: LLGen, n: PNode, load: bool): LLValue =
   p(if load: "l" else: "p", n, g.depth)
 
   g.depth += 1
@@ -5519,13 +5944,6 @@ proc genNode(g: LLGen, n: PNode, load: bool): llvm.ValueRef =
 
   g.depth -= 1
 
-proc newLLFunc(g: LLGen, ret: llvm.BasicBlockRef): LLFunc =
-  new(result)
-  result.blocks = @[]
-  result.ret = ret
-  result.nestedTryStmts = @[]
-  result.finallySafePoints = @[]
-
 proc newLLGen(graph: ModuleGraph): LLGen =
   let
     lc = llvm.getGlobalContext()
@@ -5550,10 +5968,12 @@ proc newLLGen(graph: ModuleGraph): LLGen =
     nimStringDescPtrType: nimStringDescType.pointerType(),
     jmpbufType: llvm.structCreateNamed(lc, "jmp_buf"),
 
+    strLitFlag: int64(1'i64 shl (graph.config.target.intSize * 8 - 2)),
+
     attrNoInline: lc.createEnumAttribute(llvm.attrNoInline, 0),
     attrNoReturn: lc.createEnumAttribute(llvm.attrNoReturn, 0),
 
-    symbols: initTable[int, llvm.ValueRef](),
+    symbols: initTable[int, LLValue](),
     gmarkers: initTable[int, llvm.ValueRef](),
     markers: initTable[SigHash, llvm.ValueRef](),
     nodeInfos: initTable[SigHash, llvm.ValueRef](),
@@ -5644,6 +6064,14 @@ proc newLLGen(graph: ModuleGraph): LLGen =
     g.dtypes[tyCString] = g.d.dIBuilderCreatePointerType(
       g.dtypes[tyChar], 64, 64, "")
 
+    # Magic string, see https://groups.google.com/forum/#!topic/llvm-dev/1O955wQjmaQ
+    g.m.addModuleFlag(
+      ModuleFlagBehaviorWarning, "Dwarf Version",
+      valueAsMetadata(g.constInt32(4)))
+    g.m.addModuleFlag(
+      ModuleFlagBehaviorWarning, "Debug Info Version",
+      valueAsMetadata(g.constInt32(llvm.debugMetadataVersion().int32)))
+
   if g.config.existsConfigVar("nlvm.target"):
     g.tgt = g.config.getConfigVar("nlvm.target")
   else:
@@ -5658,58 +6086,56 @@ proc newLLGen(graph: ModuleGraph): LLGen =
     result.tgtExportLinkage = llvm.ExternalLinkage
 
 proc genMain(g: LLGen) =
-  let
-    llf = g.init
-    f = llf.ret.getBasicBlockParent()
-    init = f.getFirstBasicBlock()
-    b = insertBasicBlockInContext(g.lc, init, g.nn("entry"))
+  g.withBlock(g.section(g.init, secArgs)):
+    let
+      f = g.init.f
 
-  g.b.positionBuilderAtEnd(b)
+    if g.d != nil:
+      let dl = g.lc.dIBuilderCreateDebugLocation(
+          1, 1, g.init.ds, nil)
+      g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
 
-  if g.d != nil:
-    let dl = g.lc.dIBuilderCreateDebugLocation(
-        1, 1, llf.ds, nil)
-    g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
+      let f0 = f.getFirstParam()
+      let f1 = f0.getNextParam()
+      let argc = g.b.buildAlloca(f0.typeOfX(), g.nn("argc"))
+      let argv = g.b.buildAlloca(f1.typeOfX(), g.nn("argv"))
+      discard g.b.buildStore(f0, argc)
+      discard g.b.buildStore(f1, argv)
 
-    let f0 = f.getFirstParam()
-    let f1 = f0.getNextParam()
-    let argc = g.b.buildAlloca(f0.typeOfX(), g.nn("argc"))
-    let argv = g.b.buildAlloca(f1.typeOfX(), g.nn("argv"))
-    discard g.b.buildStore(f0, argc)
-    discard g.b.buildStore(f1, argv)
+      let vd0 = g.d.dIBuilderCreateParameterVariable(
+        g.init.ds, "argc", 1,
+        g.debugGetFile(g.config.projectMainIdx), 0, g.dtypes[tyInt],
+        false, 0)
+      discard g.d.dIBuilderInsertDeclareAtEnd(argc, vd0,
+        g.d.dIBuilderCreateExpression(nil, 0),
+        dl, g.b.getInsertBlock())
 
-    let vd0 = g.d.dIBuilderCreateParameterVariable(
-      llf.ds, "argc", 1, g.debugGetFile(g.config.projectMainIdx), 0, g.dtypes[tyInt],
-      false, 0)
-    discard g.d.dIBuilderInsertDeclareAtEnd(argc, vd0,
-      g.d.dIBuilderCreateExpression(nil, 0),
-      dl, g.b.getInsertBlock())
+      let vd1 = g.d.dIBuilderCreateParameterVariable(
+        g.init.ds, "argv", 2, g.debugGetFile(g.config.projectMainIdx), 0,
+        g.d.dIBuilderCreatePointerType(g.dtypes[tyCString], 64, 64, ""),
+        false, 0)
+      discard g.d.dIBuilderInsertDeclareAtEnd(argv, vd1,
+        g.d.dIBuilderCreateExpression(nil, 0),
+        dl, g.b.getInsertBlock())
 
-    let vd1 = g.d.dIBuilderCreateParameterVariable(
-      llf.ds, "argv", 2, g.debugGetFile(g.config.projectMainIdx), 0,
-      g.d.dIBuilderCreatePointerType(g.dtypes[tyCString], 64, 64, ""),
-      false, 0)
-    discard g.d.dIBuilderInsertDeclareAtEnd(argv, vd1,
-      g.d.dIBuilderCreateExpression(nil, 0),
-      dl, g.b.getInsertBlock())
+    if g.config.target.targetOS != osStandAlone and g.config.selectedGC != gcNone:
+      let bottom = g.b.buildAlloca(g.primitives[tyInt], g.nn("bottom"))
+      discard g.callCompilerProc("initStackBottomWith", [bottom])
 
-  if g.config.target.targetOS != osStandAlone and g.config.selectedGC != gcNone:
-    let bottom = g.b.buildAlloca(g.primitives[tyInt], g.nn("bottom"))
-    discard g.callCompilerProc("initStackBottomWith", [bottom])
+    let cmdLine = g.m.getNamedGlobal("cmdLine")
+    if cmdLine != nil:
+      cmdLine.setLinkage(g.tgtExportLinkage)
+      cmdLine.setInitializer(llvm.constNull(cmdLine.typeOfX().getElementType()))
+      discard g.b.buildStore(g.b.buildBitCast(f.getParam(1), cmdLine.typeOfX().getElementType(), ""), cmdLine)
 
-  let cmdLine = g.m.getNamedGlobal("cmdLine")
-  if cmdLine != nil:
-    cmdLine.setLinkage(g.tgtExportLinkage)
-    cmdLine.setInitializer(llvm.constNull(cmdLine.typeOfX().getElementType()))
-    discard g.b.buildStore(g.b.buildBitCast(f.getParam(1), cmdLine.typeOfX().getElementType(), ""), cmdLine)
+    let cmdCount = g.m.getNamedGlobal("cmdCount")
+    if cmdCount != nil:
+      cmdCount.setLinkage(g.tgtExportLinkage)
+      cmdCount.setInitializer(llvm.constNull(cmdCount.typeOfX().getElementType()))
+      discard g.b.buildStore(f.getParam(0), cmdCount)
 
-  let cmdCount = g.m.getNamedGlobal("cmdCount")
-  if cmdCount != nil:
-    cmdCount.setLinkage(g.tgtExportLinkage)
-    cmdCount.setInitializer(llvm.constNull(cmdCount.typeOfX().getElementType()))
-    discard g.b.buildStore(f.getParam(0), cmdCount)
-
-  discard g.b.buildBr(init)
+  g.withBlock(g.section(g.init, secReturn)):
+    discard g.b.buildRet(constInt(g.cintType, 0, False))
 
 proc loadBase(g: LLGen) =
   let m = parseIRInContext(
@@ -5749,19 +6175,19 @@ proc runOptimizers(g: LLGen) =
   mpm.disposePassManager()
 
 proc writeOutput(g: LLGen, project: string) =
-  var outFile: string
-  if g.config.outFile.string.len > 0:
-    if g.config.outFile.string.isAbsolute:
-      outFile = g.config.outFile.string
+  let outFile =
+    if g.config.outFile.string.len > 0:
+      if g.config.outFile.string.isAbsolute:
+        g.config.outFile.string
+      else:
+        getCurrentDir() / g.config.outFile.string
     else:
-      outFile = getCurrentDir() / g.config.outFile.string
-  else:
-    if optCompileOnly in g.config.globalOptions:
-      outFile = project & ".ll"
-    elif optNoLinking in g.config.globalOptions:
-      outFile = project & ".o"
-    else:
-      outFile = project
+      if optCompileOnly in g.config.globalOptions:
+        project & ".ll"
+      elif optNoLinking in g.config.globalOptions:
+        project & ".o"
+      else:
+        project
 
   initializeX86AsmPrinter()
   initializeX86Target()
@@ -5794,8 +6220,10 @@ proc writeOutput(g: LLGen, project: string) =
 
   g.runOptimizers()
 
+  var err: cstring
   if optCompileOnly in g.config.globalOptions:
-    discard g.m.printModuleToFile(outfile, nil)
+    if g.m.printModuleToFile(outfile, cast[cstringArray](addr(err))) == llvm.True:
+      g.config.internalError($err)
     return
 
   let ofile =
@@ -5804,10 +6232,9 @@ proc writeOutput(g: LLGen, project: string) =
     else:
       g.config.completeCFilePath(AbsoluteFile(project & ".o")).string
 
-  var err: cstring
   if llvm.targetMachineEmitToFile(tm, g.m, ofile, llvm.ObjectFile,
     cast[cstringArray](addr(err))) == llvm.True:
-    g.config.internalError($err[0])
+    g.config.internalError($err)
     return
 
   if optNoLinking in g.config.globalOptions:
@@ -5833,35 +6260,19 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   g.module = pc
   defer:
     g.module = om
+
   g.genNode(n)
+  g.f.sections[secLastBody] = g.b.getInsertBlock()
 
   let s = pc.sym
 
   if sfCompileToCpp in s.flags:
     g.config.internalError("Compile-to-c++ not supported (did you use importcpp?)")
 
-  for m in g.markerBody:
-    g.genMarkerProcBody(m[0], m[1])
-  g.markerBody.setLen(0)
-
   if sfMainModule notin s.flags:
-    for m in g.markerBody:
-      g.genMarkerProcBody(m[0], m[1])
-    g.markerBody.setLen(0)
     return n
 
-  g.debugUpdateLoc(n)
-  g.b.buildBrFallthrough(g.f.ret)
-  g.b.positionBuilderAtEnd(g.f.ret)
-  discard g.b.buildRet(constInt(g.cintType, 0, False))
-
   g.genMain()
-
-  let fn = g.f.ret.getBasicBlockParent()
-  if fn.getLastBasicBlock() != g.f.ret:
-    g.f.ret.moveBasicBlockAfter(fn.getLastBasicBlock())
-
-  g.finalize(g.f)
 
   var disp = generateMethodDispatchers(graph)
   for i in 0..<disp.sonsLen:
@@ -5871,20 +6282,22 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     g.genMarkerProcBody(m[0], m[1])
   g.markerBody.setLen(0)
 
-  g.loadBase()
+  g.finalize()
 
   if g.d != nil:
     g.d.dIBuilderFinalize()
 
-  g.writeOutput(changeFileExt(g.config.projectFull, "").string)
+  g.loadBase()
 
-  result = n
+  g.writeOutput(changeFileExt(g.config.projectFull, "").string)
 
   if g.d != nil:
     g.d.disposeDIBuilder()
     g.d = nil
 
   g.m.disposeModule()
+
+  n
 
 proc myProcess(b: PPassContext, n: PNode): PNode =
   let pc = LLModule(b)
@@ -5901,8 +6314,9 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
   # g.f.options = n.sym.options
 
   g.genNode(newN)
+  g.f.sections[secLastBody] = g.b.getInsertBlock()
 
-  result = n
+  n
 
 proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
   # In the C generator, a separate C file is generated for every module,
@@ -5923,21 +6337,12 @@ proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
       llMainType = llvm.functionType(
         g.cintType, [g.cintType, g.primitives[tyCString].pointerType()])
       main = g.m.addFunction("main", llMainType)
-      b = llvm.appendBasicBlock(main, g.nn("mainBlock", s))
+      f = g.newLLFunc(main)
 
-    g.b.positionBuilderAtEnd(b)
-
-    g.f = g.newLLFunc(llvm.appendBasicBlock(main, g.nn("return")))
+    g.init = f
+    g.f = f
 
     if g.d != nil:
-      # Magic string, see https://groups.google.com/forum/#!topic/llvm-dev/1O955wQjmaQ
-      g.m.addModuleFlag(
-        ModuleFlagBehaviorWarning, "Dwarf Version",
-        valueAsMetadata(g.constInt32(4)))
-      g.m.addModuleFlag(
-        ModuleFlagBehaviorWarning, "Debug Info Version",
-        valueAsMetadata(g.constInt32(llvm.debugMetadataVersion().int32)))
-
       let types = [
         g.dtypes[tyInt32],
         g.dtypes[tyInt32],
@@ -5947,17 +6352,13 @@ proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
       ]
       g.f.ds = g.debugFunction(nil, types, main)
 
-    discard g.f.startBlock(nil, g.f.ret)
-
-    g.init = g.f
+    discard g.f.startBlock(nil, g.section(g.f, secReturn))
+    g.b.positionBuilderAtEnd(g.section(g.f, secBody))
 
   else:
     g = LLGen(graph.backend)
-    let entry = llvm.appendBasicBlock(g.init.ret.getBasicBlockParent(), g.nn("entry", s))
-    g.b.buildBrFallthrough(entry)
-    g.b.positionBuilderAtEnd(entry)
+    assert g.f == g.init
 
-  var llm = LLModule(g: g, sym: s)
-  result = llm
+  LLModule(g: g, sym: s)
 
 const llgenPass* = makePass(myOpen, myProcess, myClose)

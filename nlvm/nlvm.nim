@@ -10,20 +10,23 @@ import
 import llgen
 
 import
-  compiler/commands,
-  compiler/condsyms,
-  compiler/idents,
-  compiler/lexer,
-  compiler/lineinfos,
-  compiler/llstream,
-  compiler/modulegraphs,
-  compiler/modules,
-  compiler/msgs,
-  compiler/nimconf,
-  compiler/options,
-  compiler/passes,
-  compiler/pathutils,
-  compiler/sem,
+  compiler/[
+    commands,
+    condsyms,
+    idents,
+    lexer,
+    lineinfos,
+    llstream,
+    modulegraphs,
+    modules,
+    msgs,
+    nimconf,
+    options,
+    passes,
+    passaux,
+    pathutils,
+    sem
+  ],
   parseopt
 
 proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
@@ -46,6 +49,7 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
       rawMessage(config, errGenerated, errArgsNeedRunOption)
 
 proc commandLL(graph: ModuleGraph) =
+  registerPass(graph, verbosePass)
   registerPass(graph, sem.semPass)
   registerPass(graph, llgen.llgenPass)
 

@@ -244,8 +244,8 @@ proc getStructElementTypes*(structTy: TypeRef): seq[TypeRef] =
 proc pointerType*(elementType: TypeRef): TypeRef =
   pointerType(elementType, 0)
 
-proc constString*(s: string, dontNullTerminate = False): ValueRef =
-  constString(s, s.len.cuint, dontNullTerminate)
+proc constStringInContext*(c: ContextRef, s: string, dontNullTerminate = False): ValueRef =
+  constStringInContext(c, s, s.len.cuint, dontNullTerminate)
 
 proc constStruct*(constantVals: openarray[ValueRef]; packed = False): ValueRef =
   asRaw(constantVals, constStruct(p, n, packed))

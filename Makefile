@@ -35,18 +35,18 @@ $(NIMC): Nim/koch Nim/compiler/*.nim
 $(NLVMC): $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) $(LLVMLIBS) c nlvm
 
-nlvm/nimcache/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim
-	cd nlvm && time ./nlvm $(NLVMFLAGS) -o:nimcache/nlvm.ll -c c nlvm
+nlvm/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim
+	cd nlvm && time ./nlvm $(NLVMFLAGS) -o:nlvm.ll -c c nlvm
 
 nlvm/nlvm.self: $(NLVMC)
 	cd nlvm && time ./nlvm -o:nlvm.self $(NLVMFLAGS) $(LLVMLIBS) c nlvm
 
-nlvm/nimcache/nlvm.self.ll: nlvm/nlvm.self
-	cd nlvm && time ./nlvm.self -c $(NLVMFLAGS) -o:nimcache/nlvm.self.ll c nlvm
+nlvm/nlvm.self.ll: nlvm/nlvm.self
+	cd nlvm && time ./nlvm.self -c $(NLVMFLAGS) -o:nlvm.self.ll c nlvm
 
 .PHONY: compare
-compare: nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
-	diff -u nlvm/nimcache/nlvm.self.ll nlvm/nimcache/nlvm.ll
+compare: nlvm/nlvm.self.ll nlvm/nlvm.ll
+	diff -u nlvm/nlvm.self.ll nlvm/nlvm.ll
 
 Nim/testament/tester: $(NIMC) Nim/testament/*.nim
 	cd Nim && bin/nim -d:release c testament/tester
@@ -82,5 +82,5 @@ self: nlvm/nlvm.self
 
 .PHONY: clean
 clean:
-	rm -rf $(NLVMC) nlvm/nimcache nlvm/nlvm.self Nim/testament/tester
+	rm -rf $(NLVMC) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self Nim/testament/tester
 
