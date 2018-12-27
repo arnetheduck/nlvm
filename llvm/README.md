@@ -1,6 +1,6 @@
 LLVM wrappers for the llvm-c interfaces to llvm.
 
-Generated using c2nim, from llvm 3.6 (at time of writing)
+Generated using c2nim
 
 Structure:
 
