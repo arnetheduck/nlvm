@@ -6203,7 +6203,7 @@ proc writeOutput(g: LLGen, project: string) =
   discard getTargetFromTriple(g.tgt, addr(tr), nil)
 
   var reloc = llvm.RelocDefault
-  if optGenDynLib in g.config.globalOptions and
+  if optGenDynLib in g.config.globalOptions or
       ospNeedsPIC in platform.OS[g.config.target.targetOS].props:
     reloc = llvm.RelocPIC
 
