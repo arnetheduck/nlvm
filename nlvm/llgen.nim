@@ -6202,10 +6202,7 @@ proc writeOutput(g: LLGen, project: string) =
   var tr: llvm.TargetRef
   discard getTargetFromTriple(g.tgt, addr(tr), nil)
 
-  var reloc = llvm.RelocDefault
-  if optGenDynLib in g.config.globalOptions or
-      ospNeedsPIC in platform.OS[g.config.target.targetOS].props:
-    reloc = llvm.RelocPIC
+  var reloc = llvm.RelocPIC
 
   let cgl =
     if optOptimizeSpeed in g.config.options: llvm.CodeGenLevelAggressive
