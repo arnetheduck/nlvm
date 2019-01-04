@@ -6202,8 +6202,9 @@ proc writeOutput(g: LLGen, project: string) =
   var tr: llvm.TargetRef
   discard getTargetFromTriple(g.tgt, addr(tr), nil)
 
-  #PIC/PIE is preferred/default on most platforms:
-  var reloc = llvm.RelocPIC
+  # PIC/PIE is used by default when linking on certain platforms to enable address space randomization:
+  # https://stackoverflow.com/q/43367427
+  let reloc = llvm.RelocPIC
 
   let cgl =
     if optOptimizeSpeed in g.config.options: llvm.CodeGenLevelAggressive
