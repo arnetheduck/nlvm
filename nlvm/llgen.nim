@@ -6202,6 +6202,7 @@ proc writeOutput(g: LLGen, project: string) =
   var tr: llvm.TargetRef
   discard getTargetFromTriple(g.tgt, addr(tr), nil)
 
+  #PIC/PIE is preferred/default on most platforms:
   var reloc = llvm.RelocPIC
 
   let cgl =
