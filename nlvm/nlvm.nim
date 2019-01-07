@@ -1,5 +1,5 @@
 # nlvm - llvm IR generator for Nim
-# Copyright (c) Jacek Sieka 2016
+# Copyright (c) Jacek Sieka 2016-2019
 # See the LICENSE file for license info (doh!)
 
 import
@@ -11,8 +11,10 @@ import llgen
 
 import
   compiler/[
+    cmdlinehelper,
     commands,
     condsyms,
+    extccomp,
     idents,
     lexer,
     lineinfos,
@@ -28,6 +30,10 @@ import
     sem
   ],
   parseopt
+
+proc semanticPasses(g: ModuleGraph) =
+  registerPass g, verbosePass
+  registerPass g, semPass
 
 proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
   var p = parseopt.initOptParser(cmd)
@@ -49,8 +55,7 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
       rawMessage(config, errGenerated, errArgsNeedRunOption)
 
 proc commandLL(graph: ModuleGraph) =
-  registerPass(graph, verbosePass)
-  registerPass(graph, sem.semPass)
+  semanticPasses(graph)
   registerPass(graph, llgen.llgenPass)
 
   modules.compileProject(graph)
@@ -72,9 +77,24 @@ proc commandScan(conf: ConfigRef) =
   else:
     conf.rawMessage(errCannotOpenFile, f)
 
-proc mainCommand(cache: IdentCache, conf: ConfigRef) =
+proc commandCheck(graph: ModuleGraph) =
+  graph.config.errorMax = high(int)  # do not stop after first error
+  defineSymbol(graph.config.symbols, "nimcheck")
+  semanticPasses(graph)  # use an empty backend for semantic checking only
+  compileProject(graph)
+
+proc mainCommand*(graph: ModuleGraph) =
+  let conf = graph.config
+  let cache = graph.cache
+
   conf.lastCmdTime = epochTime()
   conf.searchPaths.add(conf.libpath)
+
+  # No support! but it might work anyway :)
+  conf.globalOptions.excl optTlsEmulation
+
+  # lib/pure/bitops.num
+  defineSymbol(conf.symbols, "noIntrinsicsBitOpts")
 
   case conf.command.normalize
   # Take over the default compile command
@@ -91,6 +111,10 @@ proc mainCommand(cache: IdentCache, conf: ConfigRef) =
     conf.wantMainModule()
     commandScan(conf)
 
+  of "check":
+    conf.cmd = cmdCheck
+    commandCheck(graph)
+
   else: conf.rawMessage(errGenerated, conf.command)
 
   if conf.errorCounter == 0 and
@@ -105,11 +129,25 @@ proc mainCommand(cache: IdentCache, conf: ConfigRef) =
                if isDefined(conf, "release"): "Release Build"
                else: "Debug Build"])
 
+proc prependCurDir(f: AbsoluteFile): AbsoluteFile =
+  when defined(unix):
+    if os.isAbsolute(f.string): result = f
+    else: result = AbsoluteFile("./" & f.string)
+  else:
+    result = f
+
 proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   # For now, we reuse the nim command line options parser, mainly because
   # the options are used all over the compiler, but also because we want to
   # act as a drop-in replacement (for now)
   # Most of this is taken from the main nim command
+  let self = NimProg(
+    supportsStdinFile: true,
+    processCmdLine: processCmdLine,
+    mainCommand: mainCommand
+  )
+  self.initDefinesProg(conf, "nlvm")
+
   if os.paramCount() == 0:
     echo """
 you can: nlvm c <filename> (see standard nim compiler for options)
@@ -117,41 +155,21 @@ magic options:
   --nlvm.target=wasm32 cross-compile to WebAssembly
 """
   else:
-    # Main nim compiler has some reaons for two-pass parsing
-    processCmdLine(passCmd1, "", conf)
+    self.processCmdLineAndProjectPath(conf)
 
-    # Use project name like main nim compiler
-    # TODO upstream to common location...
-    if conf.projectName == "-":
-      conf.projectName = "stdinfile"
-      conf.projectFull = "stdinfile".AbsoluteFile
-      conf.projectPath = os.getCurrentDir().AbsoluteDir
-      conf.projectIsStdin = true
-    elif conf.projectName != "":
-      try:
-        conf.projectFull = conf.canonicalizePath(conf.projectName.AbsoluteFile)
-      except OSError:
-        conf.projectFull = conf.projectName.AbsoluteFile
-      let p = splitFile(conf.projectFull)
-      conf.projectPath = p.dir
-      conf.projectName = p.name
-    else:
-      conf.projectPath = os.getCurrentDir().AbsoluteDir
+    if not self.loadConfigsAndRunMainCommand(cache, conf): return
+    if optRun in conf.globalOptions:
+      let
+        binPath =
+          if not conf.outFile.isEmpty:
+            # If the user specified an outFile path, use that directly.
+            conf.outFile.prependCurDir
+          else:
+            # Figure out ourselves a valid binary name.
+            changeFileExt(conf.projectFull, ExeExt).prependCurDir
+        ex = quoteShell(binPath)
 
-    nimconf.loadConfigs(DefaultConfig, cache, conf)
-    processCmdLine(passCmd2, "", conf)
-
-    #gSelectedGC = gcMarkAndSweep
-    #defineSymbol("gcmarkandsweep")
-
-    # default signal handler does memory allocations and all kinds of
-    # disallowed-in-signal-handler-stuff
-    defineSymbol(conf.symbols, "noSignalHandler")
-
-    # lib/pure/bitops.num
-    defineSymbol(conf.symbols, "noIntrinsicsBitOpts")
-
-    mainCommand(cache, conf)
+      execExternalProgram(conf, ex & ' ' & conf.arguments)
 
 # Beautiful...
 var tmp = getAppDir()

@@ -1,6 +1,7 @@
 NIMC=Nim/bin/nim
 
 NLVMC=nlvm/nlvm
+NLVMR=nlvm/nlvmr
 
 LLVMPATH=../ext
 
@@ -8,11 +9,11 @@ LLVMPATH=../ext
 #NIMFLAGS=-d:release
 NIMFLAGS=--debuginfo --linedir:on
 
-NLVMFLAGS=--gc:markandsweep --debuginfo --linedir:on
+NLVMFLAGS= --debuginfo --linedir:on
 
 LLVMLIB=LLVM-7
 
-LLVMLIBS="-l:-l$(LLVMLIB)" "--clibdir:$(LLVMPATH)"  "-l:-Xlinker '-rpath=\$$ORIGIN/$(LLVMPATH)'"
+LLVMLIBS=
 
 ifeq (,$(wildcard ext/lib$(LLVMLIB).so))
     $(error run make-llvm.sh before trying to build nlvm)
@@ -35,6 +36,9 @@ $(NIMC): Nim/koch Nim/compiler/*.nim
 $(NLVMC): $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) $(LLVMLIBS) c nlvm
 
+$(NLVMR): $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim
+	cd nlvm && time ../$(NIMC) $(NIMFLAGS) -d:release $(LLVMLIBS) -o:nlvmr c nlvm
+
 nlvm/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim
 	cd nlvm && time ./nlvm $(NLVMFLAGS) -o:nlvm.ll -c c nlvm
 
@@ -48,39 +52,52 @@ nlvm/nlvm.self.ll: nlvm/nlvm.self
 compare: nlvm/nlvm.self.ll nlvm/nlvm.ll
 	diff -u nlvm/nlvm.self.ll nlvm/nlvm.ll
 
-Nim/testament/tester: $(NIMC) Nim/testament/*.nim
-	cd Nim && bin/nim -d:release c testament/tester
+testament/tester: $(NIMC) Nim/testament/*.nim
+	rsync -av --delete Nim/testament .
+	$(NIMC) -d:release c testament/tester
 
 .PHONY: run-tester
-run-tester: Nim/testament/tester $(NLVMC)
-	cd Nim && time testament/tester --targets:c "--nim:../nlvm/nlvm " all
-
-.PHONY: move-results
-move-results:
+run-tester: testament/tester $(NLVMR)
+	rm -fr tools lib
+	ln -s Nim/tools .
+	mkdir -p lib
+	cp -ar Nim/lib/system* lib/
+	cp -ar Nim/lib/nimrtl* lib/
 	rm -rf testresults
-	[ -d Nim/testresults ] && mv Nim/testresults .
+	time testament/tester --targets:c "--nim:nlvm/nlvmr " all
 
 .PHONY: test
-test: move-results run-tester stats
-	jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
+test: sync-tests run-tester stats
+	jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' testresults/*json
+
+test-bad: sync-bad-tests run-tester stats
+	jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' testresults/*json
 
 .PHONY: badeggs.json
 badeggs.json:
-	jq -s '[.[][]|select(.result != "reSuccess" and .result != "reIgnored")]' Nim/testresults/*.json > badeggs.json
+	jq -s '[.[][]|select(.result != "reSuccess" and .result != "reIgnored")]' testresults/*.json > badeggs.json
 
 .PHONY: stats
 stats: badeggs.json
-	jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
+	jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' testresults/*json
 	jq 'group_by(.category)|.[]|((unique_by(.category)|.[].category) + " " + (length| tostring))' badeggs.json
 
 .PHONY: t2
 t2:
-	cp -r Nim/testresults Nim/tr2
+	cp -r testresults tr2
 
 .PHONY: self
 self: nlvm/nlvm.self
 
 .PHONY: clean
 clean:
-	rm -rf $(NLVMC) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self Nim/testament/tester
+	rm -rf $(NLVMC) $(NLVMR) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self testament testresults/
 
+.PHONY: sync-tests
+sync-tests:
+	rsync -av --del --delete-excluded --exclude-from skipped-tests.txt Nim/{tests,examples} .
+	# broken!
+	echo > tests/gc/gcleak4.nim
+
+sync-bad-tests:
+	rsync -av --del --delete-excluded --include "*/" --include-from skipped-tests.txt --exclude "*"  -m Nim/{tests,examples} .

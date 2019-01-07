@@ -7,6 +7,10 @@ const LLVMLib = "libLLVM-7.so"
 {.passC: "-I../ext/llvm-7.0.0.src/include".}
 {.passC: "-I../ext/llvm-7.0.0.src/rel/include".}
 
+{.passL: "-L../ext/".}
+{.passL: "-lLLVM-7".}
+{.passL: "-Wl,'-rpath=$ORIGIN/../ext'".}
+
 {.compile: "wrapper.cc".}
 
 # Includes and helpers for generated code

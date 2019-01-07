@@ -1,0 +1,46 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "(gdb) nlvm.self",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceRoot}/nlvm/nlvm.self",
+      "args": ["c", "-o:${workspaceRoot}/nlvm/nlvm.self2", "${workspaceRoot}/nlvm/nlvm"],
+      "stopAtEntry": true,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": true,
+      "MIMode": "gdb",
+      "setupCommands": [
+          {
+              "description": "Enable pretty-printing for gdb",
+              "text": "-enable-pretty-printing",
+              "ignoreFailures": true
+          }
+      ]
+    },
+    {
+      "name": "(gdb) nlvm",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceRoot}/nlvm/nlvm",
+      "args": ["c", "-o:${workspaceRoot}/nlvm/nlvm.self", "${workspaceRoot}/nlvm/nlvm"],
+      "stopAtEntry": true,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": true,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}
