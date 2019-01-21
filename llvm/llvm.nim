@@ -2,14 +2,28 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-const LLVMLib = "libLLVM-7.so"
+const
+  LLVMLib = "libLLVM-7.so"
+  LLVMRoot = "../ext/llvm-7.0.0.src/"
 
-{.passC: "-I../ext/llvm-7.0.0.src/include".}
-{.passC: "-I../ext/llvm-7.0.0.src/rel/include".}
+when defined(staticLLVM):
+  const
+    LLVMOut = LLVMRoot & "sta/"
 
-{.passL: "-L../ext/".}
-{.passL: "-lLLVM-7".}
-{.passL: "-Wl,'-rpath=$ORIGIN/../ext'".}
+  {.passL: gorge(LLVMRoot & "sta/bin/llvm-config --libs webassembly x86 debuginfodwarf passes").}
+
+else:
+  const
+    LLVMOut = LLVMRoot & "sta/"
+  {.passL: "-lLLVM-7".}
+  {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "'".}
+
+{.passC: "-I" & LLVMRoot & "include".}
+{.passC: "-I" & LLVMOut & "include".}
+
+{.passL: "-Wl,--as-needed".}
+{.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
+{.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
 
 {.compile: "wrapper.cc".}
 

@@ -71,12 +71,6 @@ Start with a clone:
     git clone https://github.com/arnetheduck/nlvm.git
     cd nlvm && git submodule update --init
 
-`nlvm` links to `libLLVM-x.y.so` during its build, and the build assumes such
-a shared library is available under `ext`. The easiest way for that to happen
-is to use the supplied helper is to run the build helper:
-
-    sh ./make-llvm.sh
-
 We will need a few development libraries installed, mainly due to how `nlvm`
 processes library dependencies (see dynlib section below):
 
@@ -86,7 +80,7 @@ processes library dependencies (see dynlib section below):
     # Debian, ubuntu etc
     sudo apt-get install libpcre3-dev libssl-dev libsqlite3-dev
 
-Compile NLVM (this will also build nim):
+Compile NLVM (if needed, this will also build nim and llvm):
 
     make
 
@@ -98,6 +92,20 @@ Run test suite:
 
     make test
     make stats
+
+You can link statically to LLVM to create a stand-alone binary - this will
+use a more optimized version of LLVM as well, but takes longer to build:
+
+    make STATIC_LLVM=1
+
+If you want a faster `nlvm`, you can also try the release build - it will be
+called `nlvmr`:
+
+    make STATIC_LLVM=1 nlvmr
+
+When you update `nlvm` from `git`, don't forget the submodule:
+
+    git pull && git submodule update
 
 # Compiling your code
 
@@ -252,6 +260,6 @@ To go from there, follow the steps found
   large parts of the standard library don't work with nlvm.
 * nlvm should work on any `x86_64` linux, but there is no support for other
   platforms (int size, calling conventions etc) - patches welcome
-* `make-llvm.sh` will compile llvm in `Release` mode with assertions turned
-  _on_ - this is a convenient compromise when doing compiler development
-  with llvm, but better performance can be had by turning them off
+* We build our own LLVM because distros and binary releases typically:
+  * don't include wasm (yet?)
+  * don't enable assertions (useful during nlvm development)

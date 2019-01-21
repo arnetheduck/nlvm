@@ -1,9 +1,13 @@
-sudo: required
 language: c++
-os:
-  - linux
-dist: trusty
-cache: ccache
+os: linux
+dist: xenial
+cache:
+  directories:
+    - ext/llvm-7.0.0.src/include
+    - ext/llvm-7.0.0.src/sta/bin
+    - ext/llvm-7.0.0.src/sta/lib
+    - ext/llvm-7.0.0.src/sta/include
+
 compiler: clang
 
 addons:
@@ -12,17 +16,12 @@ addons:
     - libcurl4-openssl-dev
     - libsdl1.2-dev
     - libgc-dev
+    - ninja-build
+    - cmake
+    - jq
 
 before_script:
   - git submodule update --init
-  - mkdir -p ext
-  - cd ext
-  - wget https://cmake.org/files/v3.10/cmake-3.10.3-Linux-x86_64.tar.gz
-  - tar xf cmake-3.10.3-Linux-x86_64.tar.gz
-  - wget https://github.com/ninja-build/ninja/releases/download/v1.8.2/ninja-linux.zip
-  - unzip ninja-linux.zip
-  - cd ..
-  - PATH=$TRAVIS_BUILD_DIR/ext:$TRAVIS_BUILD_DIR/ext/cmake-3.10.3-Linux-x86_64/bin:$PATH bash make-llvm.sh || true
+
 script:
-  - make
-  - make test
+  - make STATIC_LLVM=1 test
