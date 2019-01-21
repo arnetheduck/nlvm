@@ -19,3 +19,4 @@ lib/
 examples/
 tools
 /.vscode/settings.json
+dist/

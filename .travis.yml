@@ -1,6 +1,6 @@
 language: c++
 os: linux
-dist: xenial
+dist: trusty
 cache:
   directories:
     - ext/llvm-7.0.0.src/include
@@ -16,12 +16,30 @@ addons:
     - libcurl4-openssl-dev
     - libsdl1.2-dev
     - libgc-dev
-    - ninja-build
-    - cmake
     - jq
 
 before_script:
   - git submodule update --init
+  - mkdir -p ext
+  - cd ext
+  - wget https://cmake.org/files/v3.10/cmake-3.10.3-Linux-x86_64.tar.gz
+  - tar xf cmake-3.10.3-Linux-x86_64.tar.gz
+  - wget https://github.com/ninja-build/ninja/releases/download/v1.8.2/ninja-linux.zip
+  - unzip ninja-linux.zip
+  - cd ..
 
 script:
+  - export PATH=$TRAVIS_BUILD_DIR/ext:$PATH
+  - export PATH=$TRAVIS_BUILD_DIR/ext/cmake-3.10.3-Linux-x86_64/bin:$PATH
   - make STATIC_LLVM=1 test
+  - bash make-dist.sh
+
+after_success:
+  - wget -c https://github.com/probonopd/uploadtool/raw/master/upload.sh
+  - if [ "$TRAVIS_BRANCH" != "$TRAVIS_TAG" ] && [ "$TRAVIS_BRANCH" != "master" ]; then export TRAVIS_EVENT_TYPE=pull_request; fi
+  - bash upload.sh dist/*
+
+branches:
+  except:
+    - # Do not build tags that we create when we upload to GitHub Releases
+    - /^(?i:continuous)$/
