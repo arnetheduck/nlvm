@@ -20,7 +20,7 @@ cp -r nlvm-lib $ROOT
 mkdir -p $ROOT/Nim
 cd Nim
 # avoid build junk
-git archive --format=tar HEAD lib | (cd ../$ROOT/Nim && tar xf -)
+git archive --format=tar HEAD lib config | (cd ../$ROOT/Nim && tar xf -)
 cd ..
 
 rm -rf dist
