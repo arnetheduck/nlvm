@@ -6458,10 +6458,6 @@ proc writeOutput(g: LLGen, project: string) =
   # the c generator loads libraries using dlopen/dlsym/equivalent, which nlvm
   # doesn't support, so here, we add a few libraries..
   g.config.addLinkOptionCmd("-Wl,--as-needed")
-  g.config.cLinkedLibs.add("pcre")
-  g.config.cLinkedLibs.add("sqlite3")
-  g.config.cLinkedLibs.add("ssl")
-  g.config.cLinkedLibs.add("crypto")
 
   if g.config.selectedGC == gcBoehm:
     g.config.cLinkedLibs.add("gc")
@@ -6561,6 +6557,14 @@ proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
   # with all the code in it, like the JS generator does.
 
   # p("Opening", s, 0)
+
+  # TODO: A total hack that needs to go away:
+  case s.name.s
+  of "pcre": graph.config.cLinkedLibs.add("pcre")
+  of "sqlite3": graph.config.cLinkedLibs.add("sqlite3")
+  of "openssl":
+    graph.config.cLinkedLibs.add("ssl")
+    graph.config.cLinkedLibs.add("crypto")
 
   if graph.backend == nil:
     let tgt =
