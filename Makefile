@@ -103,8 +103,6 @@ clean:
 .PHONY: sync-tests
 sync-tests:
 	rsync -a --del --delete-excluded --exclude-from skipped-tests.txt Nim/tests Nim/examples .
-	# broken!
-	echo > tests/gc/gcleak4.nim
 
 sync-bad-tests:
 	rsync -a --del --delete-excluded --include "*/" --include-from skipped-tests.txt --exclude "*"  -m Nim/tests Nim/examples .

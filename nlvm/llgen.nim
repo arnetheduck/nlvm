@@ -104,6 +104,7 @@ type
 
     attrNoInline: AttributeRef
     attrNoReturn: AttributeRef
+    attrNoOmitFP: AttributeRef
 
     symbols: Table[int, LLValue]
     gmarkers: Table[int, llvm.ValueRef]
@@ -2522,6 +2523,10 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
   if typ.callConv == ccNoInline:
     f.addFuncAttribute(g.attrNoInline)
 
+  # This attribute hopefully works around
+  # https://github.com/nim-lang/Nim/issues/10625
+  f.addFuncAttribute(g.attrNoOmitFP)
+
   if g.genFakeImpl(s, f):
     f.setLinkage(llvm.InternalLinkage)
 
@@ -2601,7 +2606,6 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
         let res = resNode.sym
         if sfNoInit in s.flags: incl(res.flags, sfNoInit)
         let resv = g.genLocal(resNode)
-        g.symbols[res.id] = resv
         ret = resv.v
         g.buildStoreNull(ret)
         g.genObjectInit(res.typ, ret)
@@ -5754,6 +5758,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
     result = LLValue(
       v: g.localAlloca(g.llType(typ), g.nn("case.res", n)), storage: OnStack)
     g.buildStoreNull(result.v)
+    g.genObjectInit(typ, result.v)
 
   let sp = g.localAlloca(spt, g.nn("sp", n))
   g.buildStoreNull(sp)
@@ -6218,6 +6223,7 @@ proc newLLGen(graph: ModuleGraph, tgt: string, tm: TargetMachineRef): LLGen =
 
     attrNoInline: lc.createEnumAttribute(llvm.attrNoInline, 0),
     attrNoReturn: lc.createEnumAttribute(llvm.attrNoReturn, 0),
+    attrNoOmitFP: lc.createStringAttribute("no-frame-pointer-elim", "true"),
 
     symbols: initTable[int, LLValue](),
     gmarkers: initTable[int, llvm.ValueRef](),

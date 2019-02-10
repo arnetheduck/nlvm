@@ -15,6 +15,7 @@ when defined(staticLLVM):
 else:
   const
     LLVMOut = LLVMRoot & "sha/"
+
   {.passL: "-lLLVM-7".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
@@ -315,3 +316,6 @@ proc addFuncAttribute*(f: ValueRef, v: AttributeRef) =
 
 proc getMDKindIDInContext*(c: ContextRef, name: string): cuint =
   getMDKindIDInContext(c, name.cstring, name.len.cuint)
+
+proc createStringAttribute*(c: ContextRef, k, v: string): AttributeRef =
+  createStringAttribute(c, k.cstring, k.len.cuint, v.cstring, v.len.cuint)
