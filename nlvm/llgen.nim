@@ -1047,11 +1047,14 @@ proc debugVariable(g: LLGen, sym: PSym, v: llvm.ValueRef, argNo = -1) =
 proc debugGlobal(g: LLGen, sym: PSym, v: llvm.ValueRef) =
   if g.d == nil: return
 
-  var dt = g.debugType(sym.typ)
-  let scope = g.debugGetScope()
+  let
+    dt = g.debugType(sym.typ)
+    scope = g.debugGetScope()
+    linkageName = sym.llName()
+    name = if sym.name.s.len == 0: linkageName else: sym.name.s
 
   let gve = dIBuilderCreateGlobalVariableExpression(
-    g.d, scope, sym.llName, "",
+    g.d, scope, name, linkageName,
     g.debugGetFile(sym.info.fileIndex), sym.info.line.cuint, dt, false,
     dIBuilderCreateExpression(g.d, nil, 0), nil, 0
   )
@@ -2167,6 +2170,10 @@ proc externGlobal(g: LLGen, s: PSym): LLValue =
   else:
     if s.id in g.symbols:
       g.symbols[s.id]
+    elif (let v = g.m.getNamedGlobal(name); v != nil):
+      let tmp = LLValue(v: v, storage: s.loc.storage)
+      g.symbols[s.id] = tmp
+      tmp
     else:
       let tmp = LLValue(v: g.m.addGlobal(t, name))
       g.symbols[s.id] = tmp
@@ -2195,6 +2202,13 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   if s.loc.k == locNone:
     fillLoc(
       s.loc, locGlobalVar, n, g.mangleName(s), if isConst: OnStatic else: OnHeap)
+
+  # Couldn't find by id - should we get by name also? this seems to happen for
+  # stderr for example which turns up with two different id:s.. what a shame!
+  if (let v = g.m.getNamedGlobal(s.llName); v != nil):
+    let tmp = LLValue(v: v, storage: s.loc.storage)
+    g.symbols[s.id] = tmp
+    return tmp
 
   let
     t = g.llType(s.typ.skipTypes(abstractInst))
@@ -2487,7 +2501,7 @@ proc resetLoc(g: LLGen, typ: PType, v: LLValue) =
     else:
       g.buildStoreNull(v.v)
   else:
-    if v.storage != OnStack:
+    if v.storage != OnStack and containsGcRef:
       discard g.callCompilerProc("genericReset", [v.v, g.genTypeInfo(typ)])
       # XXX: generated reset procs should not touch the m_type
       # field, so disabling this should be safe:
@@ -3264,13 +3278,15 @@ proc genConst(g: LLGen, n: PNode): LLValue =
     #      optimized away - need to consider when it's safe
     # result.setUnnamedAddr(llvm.True)
 
-    case sym.typ.kind
-    of tyArray, tyUncheckedArray, tySet, tyTuple: result.v.setInitializer(ci)
-    else:
+    case sym.typ.skipTypes(abstractVarRange).kind
+    of tyString, tySequence:
       let c = g.m.addPrivateConstant(ci.typeOfX(), g.nn(".const.init", n))
       c.setInitializer(ci)
+
       result.v.setInitializer(
         llvm.constBitCast(c, result.v.typeOfX().getElementType()))
+    else:
+      result.v.setInitializer(ci)
     return
 
   if sfGlobal in sym.flags:

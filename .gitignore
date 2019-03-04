@@ -20,3 +20,4 @@ examples/
 tools
 /.vscode/settings.json
 dist/
+/megatest.nim

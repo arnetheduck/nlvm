@@ -3,11 +3,12 @@
 # See the LICENSE file for license info (doh!)
 
 import
+  sequtils,
   strutils,
   times,
   os
 
-import llgen
+import llgen, llvm/llvm
 
 import
   compiler/[
@@ -27,6 +28,7 @@ import
     passes,
     passaux,
     pathutils,
+    platform,
     sem
   ],
   parseopt
@@ -34,6 +36,105 @@ import
 proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
   registerPass g, semPass
+
+const
+  NlvmVersion = "0.0.1"
+  NlvmHash = gorge("git rev-parse HEAD").strip
+  NimHash = gorge("git -C ../Nim rev-parse HEAD").strip
+
+  HelpHeader = """nlvm compiler for Nim, version $1 [$2: $3]
+
+Copyright (c) 2015-2019 Jacek Sieka
+Nim compiler (c) 2009-2019 Andreas Rumpf
+"""
+
+const
+  Usage = slurp"../doc/basicopt.txt".replace("//", "")
+  FeatureDesc = toSeq(Feature.items()).join("|")
+  AdvancedUsage = slurp"../doc/advopt.txt".replace("//", "") % FeatureDesc
+
+proc helpHeader(conf: ConfigRef): string =
+  HelpHeader % [
+    NlvmVersion,
+    platform.OS[conf.target.hostOS].name,
+    platform.CPU[conf.target.hostCPU].name]
+
+proc getCommandLineDesc(conf: ConfigRef): string =
+  helpHeader(conf) & Usage
+
+proc writeHelp(conf: ConfigRef; pass: TCmdLinePass) =
+  if pass == passCmd1:
+    msgWriteln(conf, getCommandLineDesc(conf), {msgStdout})
+    msgQuit(0)
+
+proc writeAdvanced(conf: ConfigRef; pass: TCmdLinePass) =
+  if pass == passCmd1:
+    msgWriteln(conf, helpHeader(conf) & Usage, {msgStdout})
+    msgQuit(0)
+
+proc writeFullhelp(conf: ConfigRef; pass: TCmdLinePass) =
+  if pass == passCmd1:
+    msgWriteln(conf, helpHeader(conf) & Usage & AdvancedUsage, {msgStdout})
+    msgQuit(0)
+
+proc formatVersion(name, v, h: string): string =
+  if h.len() > 0:
+    "$1: $2 ($3)" % [name, v, h]
+  else:
+    "$1: $2" % [name, v]
+
+proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
+  if pass == passCmd1:
+    msgWriteln(conf, helpHeader(conf), {msgStdout})
+
+    msgWriteln(conf, formatVersion("nlvm", NlvmVersion, NlvmHash), {msgStdout})
+    msgWriteln(conf, formatVersion("Nim", NimVersion, NimHash), {msgStdout})
+    msgWriteln(conf, formatVersion("llvm", LLVMVersion, ""), {msgStdout})
+
+    msgQuit(0)
+
+proc addPrefix(switch: string): string =
+  if len(switch) == 1: result = "-" & switch
+  else: result = "--" & switch
+
+proc expectNoArg(
+    conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
+  if arg != "":
+    localError(
+      conf, info,
+      "invalid argument for command line option: '$1'" % addPrefix(switch))
+
+proc processSwitch(switch, arg: string, pass: TCmdLinePass,
+    info: TLineInfo, conf: ConfigRef) =
+  # helper to hijack some nlvm-specific options
+  case switch.normalize
+  of "version", "v":
+    expectNoArg(conf, switch, arg, pass, info)
+    writeVersionInfo(conf, pass)
+  of "advanced":
+    expectNoArg(conf, switch, arg, pass, info)
+    writeAdvanced(conf, pass)
+  of "fullhelp":
+    expectNoArg(conf, switch, arg, pass, info)
+    writeFullhelp(conf, pass)
+  of "help", "h":
+    expectNoArg(conf, switch, arg, pass, info)
+    writeHelp(conf, pass)
+  else:
+    commands.processSwitch(switch, arg, pass, info, conf)
+
+proc processSwitch*(pass: TCmdLinePass; p: OptParser; config: ConfigRef) =
+  # hijacked from commands.nim
+
+  # hint[X]:off is parsed as (p.key = "hint[X]", p.val = "off")
+  # we transform it to (key = hint, val = [X]:off)
+  var bracketLe = strutils.find(p.key, '[')
+  if bracketLe >= 0:
+    var key = substr(p.key, 0, bracketLe - 1)
+    var val = substr(p.key, bracketLe) & ':' & p.val
+    processSwitch(key, val, pass, gCmdLineInfo, config)
+  else:
+    processSwitch(p.key, p.val, pass, gCmdLineInfo, config)
 
 proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
   var p = parseopt.initOptParser(cmd)
@@ -148,28 +249,27 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   )
   self.initDefinesProg(conf, "nlvm")
 
-  if os.paramCount() == 0:
-    echo """
-you can: nlvm c <filename> (see standard nim compiler for options)
-magic options:
-  --nlvm.target=wasm32 cross-compile to WebAssembly
-"""
-  else:
-    self.processCmdLineAndProjectPath(conf)
+  self.processCmdLineAndProjectPath(conf)
 
-    if not self.loadConfigsAndRunMainCommand(cache, conf): return
-    if optRun in conf.globalOptions:
-      let
-        binPath =
-          if not conf.outFile.isEmpty:
-            # If the user specified an outFile path, use that directly.
-            conf.outFile.prependCurDir
-          else:
-            # Figure out ourselves a valid binary name.
-            changeFileExt(conf.projectFull, ExeExt).prependCurDir
-        ex = quoteShell(binPath)
+  if paramCount() == 0:
+    writeHelp(conf, passCmd1)
+    return
 
-      execExternalProgram(conf, ex & ' ' & conf.arguments)
+  if not self.loadConfigsAndRunMainCommand(cache, conf):
+    return
+
+  if optRun in conf.globalOptions:
+    let
+      binPath =
+        if not conf.outFile.isEmpty:
+          # If the user specified an outFile path, use that directly.
+          conf.outFile.prependCurDir
+        else:
+          # Figure out ourselves a valid binary name.
+          changeFileExt(conf.projectFull, ExeExt).prependCurDir
+      ex = quoteShell(binPath)
+
+    execExternalProgram(conf, ex & ' ' & conf.arguments)
 
 # Beautiful...
 var tmp = getAppDir()

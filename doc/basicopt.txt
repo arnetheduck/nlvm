@@ -1,0 +1,34 @@
+::
+
+    nlvm command [options] [projectfile] [arguments]
+
+Command:
+  //compile, c                compile project with default code generator (C)
+
+Arguments:
+  arguments are passed to the program being run (if --run option is selected)
+
+nlvm specific options:
+  --nlvm.target:wasm32      cross-compile to WebAssembly (experimental)
+
+Options:
+  -p, --path:PATH           add path to search paths
+  -d, --define:SYMBOL(:VAL)
+                            define a conditional symbol
+                            (Optionally: Define the value for that symbol,
+                            see: "compile time define pragmas")
+  -u, --undef:SYMBOL        undefine a conditional symbol
+  -f, --forceBuild:on|off   force rebuilding of all modules
+  --threads:on|off          turn support for multi-threading on|off
+  -x, --checks:on|off       turn all runtime checks on|off
+  -a, --assertions:on|off   turn assertions on|off
+  --opt:none|speed|size     optimize not at all or for speed|size
+                            Note: use -d:release for a release build!
+  --debugger:native|endb    use native debugger (gdb) | ENDB (experimental)
+  --app:console|gui|lib|staticlib
+                            generate a console app|GUI app|DLL|static library
+  -r, --run                 run the compiled program with given arguments
+  --fullhelp                show all command line switches
+  -h, --help                show this help
+
+Note, single letter options that take an argument require a colon. E.g. -p:PATH.

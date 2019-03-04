@@ -5,6 +5,7 @@
 const
   LLVMLib = "libLLVM-7.so"
   LLVMRoot = "../ext/llvm-7.0.0.src/"
+  LLVMVersion* = "7.0.0"
 
 when defined(staticLLVM):
   const

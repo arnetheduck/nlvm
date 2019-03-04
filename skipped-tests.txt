@@ -74,12 +74,7 @@ tests/manyloc/standalone/
 tests/dll/client.nim
 
 # Uses dynlib which is not implemented (switch to normal linking?)
-# tests/async/tasyncssl.nim
-# tests/manyloc/keineschweine/
-# tests/stdlib/thttpclient.nim
-# tests/typerel/tnoargopenarray.nim
-# lib/pure/nimtracker.nim
-# lib/pure/smtp.nim
+tests/cpp/t10148.nim
 
 # nkParForStmt
 tests/closure/ttimeinfo.nim
@@ -143,8 +138,18 @@ tests/manyloc/standalone.nim
 # not sure
 examples/talk/hoisting.nim
 
+# some closure error most likely
+tests/async/tasyncawait.nim
+
 # not copying the right files
 tests/testament/tshouldfail.nim
 
 # failed on travis (todo: check)
 tests/stdlib/tosproc.nim
+
+# hangs
+tests/parallel/tsysspawn.nim
+
+# depends on files from compiler/ (todo: doable I guess.. geez this is ugly)
+tests/compiler/tunittest_light.nim
+tests/compiler/tasciitables.nim

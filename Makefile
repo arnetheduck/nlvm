@@ -71,7 +71,7 @@ run-tester: $(NLVMR) testament/tester
 	cp -ar Nim/lib/system* lib/
 	cp -ar Nim/lib/nimrtl* lib/
 	rm -rf testresults
-	-time testament/tester --targets:c "--nim:nlvm/nlvmr " all
+	-time testament/tester --targets:c "--nim:nlvm/nlvmr" all
 
 .PHONY: test
 test: sync-tests run-tester stats
