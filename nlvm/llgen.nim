@@ -6599,18 +6599,14 @@ proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
         disposeMessage(p)
         tmp
 
+    initializeAllAsmPrinters()
+    initializeAllTargets()
+    initializeAllTargetInfos()
+    initializeAllTargetMCs()
+
     if tgt.startsWith("wasm32"):
       # TODO i386 most closely matches wasm32 - though it's a bit of a stretch
       graph.config.target.setTarget(osStandalone, cpuI386)
-      initializeWebAssemblyAsmPrinter()
-      initializeWebAssemblyTarget()
-      initializeWebAssemblyTargetInfo()
-      initializeWebAssemblyTargetMC()
-    else:
-      initializeX86AsmPrinter()
-      initializeX86Target()
-      initializeX86TargetInfo()
-      initializeX86TargetMC()
 
     var tr: llvm.TargetRef
     discard getTargetFromTriple(tgt, addr(tr), nil)

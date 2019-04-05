@@ -11,7 +11,7 @@ NIMFLAGS=--debuginfo --linedir:on
 
 NLVMFLAGS= --debuginfo --linedir:on
 
-LLVM_MAJ=7
+LLVM_MAJ=8
 LLVM_MIN=0
 LLVM_PAT=0
 
@@ -110,13 +110,9 @@ sync-bad-tests:
 ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
 	sh ./make-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sha \
 		-DLLVM_BUILD_LLVM_DYLIB=1 \
-		-DLLVM_TARGETS_TO_BUILD=X86 \
-		-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=WebAssembly \
 		-DLLVM_ENABLE_ASSERTIONS=1 \
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 ext/$(LLVM_DIR)/sta/bin/llvm-config:
 	sh ./make-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sta \
-		-DLLVM_TARGETS_TO_BUILD=X86 \
-		-DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=WebAssembly \
 		-DCMAKE_BUILD_TYPE=Release

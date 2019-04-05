@@ -22,10 +22,11 @@ type
   CodeGenOptLevel* {.size: sizeof(cint).} = enum
     CodeGenLevelNone, CodeGenLevelLess, CodeGenLevelDefault, CodeGenLevelAggressive
   RelocMode* {.size: sizeof(cint).} = enum
-    RelocDefault, RelocStatic, RelocPIC, RelocDynamicNoPic
+    RelocDefault, RelocStatic, RelocPIC, RelocDynamicNoPic, RelocROPI, RelocRWPI,
+    RelocROPI_RWPI
   CodeModel* {.size: sizeof(cint).} = enum
-    CodeModelDefault, CodeModelJITDefault, CodeModelSmall, CodeModelKernel,
-    CodeModelMedium, CodeModelLarge
+    CodeModelDefault, CodeModelJITDefault, CodeModelTiny, CodeModelSmall,
+    CodeModelKernel, CodeModelMedium, CodeModelLarge
   CodeGenFileType* {.size: sizeof(cint).} = enum
     AssemblyFile, ObjectFile
 

@@ -17,9 +17,9 @@
 ##  Optionally returns a human-readable description of any errors that
 ##  occurred during parsing IR. OutMessage must be disposed with
 ##  LLVMDisposeMessage.
-## 
+##
 ##  @see llvm::ParseIR()
-## 
+##
 
 proc parseIRInContext*(contextRef: ContextRef; memBuf: MemoryBufferRef;
                       outM: ptr ModuleRef; outMessage: cstringArray): Bool {.

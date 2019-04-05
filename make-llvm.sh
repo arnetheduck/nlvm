@@ -21,6 +21,9 @@ LLVM_ROOT=llvm-$VER2.src
 
 [ -f $LLVM_ROOT.tar.xz ] || {
   wget http://releases.llvm.org/$VER2/$LLVM_ROOT.tar.xz
+}
+
+[ -d $LLVM_ROOT ] || {
   tar xf $LLVM_ROOT.tar.xz
 }
 

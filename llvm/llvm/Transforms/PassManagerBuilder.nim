@@ -17,9 +17,9 @@ type
 ## *
 ##  @defgroup LLVMCTransformsPassManagerBuilder Pass manager builder
 ##  @ingroup LLVMCTransforms
-## 
+##
 ##  @{
-## 
+##
 ## * See llvm::PassManagerBuilder.
 
 proc passManagerBuilderCreate*(): PassManagerBuilderRef {.
@@ -71,4 +71,4 @@ proc passManagerBuilderPopulateLTOPassManager*(pmb: PassManagerBuilderRef;
     importc: "LLVMPassManagerBuilderPopulateLTOPassManager", dynlib: LLVMLib.}
 ## *
 ##  @}
-## 
+##

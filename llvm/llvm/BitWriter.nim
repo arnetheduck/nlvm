@@ -19,9 +19,9 @@
 ## *
 ##  @defgroup LLVMCBitWriter Bit Writer
 ##  @ingroup LLVMC
-## 
+##
 ##  @{
-## 
+##
 ## ===-- Operations on modules ---------------------------------------------===
 ## * Writes a module to the specified path. Returns 0 on success.
 
@@ -42,4 +42,4 @@ proc writeBitcodeToMemoryBuffer*(m: ModuleRef): MemoryBufferRef {.
     importc: "LLVMWriteBitcodeToMemoryBuffer", dynlib: LLVMLib.}
 ## *
 ##  @}
-## 
+##

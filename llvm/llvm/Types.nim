@@ -94,6 +94,24 @@ type
   MetadataRef* = ptr OpaqueMetadata
 
 ## *
+##  Represents an LLVM Named Metadata Node.
+##
+##  This models llvm::NamedMDNode.
+##
+
+type
+  NamedMDNodeRef* = ptr OpaqueNamedMDNode
+
+## *
+##  Represents an entry in a Global Object's metadata attachments.
+##
+##  This models std::pair<unsigned, MDNode *>
+##
+
+type
+  ValueMetadataEntry* = opaqueValueMetadataEntry
+
+## *
 ##  Represents an LLVM basic block builder.
 ##
 ##  This models llvm::IRBuilder.
@@ -159,14 +177,14 @@ type
 ##
 
 type
-  ComdatRef* = ptr Comdat
+  ComdatRef* = ptr comdat
 
 ## *
 ##  @see llvm::Module::ModuleFlagEntry
 ##
 
 type
-  ModuleFlagEntry* = OpaqueModuleFlagEntry
+  ModuleFlagEntry* = opaqueModuleFlagEntry
 
 ## *
 ##  @see llvm::JITEventListener

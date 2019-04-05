@@ -31,10 +31,14 @@ type
     DIFlagVirtualInheritance = 3 shl 16, DIFlagIntroducedVirtual = 1 shl 18,
     DIFlagBitField = 1 shl 19, DIFlagNoReturn = 1 shl 20, DIFlagMainSubprogram = 1 shl 21,
     DIFlagTypePassByValue = 1 shl 22, DIFlagTypePassByReference = 1 shl 23,
-    DIFlagFixedEnum = 1 shl 24, DIFlagThunk = 1 shl 25, DIFlagTrivial = 1 shl 26,
-#    DIFlagIndirectVirtualBase = (1 shl 2) or (1 shl 5),
-#    DIFlagAccessibility = dIFlagPrivate or dIFlagProtected or dIFlagPublic, DIFlagPtrToMemberRep = dIFlagSingleInheritance or
-#        dIFlagMultipleInheritance or dIFlagVirtualInheritance
+    DIFlagEnumClass = 1 shl 24,
+    #DIFlagFixedEnum = DIFlagEnumClass, ##  Deprecated.
+    DIFlagThunk = 1 shl 25, DIFlagTrivial = 1 shl 26, DIFlagBigEndian = 1 shl 27,
+    DIFlagLittleEndian = 1 shl 28,
+    #DIFlagIndirectVirtualBase = (1 shl 2) or (1 shl 5),
+    #DIFlagAccessibility = DIFlagPrivate or DIFlagProtected or DIFlagPublic,
+    #DIFlagPtrToMemberRep = DIFlagSingleInheritance or
+    #    DIFlagMultipleInheritance or DIFlagVirtualInheritance
 
 
 ## *
@@ -70,6 +74,46 @@ type
   DWARFEmissionKind* {.size: sizeof(cint).} = enum
     DWARFEmissionNone = 0, DWARFEmissionFull, DWARFEmissionLineTablesOnly
 
+
+## *
+##  The kind of metadata nodes.
+##
+
+const
+  MDStringMetadataKind* = 0
+  ConstantAsMetadataMetadataKind* = 1
+  LocalAsMetadataMetadataKind* = 2
+  DistinctMDOperandPlaceholderMetadataKind* = 3
+  MDTupleMetadataKind* = 4
+  DILocationMetadataKind* = 5
+  DIExpressionMetadataKind* = 6
+  DIGlobalVariableExpressionMetadataKind* = 7
+  GenericDINodeMetadataKind* = 8
+  DISubrangeMetadataKind* = 9
+  DIEnumeratorMetadataKind* = 10
+  DIBasicTypeMetadataKind* = 11
+  DIDerivedTypeMetadataKind* = 12
+  DICompositeTypeMetadataKind* = 13
+  DISubroutineTypeMetadataKind* = 14
+  DIFileMetadataKind* = 15
+  DICompileUnitMetadataKind* = 16
+  DISubprogramMetadataKind* = 17
+  DILexicalBlockMetadataKind* = 18
+  DILexicalBlockFileMetadataKind* = 19
+  DINamespaceMetadataKind* = 20
+  DIModuleMetadataKind* = 21
+  DITemplateTypeParameterMetadataKind* = 22
+  DITemplateValueParameterMetadataKind* = 23
+  DIGlobalVariableMetadataKind* = 24
+  DILocalVariableMetadataKind* = 25
+  DILabelMetadataKind* = 26
+  DIObjCPropertyMetadataKind* = 27
+  DIImportedEntityMetadataKind* = 28
+  DIMacroMetadataKind* = 29
+  DIMacroFileMetadataKind* = 30
+
+type
+  MetadataKind* = cuint
 
 ## *
 ##  An LLVM DWARF type encoding.
@@ -474,10 +518,12 @@ proc dIBuilderCreateUnspecifiedType*(builder: DIBuilderRef; name: cstring;
 ##  \param NameLen     Length of type name.
 ##  \param SizeInBits  Size of the type.
 ##  \param Encoding    DWARF encoding code, e.g. \c LLVMDWARFTypeEncoding_float.
+##  \param Flags       Flags to encode optional attribute like endianity
 ##
 
 proc dIBuilderCreateBasicType*(builder: DIBuilderRef; name: cstring; nameLen: csize;
-                              sizeInBits: uint64; encoding: DWARFTypeEncoding): MetadataRef {.
+                              sizeInBits: uint64; encoding: DWARFTypeEncoding;
+                              flags: DIFlags): MetadataRef {.
     importc: "LLVMDIBuilderCreateBasicType", dynlib: LLVMLib.}
 ## *
 ##  Create debugging information entry for a pointer.
@@ -753,7 +799,7 @@ proc dIBuilderCreateReplaceableCompositeType*(builder: DIBuilderRef; tag: cuint;
 proc dIBuilderCreateBitFieldMemberType*(builder: DIBuilderRef; scope: MetadataRef;
                                        name: cstring; nameLen: csize;
                                        file: MetadataRef; lineNumber: cuint;
-                                       sizeInBits: uint64; offsetInBits: uint64;
+                                       sizeInBits: uint64; offsetInBits: uint64T;
                                        storageOffsetInBits: uint64;
                                        flags: DIFlags; `type`: MetadataRef): MetadataRef {.
     importc: "LLVMDIBuilderCreateBitFieldMemberType", dynlib: LLVMLib.}
@@ -861,8 +907,8 @@ proc dITypeGetFlags*(dType: MetadataRef): DIFlags {.importc: "LLVMDITypeGetFlags
 ##  \param Count      Count of elements in the subrange.
 ##
 
-proc dIBuilderGetOrCreateSubrange*(builder: DIBuilderRef; lowerBound: int64;
-                                  count: int64): MetadataRef {.
+proc dIBuilderGetOrCreateSubrange*(builder: DIBuilderRef; lowerBound: int64T;
+                                  count: int64T): MetadataRef {.
     importc: "LLVMDIBuilderGetOrCreateSubrange", dynlib: LLVMLib.}
 ## *
 ##  Create an array of DI Nodes.
@@ -882,7 +928,7 @@ proc dIBuilderGetOrCreateArray*(builder: DIBuilderRef; data: ptr MetadataRef;
 ##  \param Length      Length of the address operation array.
 ##
 
-proc dIBuilderCreateExpression*(builder: DIBuilderRef; `addr`: ptr int64;
+proc dIBuilderCreateExpression*(builder: DIBuilderRef; `addr`: ptr int64T;
                                length: csize): MetadataRef {.
     importc: "LLVMDIBuilderCreateExpression", dynlib: LLVMLib.}
 ## *
@@ -892,7 +938,7 @@ proc dIBuilderCreateExpression*(builder: DIBuilderRef; `addr`: ptr int64;
 ##  \param Value       The constant value.
 ##
 
-proc dIBuilderCreateConstantValueExpression*(builder: DIBuilderRef; value: int64): MetadataRef {.
+proc dIBuilderCreateConstantValueExpression*(builder: DIBuilderRef; value: int64T): MetadataRef {.
     importc: "LLVMDIBuilderCreateConstantValueExpression", dynlib: LLVMLib.}
 ## *
 ##  Create a new descriptor for the specified variable.
@@ -909,6 +955,7 @@ proc dIBuilderCreateConstantValueExpression*(builder: DIBuilderRef; value: int64
 ##  \param Expr        The location of the global relative to the attached
 ##                     GlobalVariable.
 ##  \param Decl        Reference to the corresponding declaration.
+##                     variables.
 ##  \param AlignInBits Variable alignment(or 0 if no alignment attr was
 ##                     specified)
 ##
@@ -1087,3 +1134,11 @@ proc getSubprogram*(`func`: ValueRef): MetadataRef {.importc: "LLVMGetSubprogram
 
 proc setSubprogram*(`func`: ValueRef; sp: MetadataRef) {.
     importc: "LLVMSetSubprogram", dynlib: LLVMLib.}
+## *
+##  Obtain the enumerated type of a Metadata instance.
+##
+##  @see llvm::Metadata::getMetadataID()
+##
+
+proc getMetadataKind*(metadata: MetadataRef): MetadataKind {.
+    importc: "LLVMGetMetadataKind", dynlib: LLVMLib.}

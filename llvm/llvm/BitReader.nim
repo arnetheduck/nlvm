@@ -19,13 +19,13 @@
 ## *
 ##  @defgroup LLVMCBitReader Bit Reader
 ##  @ingroup LLVMC
-## 
+##
 ##  @{
-## 
+##
 ##  Builds a module from the bitcode in the specified memory buffer, returning a
 ##    reference to the module via the OutModule parameter. Returns 0 on success.
 ##    Optionally returns a human-readable error message via OutMessage.
-## 
+##
 ##    This is deprecated. Use LLVMParseBitcode2.
 
 proc parseBitcode*(memBuf: MemoryBufferRef; outModule: ptr ModuleRef;
@@ -67,4 +67,4 @@ proc getBitcodeModule2*(memBuf: MemoryBufferRef; outM: ptr ModuleRef): Bool {.
     importc: "LLVMGetBitcodeModule2", dynlib: LLVMLib.}
 ## *
 ##  @}
-## 
+##

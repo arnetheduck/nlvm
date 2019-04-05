@@ -23,7 +23,7 @@ type
 ##  destroyed.
 ##  The return value is true if an error occurred, false otherwise.
 ##  Use the diagnostic handler to get any diagnostic message.
-## 
+##
 
 proc linkModules2*(dest: ModuleRef; src: ModuleRef): Bool {.
     importc: "LLVMLinkModules2", dynlib: LLVMLib.}

@@ -3,9 +3,9 @@
 # See the LICENSE file for license info (doh!)
 
 const
-  LLVMLib = "libLLVM-7.so"
-  LLVMRoot = "../ext/llvm-7.0.0.src/"
-  LLVMVersion* = "7.0.0"
+  LLVMLib = "libLLVM-8.so"
+  LLVMRoot = "../ext/llvm-8.0.0.src/"
+  LLVMVersion* = "8.0.0"
 
 when defined(staticLLVM):
   const
@@ -17,7 +17,7 @@ else:
   const
     LLVMOut = LLVMRoot & "sha/"
 
-  {.passL: "-lLLVM-7".}
+  {.passL: "-lLLVM-8".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
 {.passC: "-I" & LLVMRoot & "include".}
@@ -52,11 +52,14 @@ type
   OpaqueMetaData{.pure, final.} = object
   OpaqueDIBuilder{.pure, final.} = object
   target{.pure, final.} = object
-  Comdat{.pure, final.} = object
-  OpaqueModuleFlagEntry{.pure, final.} = object
   OpaqueJITEventListener{.pure, final.} = object
+  OpaqueNamedMDNode{.pure, final.} = object
+  opaqueValueMetadataEntry{.pure, final.} = object
+  comdat{.pure, final.} = object
+  opaqueModuleFlagEntry{.pure, final.} = object
 
   # Funny type names that came out of c2nim
+  int64T = int64
   uint64T = uint64
   uint8T = uint8
 
@@ -65,21 +68,6 @@ type
 
 include llvm/Types
 include llvm/Support
-
-# Target.h is quite a mess with lots of site-specific stuff - some of the parts
-# that c2nim can't deal with:
-proc initializeX86AsmParser*() {.importc: "LLVMInitializeX86AsmParser", dynlib: LLVMLib.}
-proc initializeX86AsmPrinter*() {.importc: "LLVMInitializeX86AsmPrinter", dynlib: LLVMLib.}
-proc initializeX86Disassembler*() {.importc: "LLVMInitializeX86Disassembler", dynlib: LLVMLib.}
-proc initializeX86Target*() {.importc: "LLVMInitializeX86Target", dynlib: LLVMLib.}
-proc initializeX86TargetInfo*() {.importc: "LLVMInitializeX86TargetInfo", dynlib: LLVMLib.}
-proc initializeX86TargetMC*() {.importc: "LLVMInitializeX86TargetMC", dynlib: LLVMLib.}
-
-proc initializeWebAssemblyAsmPrinter*() {.importc: "LLVMInitializeWebAssemblyAsmPrinter", dynlib: LLVMLib.}
-proc initializeWebAssemblyDisassembler*() {.importc: "LLVMInitializeWebAssemblyDisassembler", dynlib: LLVMLib.}
-proc initializeWebAssemblyTarget*() {.importc: "LLVMInitializeWebAssemblyTarget", dynlib: LLVMLib.}
-proc initializeWebAssemblyTargetInfo*() {.importc: "LLVMInitializeWebAssemblyTargetInfo", dynlib: LLVMLib.}
-proc initializeWebAssemblyTargetMC*() {.importc: "LLVMInitializeWebAssemblyTargetMC", dynlib: LLVMLib.}
 
 include llvm/Core
 include llvm/DebugInfo
@@ -90,6 +78,8 @@ include llvm/Linker
 include llvm/Target
 include llvm/TargetMachine
 include llvm/Transforms/PassManagerBuilder
+
+include preprocessed
 
 # http://www.dwarfstd.org/doc/DWARF4.pdf
 const
@@ -131,8 +121,8 @@ proc dIBuilderCreateFunction*(d: DIBuilderRef, scope: MetadataRef,
   scopeLine, flags.DIFlags, isOptimized.Bool)
 proc dIBuilderCreateBasicType*(
   d: DIBuilderRef, name: string, bits: uint64,
-  encoding: cuint): MetadataRef =
-  dIBuilderCreateBasicType(d, name.cstring, name.len, bits, encoding)
+  encoding: cuint, flags: DIFlags = DIFlagZero): MetadataRef =
+  dIBuilderCreateBasicType(d, name.cstring, name.len, bits, encoding, flags)
 proc dIBuilderCreatePointerType*(
   d: DIBuilderRef, pointeeTy: MetadataRef, bits: uint64, align: uint32,
   name: string): MetadataRef =
