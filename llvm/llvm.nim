@@ -2,9 +2,12 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
+import strutils
+
 const
   LLVMLib = "libLLVM-8.so"
   LLVMRoot = "../ext/llvm-8.0.0.src/"
+  LLDRoot = "../ext/lld-8.0.0.src/"
   LLVMVersion* = "8.0.0"
 
 when defined(staticLLVM):
@@ -23,9 +26,17 @@ else:
 {.passC: "-I" & LLVMRoot & "include".}
 {.passC: "-I" & LLVMOut & "include".}
 
+{.passC: "-I" & LLDRoot & "include".}
+
 {.passL: "-Wl,--as-needed".}
 {.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
 {.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
+
+{.passL: "-llldDriver" .}
+{.passL: "-llldELF" .}
+{.passL: "-llldWasm" .}
+{.passL: "-llldCore" .}
+{.passL: "-llldCommon" .}
 
 {.compile: "wrapper.cc".}
 
@@ -178,6 +189,30 @@ proc addModuleFlag*(
   addModuleFlag(m, behavior, key.cstring, key.len, val)
 proc nimSetMetadataGlobal*(
   val: ValueRef; kindID: cuint; node: ValueRef) {.importc: "LLVMNimSetMetadataGlobal".}
+
+proc nimLLDLinkElf*(
+  argv: cstringArray, argc: cint): cstring {.importc: "LLVMNimLLDLinkElf".}
+
+proc nimLLDLinkElf*(args: openArray[string]): string =
+  let argv = allocCStringArray(args)
+  defer: deallocCStringArray(argv)
+
+  let tmp = nimLLDLinkElf(argv, args.len.cint)
+  if not tmp.isNil:
+    result = strip($tmp)
+    disposeMessage(tmp)
+
+proc nimLLDLinkWasm*(
+  argv: cstringArray, argc: cint): cstring {.importc: "LLVMNimLLDLinkWasm".}
+
+proc nimLLDLinkWasm*(args: openArray[string]): string =
+  let argv = allocCStringArray(args)
+  defer: deallocCStringArray(argv)
+
+  let tmp = nimLLDLinkWasm(argv, args.len.cint)
+  if not tmp.isNil:
+    result = strip($tmp)
+    disposeMessage(tmp)
 
 # A few helpers to make things more smooth
 

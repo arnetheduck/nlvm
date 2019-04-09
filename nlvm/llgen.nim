@@ -36,7 +36,9 @@ import
     types,
     wordrecg
   ],
-  llvm/llvm
+  llvm/llvm,
+
+  lllink
 
 type
   SectionKind = enum
@@ -6477,17 +6479,13 @@ proc writeOutput(g: LLGen, project: string) =
   if optNoLinking in g.config.globalOptions:
     return
 
-  # the c generator loads libraries using dlopen/dlsym/equivalent, which nlvm
-  # doesn't support, so here, we add a few libraries..
-  g.config.addLinkOptionCmd("-Wl,--as-needed")
-
   if g.config.selectedGC == gcBoehm:
     g.config.cLinkedLibs.add("gc")
 
   g.config.addExternalFileToLink(ofile.AbsoluteFile)
 
   # Linking is a horrible mess - let's reuse the c compiler for now
-  g.config.callCCompiler(project.AbsoluteFile)
+  lllink(g.m.getTarget(), g.config, project.AbsoluteFile)
 
 proc genForwardedProcs(g: LLGen) =
   # Forward declared proc:s lack bodies when first encountered, so they're given

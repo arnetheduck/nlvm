@@ -3,11 +3,11 @@
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Module.h"
 
+#include "lld/Common/Driver.h"
+
 #include "llvm-c/Types.h"
+#include "llvm-c/Core.h"
 
-
-// wrapper based on the rust wrapper that will hopefully find its way to
-// upstream one fine day
 using namespace llvm;
 
 typedef DIBuilder *LLVMNimDIBuilderRef;
@@ -42,4 +42,30 @@ extern "C" void LLVMNimSetMetadataGlobal(LLVMValueRef Global,
   MDNode *N = Val ? extractMDNode(unwrap<MetadataAsValue>(Val)) : nullptr;
 
   unwrap<GlobalObject>(Global)->setMetadata(KindID, N);
+}
+
+extern "C" const char* LLVMNimLLDLinkElf(const char **args, size_t arg_count) {
+    ArrayRef<const char *> array_ref_args(args, arg_count);
+    SmallVector<char, 128> sv;
+    raw_svector_ostream os(sv);
+
+    if (!lld::elf::link(array_ref_args, false, os)) {
+      sv.push_back(0);
+      return LLVMCreateMessage(&sv[0]);
+    }
+
+    return nullptr;
+}
+
+extern "C" const char* LLVMNimLLDLinkWasm(const char **args, size_t arg_count) {
+    ArrayRef<const char *> array_ref_args(args, arg_count);
+    SmallVector<char, 128> sv;
+    raw_svector_ostream os(sv);
+
+    if (!lld::wasm::link(array_ref_args, false, os)) {
+      sv.push_back(0);
+      return LLVMCreateMessage(&sv[0]);
+    }
+
+    return nullptr;
 }
