@@ -114,5 +114,4 @@ ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 ext/$(LLVM_DIR)/sta/bin/llvm-config:
-	sh ./make-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sta \
-		-DCMAKE_BUILD_TYPE=Release
+	sh ./dl-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sta
