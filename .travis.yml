@@ -3,10 +3,12 @@ os: linux
 dist: trusty
 cache:
   directories:
-    - ext/llvm-7.0.0.src/include
-    - ext/llvm-7.0.0.src/sta/bin
-    - ext/llvm-7.0.0.src/sta/lib
-    - ext/llvm-7.0.0.src/sta/include
+    - ext/llvm-8.0.0.src/include
+    - ext/llvm-8.0.0.src/sta/bin
+    - ext/llvm-8.0.0.src/sta/lib
+    - ext/llvm-8.0.0.src/sta/include
+    - ext/llvm-8.0.0.src/projects
+    - ext/lld-8.0.0.src/include
 
 compiler: clang
 
@@ -31,7 +33,7 @@ before_script:
 script:
   - export PATH=$TRAVIS_BUILD_DIR/ext:$PATH
   - export PATH=$TRAVIS_BUILD_DIR/ext/cmake-3.10.3-Linux-x86_64/bin:$PATH
-  - make STATIC_LLVM=1 test
+  - make STATIC_LLVM=1 ext/llvm-8.0.0.src/sta/bin/llvm-config # test
   - bash make-dist.sh
 
 after_success:

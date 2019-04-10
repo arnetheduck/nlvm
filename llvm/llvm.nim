@@ -10,11 +10,17 @@ const
   LLDRoot = "../ext/lld-8.0.0.src/"
   LLVMVersion* = "8.0.0"
 
+{.passL: "-llldDriver" .}
+{.passL: "-llldELF" .}
+{.passL: "-llldWasm" .}
+{.passL: "-llldCore" .}
+{.passL: "-llldCommon" .}
+
 when defined(staticLLVM):
   const
     LLVMOut = LLVMRoot & "sta/"
 
-  {.passL: gorge(LLVMRoot & "sta/bin/llvm-config --libs webassembly x86 debuginfodwarf passes").}
+  {.passL: gorge(LLVMRoot & "sta/bin/llvm-config --libs all").}
 
 else:
   const
@@ -31,12 +37,6 @@ else:
 {.passL: "-Wl,--as-needed".}
 {.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
 {.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
-
-{.passL: "-llldDriver" .}
-{.passL: "-llldELF" .}
-{.passL: "-llldWasm" .}
-{.passL: "-llldCore" .}
-{.passL: "-llldCommon" .}
 
 {.compile: "wrapper.cc".}
 
