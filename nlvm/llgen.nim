@@ -2276,8 +2276,9 @@ proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef) =
        llvm.int1TypeInContext(g.lc)])
     f = g.m.getOrInsertFunction("llvm.memset.p0i8.i64", memsetType)
     t = g.b.buildBitCast(tgt, g.voidPtrType, g.nn("memset.tgt", v))
+    ln = g.b.buildZExt(len, g.primitives[tyUInt64], "")
 
-  discard g.b.buildCall(f, [t, v, len, g.constInt1(false)])
+  discard g.b.buildCall(f, [t, v, ln, g.constInt1(false)])
 
 proc callMemcpy(g: LLGen, tgt, src, len: llvm.ValueRef) =
   let
@@ -2287,8 +2288,9 @@ proc callMemcpy(g: LLGen, tgt, src, len: llvm.ValueRef) =
     f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i64", memcpyType)
     t = g.b.buildBitCast(tgt, g.voidPtrType, g.nn("memcpy.tgt", tgt))
     s = g.b.buildBitCast(src, g.voidPtrType, g.nn("memcpy.src", src))
+    ln = g.b.buildZExt(len, g.primitives[tyUInt64], "")
 
-  discard g.b.buildCall(f, [t, s, len, g.constInt1(false)])
+  discard g.b.buildCall(f, [t, s, ln, g.constInt1(false)])
 
 proc callCtpop(g: LLGen, v: llvm.ValueRef, size: BiggestInt): llvm.ValueRef =
   let
@@ -2709,6 +2711,23 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       o = LLValue(v: g.buildI8(
         g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
       return true
+
+    if s.name.s == "nimCopyMem":
+      let p0 = g.genNode(n[1], false).v
+      let p1 = g.genNode(n[2], true).v
+      let p2 = g.genNode(n[3], true).v
+
+      g.callMemcpy(p0, p1, p2)
+      return true
+
+    if s.name.s == "nimSetMem":
+      let p0 = g.genNode(n[1], false).v
+      let p1 = g.genNode(n[2], true).v
+      let p2 = g.genNode(n[3], true).v
+
+      g.callMemset(p0, p1, p2)
+      return true
+
   elif s.originatingModule().name.s == "endians":
     case $s.loc.r
     of "__builtin_bswap16":
