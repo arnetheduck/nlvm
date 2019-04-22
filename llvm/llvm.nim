@@ -273,9 +273,9 @@ proc getParamTypes*(functionTy: TypeRef): seq[TypeRef] =
   if result.len > 0:
     functionTy.getParamTypes(addr(result[0]))
 
-proc structType*(elementTypes: openarray[TypeRef],
-                 packed = False): TypeRef =
-  asRaw(elementTypes, structType(p, n, packed))
+proc structTypeInContext*(c: ContextRef, elementTypes: openarray[TypeRef],
+                          packed = False): TypeRef =
+  asRaw(elementTypes, structTypeInContext(c, p, n, packed))
 
 proc structSetBody*(structTy: TypeRef; elementTypes: openarray[TypeRef];
                     packed = False) =
@@ -292,8 +292,8 @@ proc pointerType*(elementType: TypeRef): TypeRef =
 proc constStringInContext*(c: ContextRef, s: string, dontNullTerminate = False): ValueRef =
   constStringInContext(c, s, s.len.cuint, dontNullTerminate)
 
-proc constStruct*(constantVals: openarray[ValueRef]; packed = False): ValueRef =
-  asRaw(constantVals, constStruct(p, n, packed))
+proc constStructInContext*(c: ContextRef, constantVals: openarray[ValueRef]; packed = False): ValueRef =
+  asRaw(constantVals, constStructInContext(c, p, n, packed))
 
 proc constArray*(t: TypeRef, constantVals: openarray[ValueRef]): ValueRef =
   asRaw(constantVals, constArray(t, p, n))

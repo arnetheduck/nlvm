@@ -44,7 +44,6 @@ type
   SectionKind = enum
     secAlloca # Local stack allocations (see localAlloca)
     secArgs # Function argument initialization
-    secRoots # GC root registration
     secBody # User code
     secLastBody # Last piece of body code that was written
     secReturn # Final ret instruction
@@ -118,6 +117,7 @@ type
     depth: int
 
     init: LLFunc
+    registrar: LLFunc
 
     module: LLModule
 
@@ -548,7 +548,7 @@ proc constNimString(g: LLGen, n: PNode): llvm.ValueRef =
     let ll = g.constNimInt(n.strVal.len)
     let cap = g.constNimInt(n.strVal.len + g.strLitFlag)
     let x = llvm.constNamedStruct(g.llGenericSeqType(), [ll, cap])
-    llvm.constStruct([x, s])
+    llvm.constStructInContext(g.lc, [x, s])
 
 proc buildExtractValue(b: llvm.BuilderRef, v: LLValue, index: cuint,
                        name: cstring): LLValue =
@@ -678,7 +678,11 @@ proc buildStoreNull(g: LLGen, v: llvm.ValueRef) =
   let t = v.typeOfX()
   assert t.getTypeKind() == llvm.PointerTypeKind
   let et = t.getElementType()
-  if et.getTypeKind() in {llvm.ArrayTypeKind, llvm.StructTypeKind}:
+  # TODO I have a vague recollection of seeing constNull explode in size when
+  #      storing zero like this, so we use memset instead for large entities -
+  #      this needs revisiting however, perhaps it was an old llvm or something?
+  if et.getTypeKind() in {llvm.ArrayTypeKind, llvm.StructTypeKind} and
+      g.m.getModuleDataLayout().sizeOfXTypeInBits(et) > (64'u64 * 8):
     g.callMemset(v, g.constInt8(0), et.sizeOfX())
   else:
     discard g.b.buildStore(constNull(et), v)
@@ -1639,16 +1643,49 @@ proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
 
 proc registerGcRoot(g: LLGen, sym: PSym, v: llvm.ValueRef) =
   if g.config.selectedGC in {gcMarkAndSweep, gcDestructors, gcV2, gcRefc} and
-    sym.typ.containsGarbageCollectedRef():
-    g.withFunc(g.init): g.withBlock(g.section(g.init, secRoots)):
-      let prc = g.genGlobalMarkerProc(sym, v)
-      let scope = g.init.ds
-      if scope != nil:
-        let dl = g.lc.dIBuilderCreateDebugLocation(
-          1, 1, scope, nil)
-        g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
+      sym.typ.containsGarbageCollectedRef() and sym.id notin g.gmarkers:
 
-      discard g.callCompilerProc("nimRegisterGlobalMarker", [prc])
+    # This is a bit backwards - better would be to rewrite nimRegisterGlobalMarker!
+    if g.registrar.isNil:
+      let
+        name = ".nlvm.registrar"
+        registrarType = llvm.functionType(llvm.voidTypeInContext(g.lc), @[], false)
+        registrar = g.m.addFunction(name, registrarType)
+
+      registrar.setLinkage(llvm.PrivateLinkage)
+
+      let
+        ctorsInit = llvm.constStructInContext(g.lc, [
+          g.constInt32(65535), registrar, constNull(g.voidPtrType)])
+        ctorsType = ctorsInit.typeOfX()
+        ctorsArrayType = llvm.arrayType(ctorsType, 1)
+        ctors = g.m.addGlobal(ctorsArrayType, "llvm.global_ctors")
+
+      ctors.setLinkage(llvm.AppendingLinkage)
+      ctors.setInitializer(llvm.constArray(ctorsType, [ctorsInit]))
+
+      let f = g.newLLFunc(registrar, nil)
+      if g.d != nil:
+        f.ds = g.debugFunction(nil, [], registrar)
+      g.registrar = f
+
+      g.withFunc(g.registrar): g.withBlock(g.section(g.f, secReturn)):
+        if g.f.ds != nil:
+          let dl = g.lc.dIBuilderCreateDebugLocation(
+              1, 1, g.f.ds, nil)
+          g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
+        discard g.b.buildRetVoid()
+
+    let prc = g.genGlobalMarkerProc(sym, v)
+
+    g.withFunc(g.registrar):
+      g.withBlock(g.section(g.f, secBody)):
+        if g.f.ds != nil:
+          let dl = g.lc.dIBuilderCreateDebugLocation(
+              1, 1, g.f.ds, nil)
+          g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
+
+        discard g.callCompilerProc("nimRegisterGlobalMarker", [prc])
 
 proc genTypeInfoInit(g: LLGen, t: PType, ntlt, lt: llvm.TypeRef,
                      baseVar, nodeVar, finalizerVar, markerVar,
@@ -2265,32 +2302,56 @@ proc callBSwap(g: LLGen, v: llvm.ValueRef, n: cuint): llvm.ValueRef =
   let fty = llvm.functionType(it, [it])
 
   let
-    f = g.m.getOrInsertFunction("llvm.bswap." & $n, fty)
+    f = g.m.getOrInsertFunction("llvm.bswap.i" & $n, fty)
 
   result = g.b.buildCall(f, [v])
 
 proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef) =
   let
-    memsetType = llvm.functionType(llvm.voidTypeInContext(g.lc),
-      [g.voidPtrType, llvm.int8TypeInContext(g.lc), llvm.int64TypeInContext(g.lc),
-       llvm.int1TypeInContext(g.lc)])
-    f = g.m.getOrInsertFunction("llvm.memset.p0i8.i64", memsetType)
     t = g.b.buildBitCast(tgt, g.voidPtrType, g.nn("memset.tgt", v))
-    ln = g.b.buildZExt(len, g.primitives[tyUInt64], "")
+    i8t = llvm.int8TypeInContext(g.lc)
+    v8 = g.buildTruncOrExt(v, i8t, true)
+  if len.typeOfX().getIntTypeWidth() == 64:
+    let
+      memsetType = llvm.functionType(llvm.voidTypeInContext(g.lc),
+        [g.voidPtrType, i8t, llvm.int64TypeInContext(g.lc),
+        llvm.int1TypeInContext(g.lc)])
+      f = g.m.getOrInsertFunction("llvm.memset.p0i8.i64", memsetType)
 
-  discard g.b.buildCall(f, [t, v, ln, g.constInt1(false)])
+    discard g.b.buildCall(f, [t, v8, len, g.constInt1(false)])
+  else:
+    let
+      i32t = llvm.int32TypeInContext(g.lc)
+      memsetType = llvm.functionType(llvm.voidTypeInContext(g.lc),
+        [g.voidPtrType, llvm.int8TypeInContext(g.lc), i32t,
+        llvm.int1TypeInContext(g.lc)])
+      f = g.m.getOrInsertFunction("llvm.memset.p0i8.i32", memsetType)
+      len32 = g.b.buildZExt(len, i32t, "")
+
+    discard g.b.buildCall(f, [t, v8, len32, g.constInt1(false)])
 
 proc callMemcpy(g: LLGen, tgt, src, len: llvm.ValueRef) =
   let
-    memcpyType = llvm.functionType(llvm.voidTypeInContext(g.lc), [
-      g.voidPtrType, g.voidPtrType, llvm.int64TypeInContext(g.lc),
-      llvm.int1TypeInContext(g.lc)])
-    f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i64", memcpyType)
     t = g.b.buildBitCast(tgt, g.voidPtrType, g.nn("memcpy.tgt", tgt))
     s = g.b.buildBitCast(src, g.voidPtrType, g.nn("memcpy.src", src))
-    ln = g.b.buildZExt(len, g.primitives[tyUInt64], "")
 
-  discard g.b.buildCall(f, [t, s, ln, g.constInt1(false)])
+  if len.typeOfX().getIntTypeWidth() == 64:
+    let
+      memcpyType = llvm.functionType(llvm.voidTypeInContext(g.lc), [
+        g.voidPtrType, g.voidPtrType, llvm.int64TypeInContext(g.lc),
+        llvm.int1TypeInContext(g.lc)])
+      f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i64", memcpyType)
+
+    discard g.b.buildCall(f, [t, s, len, g.constInt1(false)])
+  else:
+    let
+      i32t = llvm.int32TypeInContext(g.lc)
+      memcpyType = llvm.functionType(llvm.voidTypeInContext(g.lc), [
+        g.voidPtrType, g.voidPtrType, i32t, llvm.int1TypeInContext(g.lc)])
+      f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i32", memcpyType)
+      len32 = g.b.buildZExt(len, i32t, "")
+
+    discard g.b.buildCall(f, [t, s, len32, g.constInt1(false)])
 
 proc callCtpop(g: LLGen, v: llvm.ValueRef, size: BiggestInt): llvm.ValueRef =
   let
@@ -2312,7 +2373,8 @@ proc callErrno(g: LLGen, prefix: string): llvm.ValueRef =
 proc callWithOverflow(g: LLGen, op: string, a, b: llvm.ValueRef, name: string): llvm.ValueRef =
   let
     t = a.typeOfX()
-    ft = llvm.functionType(llvm.structType([t, int1TypeInContext(g.lc)]), [t, t])
+    ft = llvm.functionType(llvm.structTypeInContext(
+      g.lc, [t, int1TypeInContext(g.lc)]), [t, t])
     f = g.m.getOrInsertFunction(
       "llvm." & op & ".with.overflow.i" & $t.getIntTypeWidth(), ft)
 
@@ -2408,6 +2470,21 @@ proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
     discard g.b.buildStore(g.genTypeInfo(t), tgt)
   of frEmbedded:
     discard g.callCompilerProc("objectInit", [v, g.genTypeInfo(t)])
+
+proc constructLoc(g: LLGen, t: PType, v:llvm.ValueRef) =
+  g.buildStoreNull(v)
+  g.genObjectInit(t, v)
+
+proc initLocalVar(
+    g: LLGen, s: PSym, t: PType, v: llvm.ValueRef, immediateAssign: bool) =
+  if sfNoInit notin s.flags:
+    if not immediateAssign:
+      g.constructLoc(t, v)
+
+proc isAssignedImmediately(g: LLGen, n: PNode): bool {.inline.} =
+  if n.kind == nkEmpty: false
+  # TODO RVO and return-by-pointer
+  else: true
 
 template withRangeItems(il: untyped, n: PNode, body: untyped) =
   let
@@ -2505,6 +2582,9 @@ proc resetLoc(g: LLGen, typ: PType, v: LLValue) =
     else:
       g.buildStoreNull(v.v)
   else:
+    if optNilCheck in g.f.options:
+      discard g.callCompilerProc("chckNil", [v.v])
+
     if v.storage != OnStack and containsGcRef:
       discard g.callCompilerProc("genericReset", [v.v, g.genTypeInfo(typ)])
       # XXX: generated reset procs should not touch the m_type
@@ -2625,8 +2705,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
         if sfNoInit in s.flags: incl(res.flags, sfNoInit)
         let resv = g.genLocal(resNode)
         ret = resv.v
-        g.buildStoreNull(ret)
-        g.genObjectInit(res.typ, ret)
+        g.initLocalVar(res, res.typ, ret, false)
 
       if tfCapturesEnv in typ.flags:
         let arg = result.v.getParam(i.cuint)
@@ -2728,7 +2807,14 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       g.callMemset(p0, p1, p2)
       return true
 
-  elif s.originatingModule().name.s == "endians":
+    if s.name.s == "nimZeroMem":
+      let p0 = g.genNode(n[1], false).v
+      let p2 = g.genNode(n[2], true).v
+
+      g.callMemset(p0, g.constInt8(0), p2)
+      return true
+
+  else:
     case $s.loc.r
     of "__builtin_bswap16":
       o = LLValue(v: g.callBSwap(g.genNode(n[1], true).v, 16))
@@ -2926,11 +3012,15 @@ proc genCall(g: LLGen, n: PNode, load: bool): LLValue =
       if retty.getTypeKind() != llvm.VoidTypeKind: g.nn("call.res", n) else: ""
     callres = g.b.buildCall(fxc, args, varname)
 
-  if retty.getTypeKind() != llvm.VoidTypeKind and not load and
-      nf.typ.sons[0].kind != tyRef:
+  if (retty.getTypeKind() != llvm.VoidTypeKind and not load and
+      nf.typ.sons[0].kind != tyRef):
     # if the originator of the call wants a pointer, we'll have
     # to create one for them - this is interesting for example
     # when a struct is returned "by value"
+    let v = g.localAlloca(retty, g.nn("call.res.ptr", n))
+    discard g.b.buildStore(callres, v)
+    LLValue(v: v)
+  elif (retty.getTypeKind() == llvm.ArrayTypeKind):
     let v = g.localAlloca(retty, g.nn("call.res.ptr", n))
     discard g.b.buildStore(callres, v)
     LLValue(v: v)
@@ -3224,7 +3314,7 @@ proc genConstSeq(g: LLGen, n: PNode): llvm.ValueRef =
       let ll = g.constNimInt(vals.len)
       let cap = g.constNimInt(vals.len + g.strLitFlag)
       let x = llvm.constNamedStruct(g.llGenericSeqType(), [ll, cap])
-      llvm.constStruct([x, s])
+      llvm.constStructInContext(g.lc, [x, s])
 
 proc genConstObjConstr(g: LLGen, n: PNode): llvm.ValueRef =
   let
@@ -4917,10 +5007,8 @@ proc genSingleVar(g: LLGen, n: PNode) =
         tmp
     else:
       let tmp = g.genLocal(vn)
+      g.initLocalVar(v, v.typ, tmp.v, g.isAssignedImmediately(init))
 
-      # Some initializers expect value to be null, so we always set it so
-      g.buildStoreNull(tmp.v)
-      g.genObjectInit(v.typ, tmp.v)
       tmp
 
   if init.kind != nkEmpty and x.v != nil:
@@ -4962,8 +5050,7 @@ proc genNodeVarTuple(g: LLGen, n: PNode) =
         tmp
       else:
         let tmp = g.genLocal(vn)
-        g.buildStoreNull(tmp.v)
-        g.genObjectInit(v.typ, tmp.v)
+        g.initLocalVar(v, v.typ, tmp.v, g.isAssignedImmediately(n.lastSon))
         tmp
 
     let tv = g.b.buildGEP(t, [g.gep0, g.constGEPIdx(i)], g.nn("vartuple." & $i, vn))
@@ -5062,8 +5149,7 @@ proc genNodeCurly(g: LLGen, n: PNode, load: bool): LLValue =
     if n.isDeepConstExprLL():
       discard g.b.buildStore(g.constNimSet(n), v)
     else:
-      g.callMemset(g.b.buildGEP(
-        v, [g.gep0, g.gep0]), g.constInt8(0), g.constInt64(size))
+      g.buildStoreNull(v)
 
       for s in n:
         if s.kind == nkRange:
@@ -5441,7 +5527,6 @@ proc genNodeConv(g: LLGen, n: PNode, load: bool): LLValue =
       $n[1].typ.kind & " " & $n.typ.kind)
     LLValue()
 
-
 proc genNodeCast(g: LLGen, n: PNode, load: bool): LLValue =
   let ntyp = n[1].typ.skipTypes(abstractRange)
 
@@ -5485,7 +5570,30 @@ proc genNodeObjDownConv(g: LLGen, n: PNode, load: bool): LLValue =
     LLValue()
 
 proc genNodeObjUpConv(g: LLGen, n: PNode, load: bool): LLValue =
-  let ax = g.genNode(n[0], n.typ.kind == tyRef)
+  let ax = g.genNode(n[0], n.typ.skipTypes(abstractInst).kind == tyRef)
+
+  let dest = n.typ.skipTypes(abstractPtrs)
+  if optObjCheck in g.f.options and not isObjLackingTypeField(dest):
+    var r = ax
+    var nilCheck: LLValue
+    var t = n[0].typ.skipTypes(abstractInst)
+    if n.typ.skipTypes(abstractInst).kind in {tyRef, tyVar, tyLent}:
+      t = t.lastSon.skipTypes(abstractInst)
+    while t.kind in {tyVar, tyLent, tyPtr, tyRef}:
+      if t.kind notin {tyVar, tyLent}: nilCheck = r
+      r = g.buildLoadValue(r)
+
+      t = t.lastSon.skipTypes(abstractInst)
+    let
+      ti = g.genTypeInfo(t)
+      mt_gep = g.b.buildGEP(r, g.mtypeIndex(t), g.nn("mt_gep", r))
+      mt = g.b.buildLoad(mt_gep.v, g.nn("mt", mt_gep))
+
+    if not nilCheck.v.isNil():
+      g.withNotNil(nilCheck.v):
+        discard g.callCompilerProc("chckObj", [mt, ti])
+    else:
+      discard g.callCompilerProc("chckObj", [mt, ti])
 
   let at = ax.v.typeOfX()
   var nt = g.llType(n.typ)
@@ -5502,7 +5610,7 @@ proc genNodeObjUpConv(g: LLGen, n: PNode, load: bool): LLValue =
       g.config.internalError(n.info, "Unhandled nkUpDownConv")
       LLValue()
 
-  g.maybeLoadValue(v, load and n.typ.kind notin {tyRef, tyVar, tyLent})
+  g.maybeLoadValue(v, load and n.typ.skipTypes(abstractInst).kind notin {tyRef, tyVar, tyLent})
 
 proc genNodeChckRangeF(g: LLGen, n: PNode): LLValue =
   let
@@ -6553,6 +6661,15 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     g.genMarkerProcBody(m[0], m[1])
   g.markerBody.setLen(0)
 
+  if not g.registrar.isNil:
+    g.withFunc(g.registrar):
+      if g.f.ds != nil:
+        let dl = g.lc.dIBuilderCreateDebugLocation(
+            1, 1, g.f.ds, nil)
+        g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
+
+      g.finalize()
+
   g.finalize()
 
   if g.d != nil:
@@ -6648,8 +6765,16 @@ proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
     let
       llMainType = llvm.functionType(
         g.cintType, [g.cintType, g.primitives[tyCString].pointerType()])
-      main = g.m.addFunction("main", llMainType)
+      mainName = # TODO hackish way to not steal the `main` symbol!
+        if optNoMain in graph.config.globalOptions:
+          ".nlvm.main." & s.name.s
+        else:
+          "main"
+      main = g.m.addFunction(mainName, llMainType)
       f = g.newLLFunc(main, nil)
+
+    if optNoMain in graph.config.globalOptions:
+      main.setLinkage(llvm.InternalLinkage) # TODO export it?
 
     g.init = f
     g.f = f
