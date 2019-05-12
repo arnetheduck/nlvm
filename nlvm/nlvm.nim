@@ -156,6 +156,17 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
       rawMessage(config, errGenerated, errArgsNeedRunOption)
 
 proc commandLL(graph: ModuleGraph) =
+  let conf = graph.config
+
+  if conf.outDir.isEmpty:
+    conf.outDir = conf.projectPath
+  if conf.outFile.isEmpty:
+    let targetName = if optGenDynLib in conf.globalOptions:
+      platform.OS[conf.target.targetOS].dllFrmt % conf.projectName
+    else:
+      conf.projectName & platform.OS[conf.target.targetOS].exeExt
+    conf.outFile = RelativeFile targetName
+
   semanticPasses(graph)
   registerPass(graph, llgen.llgenPass)
 
@@ -230,13 +241,6 @@ proc mainCommand*(graph: ModuleGraph) =
                if isDefined(conf, "release"): "Release Build"
                else: "Debug Build"])
 
-proc prependCurDir(f: AbsoluteFile): AbsoluteFile =
-  when defined(unix):
-    if os.isAbsolute(f.string): result = f
-    else: result = AbsoluteFile("./" & f.string)
-  else:
-    result = f
-
 proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   # For now, we reuse the nim command line options parser, mainly because
   # the options are used all over the compiler, but also because we want to
@@ -259,16 +263,7 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
     return
 
   if optRun in conf.globalOptions:
-    let
-      binPath =
-        if not conf.outFile.isEmpty:
-          # If the user specified an outFile path, use that directly.
-          conf.outFile.prependCurDir
-        else:
-          # Figure out ourselves a valid binary name.
-          changeFileExt(conf.projectFull, ExeExt).prependCurDir
-      ex = quoteShell(binPath)
-
+    let ex = quoteShell conf.absOutFile
     execExternalProgram(conf, ex & ' ' & conf.arguments)
 
 # Beautiful...

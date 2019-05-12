@@ -400,15 +400,15 @@ proc llName(g: LLGen, typ: PType, sig: SigHash): string =
       t = t.lastSon
     else:
       break
-  let typ = if typ.kind in {tyAlias, tySink}: typ.lastSon else: typ
+  let typ = if typ.kind in {tyAlias, tySink, tyOwned}: typ.lastSon else: typ
   if typ.loc.r == nil:
     typ.loc.r = typ.typeName & $sig
   else:
     when defined(debugSigHashes):
       # check consistency:
       assert($typ.loc.r == $(typ.typeName & $sig))
-  result = $typ.loc.r
-  if result == "": g.config.internalError("getTypeName: " & $typ.kind)
+  if typ.loc.r == nil: internalError(g.config, "getTypeName: " & $typ.kind)
+  $typ.loc.r
 
 iterator procParams(typ: PType): PNode =
   for a in typ.n.sons[1..^1]:
@@ -731,7 +731,7 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
   case typ.kind
   of tyBool: g.dtypes[tyBool]
   of tyChar: g.dtypes[tyChar]
-  of tyNil, tyStmt: nil
+  of tyNil, tyTyped: nil
   of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
       tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
       tyUserTypeClassInst, tyInferred, tyStatic:
@@ -852,7 +852,7 @@ proc debugStructFields(
       else: g.config.internalError(n.info, "debugStructFields")
   of nkSym:
     let field = n.sym
-    if field.typ.kind == tyEmpty: return
+    if field.typ.isEmptyType(): return
     let
       (mbits, _, malloc, mabi) = g.debugSize(field.typ)
       name = debugFieldName(field, typ)
@@ -1098,7 +1098,7 @@ proc llGenericSeqType(g: LLGen): llvm.TypeRef =
 
 proc llType(g: LLGen, typ: PType): llvm.TypeRef =
   case typ.kind
-  of tyBool, tyChar, tyNil, tyStmt: g.primitives[typ.kind]
+  of tyBool, tyChar, tyNil, tyTyped: g.primitives[typ.kind]
   of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
      tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
      tyUserTypeClassInst, tyInferred, tyStatic:
@@ -1197,7 +1197,7 @@ proc addStructFields(g: LLGen, elements: var seq[TypeRef], n: PNode, typ: PType)
       else: g.config.internalError(n.info, "addStructFields")
   of nkSym:
     let field = n.sym
-    if field.typ.kind == tyVoid: return
+    if field.typ.isEmptyType(): return
     fillLoc(field.loc, locField, n, ~"", OnUnknown)
     elements.add(g.llType(field.typ))
   else: g.config.internalError(n.info, "addStructFields")
@@ -1393,6 +1393,7 @@ proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var 
 
   of nkSym:
     let field = n.sym
+    if field.typ.isEmptyType(): return
     proc cgi(v: int): llvm.ValueRef = g.constGEPIdx(v)
     var gep = g.b.buildGEP(v, (@[0] & start).map(cgi), g.nn("mk", field))
     if field.typ.skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyLent, tyString, tySequence}:
@@ -2095,7 +2096,8 @@ proc fieldIndexRecs(g: LLGen, n: PNode, sym: PSym, start: var int): seq[int] =
       if result.len > 0: return
   of nkSym:
     if n.sym.id == sym.id: return @[start]
-    inc(start)
+    let field = n.sym
+    if not field.typ.isEmptyType(): inc(start)
   else:
     g.config.internalError(n.info, "Unhandled field index")
   return @[]
@@ -2164,7 +2166,7 @@ proc isNimSeqLike(g: LLGen, t: llvm.TypeRef): bool =
 proc preCast(
     g: LLGen, unsigned: bool, ax: llvm.ValueRef, t: PType,
     lt: llvm.TypeRef = nil): llvm.ValueRef =
-  if ax == nil: # tyStmt works like this...
+  if ax == nil: # tyTyped works like this...
     return constNull(g.llType(t))
 
   let
@@ -2791,6 +2793,7 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
         g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
       return true
 
+  elif s.originatingModule.name.s == "memory":
     if s.name.s == "nimCopyMem":
       let p0 = g.genNode(n[1], false).v
       let p1 = g.genNode(n[2], true).v
@@ -2813,7 +2816,6 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
 
       g.callMemset(p0, g.constInt8(0), p2)
       return true
-
   else:
     case $s.loc.r
     of "__builtin_bswap16":
@@ -3270,6 +3272,7 @@ proc genAssignment(
      tyInt..tyUInt64, tyRange, tyVar, tyLent:
     let srcx = g.genNode(src, true)
     let pc = g.preCast(g.isUnsigned(typ), srcx.v, typ, destet)
+
     discard g.b.buildStore(pc, dest.v)
 
   of tyNil:
@@ -4608,6 +4611,21 @@ proc skipAddr(n: PNode): PNode =
 proc genMagicWasMoved(g: LLGen, n: PNode) =
   g.resetLoc(n[1].skipAddr.typ, g.genNode(n[1], false))
 
+proc genMagicDefault(g: LLGen, n: PNode): LLValue =
+  let typ = n.typ.skipTypes(abstractInst)
+
+  if typ.kind == tyArray:
+    let
+      t = g.llType(typ)
+      v = g.m.addGlobal(t, "")
+
+    v.setInitializer(llvm.constNull(t))
+    v.setGlobalConstant(llvm.True)
+
+    LLValue(v: v, lode: n, storage: OnStatic)
+  else:
+    LLValue(v: constNull(g.llType(n.typ)), lode: n)
+
 proc genMagicReset(g: LLGen, n: PNode) =
   let ax = g.genNode(n[1], false).v
 
@@ -4815,6 +4833,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   of mSwap: g.genMagicSwap(n)
   of mMove: result = g.genMagicMove(n, load)
   of mWasMoved: g.genMagicWasMoved(n)
+  of mDefault: result = g.genMagicDefault(n)
   of mReset: g.genMagicReset(n)
   of mIsNil: result = g.genMagicIsNil(n)
   of mArrToSeq: result = g.genMagicArrToSeq(n)
@@ -4894,10 +4913,16 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): LLValue =
 
 proc genNodeIntLit(g: LLGen, n: PNode): LLValue =
   let nt = g.llType(n.typ)
+
   let v =
-    if nt.getTypeKind == llvm.PointerTypeKind:
+    case nt.getTypeKind
+    of llvm.PointerTypeKind:
       llvm.constIntToPtr(
         llvm.constInt(g.primitives[tyInt], n.intVal.culonglong, llvm.False), nt)
+    of llvm.HalfTypeKind..llvm.PPC_FP128TypeKind:
+      # This is pretty nuts, but an example can be seen in `lib/pure/json.nim`
+      # where `Q7` gets initialized..
+      llvm.constReal(nt, n.intVal.cdouble)
     else:
       llvm.constInt(nt, n.intVal.culonglong, llvm.False)
 
@@ -5620,7 +5645,13 @@ proc genNodeChckRangeF(g: LLGen, n: PNode): LLValue =
     let
       bx = g.genNode(n[1], true).v
       cx = g.genNode(n[2], true).v
-    discard g.callCompilerProc("chckRangeF", [ax.v, bx, cx])
+
+    let args = [
+      g.b.buildFPExt(ax.v, g.primitives[tyFloat], g.nn("fpext", ax.v)),
+      g.b.buildFPExt(bx, g.primitives[tyFloat], g.nn("fpext", bx)),
+      g.b.buildFPExt(cx, g.primitives[tyFloat], g.nn("fpext", cx))
+    ]
+    discard g.callCompilerProc("chckRangeF", args)
 
   ax
 
@@ -6320,7 +6351,7 @@ proc genNode(g: LLGen, n: PNode, load: bool): LLValue =
   of nkCaseStmt: result = g.genNodeCaseStmt(n, load)  # Sometimes seen as expression!
   of nkVarSection, nkLetSection, nkConstSection: g.genSons(n)
   of nkConstDef: g.genNodeConstDef(n)
-  of nkTryStmt: result = g.genNodeTryStmt(n, load)
+  of nkTryStmt, nkHiddenTryStmt: result = g.genNodeTryStmt(n, load)
   of nkRaiseStmt: g.genNodeRaiseStmt(n)
   of nkReturnStmt: g.genNodeReturnStmt(n)
   of nkBreakStmt: g.genNodeBreakStmt(n)
@@ -6393,8 +6424,8 @@ proc newLLGen(graph: ModuleGraph, tgt: string, tm: TargetMachineRef): LLGen =
     s(tyBool, llvm.int8TypeInContext(lc)) # needs 8 bits for atomics to work...
     s(tyChar, charType)
     s(tyNil, g.voidPtrType)
-    # tyStmt appears for example in `echo()` as the element type of the array
-    s(tyStmt, g.voidPtrType)
+    # tyTyped appears for example in `echo()` as the element type of the array
+    s(tyTyped, g.voidPtrType)
     s(tyPointer, g.voidPtrType)
     s(tyCString, charType.pointerType())
     s(tyInt, intType)
@@ -6570,31 +6601,27 @@ proc runOptimizers(g: LLGen) =
   mpm.disposePassManager()
 
 proc writeOutput(g: LLGen, project: string) =
-  let outFile =
-    if g.config.outFile.string.len > 0:
-      if g.config.outFile.string.isAbsolute:
-        g.config.outFile.string
-      else:
-        getCurrentDir() / g.config.outFile.string
+  let ext =
+    if optCompileOnly in g.config.globalOptions:
+      ".ll"
+    elif optNoLinking in g.config.globalOptions:
+      ".o"
     else:
-      if optCompileOnly in g.config.globalOptions:
-        project & ".ll"
-      elif optNoLinking in g.config.globalOptions:
-        project & ".o"
-      else:
-        project
+      ""
+
+  let outFile = g.config.getOutFile(g.config.outFile, ext)
 
   g.runOptimizers()
 
   var err: cstring
   if optCompileOnly in g.config.globalOptions:
-    if g.m.printModuleToFile(outfile, cast[cstringArray](addr(err))) == llvm.True:
+    if g.m.printModuleToFile(outfile.string, cast[cstringArray](addr(err))) == llvm.True:
       g.config.internalError($err)
     return
 
   let ofile =
     if optNoLinking in g.config.globalOptions:
-      outFile
+      outFile.string
     else:
       g.config.completeCFilePath(AbsoluteFile(project & ".o")).string
 
@@ -6612,7 +6639,7 @@ proc writeOutput(g: LLGen, project: string) =
   g.config.addExternalFileToLink(ofile.AbsoluteFile)
 
   # Linking is a horrible mess - let's reuse the c compiler for now
-  lllink(g.m.getTarget(), g.config, project.AbsoluteFile)
+  lllink(g.m.getTarget(), g.config)
 
 proc genForwardedProcs(g: LLGen) =
   # Forward declared proc:s lack bodies when first encountered, so they're given

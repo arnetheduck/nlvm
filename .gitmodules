@@ -1,3 +1,4 @@
 [submodule "Nim"]
 	path = Nim
-	url = https://github.com/nim-lang/Nim.git
+	url = https://github.com/arnetheduck/Nim.git
+	branch = nlvm

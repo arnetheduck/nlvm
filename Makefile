@@ -59,53 +59,39 @@ nlvm/nlvm.self.ll: nlvm/nlvm.self
 compare: nlvm/nlvm.self.ll nlvm/nlvm.ll
 	diff -u nlvm/nlvm.self.ll nlvm/nlvm.ll
 
-testament/tester: $(NIMC) Nim/testament/*.nim
-	rsync -av --delete Nim/testament .
-	$(NIMC) -d:release c testament/tester
+Nim/testament/tester: $(NIMC) Nim/testament/*.nim
+	$(NIMC) -d:release c Nim/testament/tester
 
 .PHONY: run-tester
-run-tester: $(NLVMR) testament/tester
-	rm -fr tools lib
-	ln -s Nim/tools .
-	mkdir -p lib
-	cp -ar Nim/lib/system* lib/
-	cp -ar Nim/lib/nimrtl* lib/
-	rm -rf testresults
-	-time testament/tester --targets:c "--nim:nlvm/nlvmr" all
+run-tester: $(NLVMR) Nim/testament/tester
+	-cd Nim; time testament/tester --megatest:off --targets:c "--nim:../nlvm/nlvmr" --skipFrom:../skipped-tests.txt all
 
 .PHONY: test
-test: sync-tests run-tester stats
-	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' testresults/*json
+test: run-tester stats
+	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
 
-test-bad: sync-bad-tests run-tester stats
-	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' testresults/*json
+test-bad: run-tester stats
+	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
 
 .PHONY: badeggs.json
 badeggs.json:
-	-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reIgnored")]' testresults/*.json > badeggs.json
+	-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled")]' Nim/testresults/*.json > badeggs.json
 
 .PHONY: stats
 stats: badeggs.json
-	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reIgnored")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' testresults/*json
+	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
 	-jq 'group_by(.category)|.[]|((unique_by(.category)|.[].category) + " " + (length| tostring))' badeggs.json
 
 .PHONY: t2
 t2:
-	cp -r testresults tr2
+	cp -r Nim/testresults tr2
 
 .PHONY: self
 self: nlvm/nlvm.self
 
 .PHONY: clean
 clean:
-	rm -rf $(NLVMC) $(NLVMR) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self testament testresults/
-
-.PHONY: sync-tests
-sync-tests:
-	rsync -a --del --delete-excluded --exclude-from skipped-tests.txt Nim/tests Nim/examples .
-
-sync-bad-tests:
-	rsync -a --del --delete-excluded --include "*/" --include-from skipped-tests.txt --exclude "*"  -m Nim/tests Nim/examples .
+	rm -rf $(NLVMC) $(NLVMR) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self Nim/testresults/
 
 ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
 	sh ./make-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sha \

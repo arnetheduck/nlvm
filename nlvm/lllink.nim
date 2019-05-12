@@ -33,13 +33,13 @@ proc findLibraries(s: string): seq[string] =
     if line.startsWith("libraries: ="):
       return line["libraries: =".len..^1].split(':')
 
-proc linkLinuxAmd64(conf: ConfigRef, projectfile: AbsoluteFile) =
+proc linkLinuxAmd64(conf: ConfigRef) =
   # The command line built here is based on clang 7 on Fedora 29 / x86_64 -
   # it's likely to be wrong for anything else!
 
   # Ugly hack to reuse nim compiling of C files
   conf.globalOptions.incl optNoLinking
-  callCCompiler(conf, projectFile)
+  callCCompiler(conf)
   conf.globalOptions.excl optNoLinking
 
   var args: seq[string]
@@ -53,15 +53,9 @@ proc linkLinuxAmd64(conf: ConfigRef, projectfile: AbsoluteFile) =
   args.add ["-m", "elf_x86_64"]
   args.add ["-dynamic-linker", "/lib64/ld-linux-x86-64.so.2"]
 
-  var exefile = splitFile(projectfile).name & platform.OS[conf.target.targetOS].exeExt
-  if not conf.outFile.isEmpty:
-    exefile = conf.outFile.string.expandTilde
-    if not exefile.isAbsolute():
-      exefile = getCurrentDir() / exefile
-  if not exefile.isAbsolute():
-    exefile = string(splitFile(projectfile).dir / RelativeFile(exefile))
+  let exeFile = conf.getOutFile(conf.outFile, platform.OS[conf.target.targetOS].exeExt)
 
-  args.add ["-o", exefile]
+  args.add ["-o", exefile.string]
 
   args.add "/usr/lib64/crt1.o" # /usr/bin/../lib/gcc/x86_64-redhat-linux/8/../../../../lib64/crt1.o
   args.add "/usr/lib64/crti.o" # /usr/bin/../lib/gcc/x86_64-redhat-linux/8/../../../../lib64/crti.o
@@ -120,20 +114,14 @@ proc linkLinuxAmd64(conf: ConfigRef, projectfile: AbsoluteFile) =
 
   discard nimLLDLinkElf(args)
 
-proc linkWasm32(conf: ConfigRef, projectfile: AbsoluteFile) =
+proc linkWasm32(conf: ConfigRef) =
   var args: seq[string]
 
   args.add "wasm-ld"
 
-  var exefile = splitFile(projectfile).name & ".wasm"
-  if not conf.outFile.isEmpty:
-    exefile = conf.outFile.string.expandTilde
-    if not exefile.isAbsolute():
-      exefile = getCurrentDir() / exefile
-  if not exefile.isAbsolute():
-    exefile = string(splitFile(projectfile).dir / RelativeFile(exefile))
+  let exeFile = conf.getOutFile(conf.outFile, "wasm")
 
-  args.add ["-o", exefile]
+  args.add ["-o", exefile.string]
 
   # TODO this stripping of shell quoting and other stuff is pretty ugly - needs
   #      a holistic review
@@ -155,14 +143,14 @@ proc linkWasm32(conf: ConfigRef, projectfile: AbsoluteFile) =
     rawMessage(conf, errGenerated, "linking failed: '$1'" % (result))
     quit(1)
 
-proc lllink*(target: cstring, conf: ConfigRef, projectfile: AbsoluteFile) =
+proc lllink*(target: cstring, conf: ConfigRef) =
   if false and conf.target.targetOS == osLinux and conf.target.targetCPU == cpuAmd64:
     # TODO this stuff is not ready for prime time..
-    linkLinuxAmd64(conf, projectfile)
+    linkLinuxAmd64(conf)
   elif ($target).startsWith("wasm32"):
-    linkWasm32(conf, projectfile)
+    linkWasm32(conf)
   else:
     # TODO configure this elsewhere? also, -Wl vs raw linker options..:/
     conf.addLinkOptionCmd("-Wl,--as-needed")
 
-    callCCompiler(conf, projectFile)
+    callCCompiler(conf)

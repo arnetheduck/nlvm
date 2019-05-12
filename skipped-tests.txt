@@ -46,6 +46,7 @@ tests/errmsgs/tproper_stacktrace.nim
 tests/errmsgs/tproper_stacktrace2.nim
 tests/errmsgs/tproper_stacktrace3.nim
 tests/misc/tstrace.nim
+tests/errmsgs/tcall_with_default_arg.nim
 
 # Emulated threadvars (not implemented in nlvm)
 tests/threads/tactors.nim
@@ -153,3 +154,33 @@ tests/parallel/tsysspawn.nim
 # depends on files from compiler/ (todo: doable I guess.. geez this is ugly)
 tests/compiler/tunittest_light.nim
 tests/compiler/tasciitables.nim
+
+# hot-code reloading
+lib/nimhcr.nim
+tests/dll/nimhcr_unit.nim
+tests/dll/nimhcr_integration.nim
+
+# Checks for text that only nim compiler prints
+tests/vm/tvmops.nim
+
+# error message in nlvm needs upgrading
+tests/exception/tindexerrorformatbounds.nim
+tests/misc/tinvalidarrayaccess2.nim
+
+# https://github.com/nim-lang/Nim/pull/10422
+tests/exception/texceptions.nim
+
+# I suspect these are due to the use of the hardcoded paths in specialpaths (sigh)
+tests/misc/tparseopt.nim
+tests/system/tparams.nim
+tests/compilerapi/tcompilerapi.nim
+
+# Links to SDL, need to work out that linking support
+tests/niminaction/Chapter8/sdl/sdl_test.nim
+
+# Some weird edge case that eventually will need a fix
+tests/macros/tescape_var_into_quotedo_as_const.nim
+
+# var constants in std lib
+lib/pure/smtp.nim
+lib/pure/reservedmem.nim
