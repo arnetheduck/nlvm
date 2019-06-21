@@ -2463,6 +2463,14 @@ proc callBinOpWithOver(
     result =
       g.b.buildTrunc(bo, g.llType(typ), g.nn("binop.call.trunc", a))
 
+proc callExpect(g: LLGen, v: llvm.ValueRef, expected: bool): llvm.ValueRef =
+  let
+    typ = llvm.functionType(g.primitives[tyBool], [
+      g.primitives[tyBool], g.primitives[tyBool]])
+    f = g.m.getOrInsertFunction("llvm.expect.i8", typ)
+
+  g.b.buildCall(f, [v, g.constInt8(int8(ord expected))])
+
 proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
   case analyseObjectWithTypeField(t)
   of frNone:
@@ -2547,6 +2555,7 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
   if (s.name.s in
       ["addInt", "subInt", "mulInt", "addInt64", "subInt64", "mulInt64"]) and
       s.typ.sons.len == 3 and
+      s.typ[0] != nil and
       s.typ.sons[0].kind == s.typ.sons[1].kind and
       s.typ.sons[1].kind == s.typ.sons[2].kind:
     # prefer intrinsic for these...
@@ -2791,6 +2800,11 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
         llvm.AtomicOrderingSequentiallyConsistent, llvm.False)
       o = LLValue(v: g.buildI8(
         g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
+      return true
+
+    if s.name.s in ["likelyProc", "unlikelyProc"]:
+      let tmp = g.genNode(n[1], true)
+      o = LLValue(v: g.callExpect(tmp.v, s.name.s == "likelyProc"))
       return true
 
   elif s.originatingModule.name.s == "memory":
@@ -5813,7 +5827,7 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
   let pre = g.b.getInsertBlock()
   let f = pre.getBasicBlockParent()
 
-  let isString = skipTypes(n[0].typ, abstractVarRange).kind == tyString
+  let underlying = skipTypes(n[0].typ, abstractVarRange).kind
 
   let ax = g.genNode(n[0], true).v
   let u = g.isUnsigned(n[0].typ)
@@ -5882,10 +5896,17 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
           let bx = g.genNode(cond, true).v
 
           var cmp: llvm.ValueRef
-          if isString:
+          case underlying
+          of tyString:
             let tmp = g.callCompilerProc("cmpStrings", [ax, bx])
             cmp = g.buildI1(
               g.b.buildICmp(llvm.IntEQ, tmp, g.ni0, g.nn("case.cmp", n)))
+          of tyFloat, tyFloat32, tyFloat64, tyFloat128:
+            # TODO weirdly, Nim allows variant objects predicated on a float(!)
+            #      not implemented for ranges, todo..
+            let b = g.buildTruncOrExt(bx, ax.typeOfX(), cond.typ)
+            cmp = g.buildI1(
+              g.b.buildFCmp(llvm.RealOEQ, ax, b, g.nn("case.cmp", n)))
           else:
             let b = g.buildTruncOrExt(bx, ax.typeOfX(), cond.typ)
             cmp = g.buildI1(

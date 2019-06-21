@@ -47,6 +47,7 @@ tests/errmsgs/tproper_stacktrace2.nim
 tests/errmsgs/tproper_stacktrace3.nim
 tests/misc/tstrace.nim
 tests/errmsgs/tcall_with_default_arg.nim
+tests/exception/tshow_real_exception_name.nim
 
 # Emulated threadvars (not implemented in nlvm)
 tests/threads/tactors.nim
@@ -184,3 +185,7 @@ tests/macros/tescape_var_into_quotedo_as_const.nim
 # var constants in std lib
 lib/pure/smtp.nim
 lib/pure/reservedmem.nim
+
+
+# Invalid ast: literal node with typ == nil:
+tests/macros/tmacro7.nim
