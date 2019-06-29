@@ -336,6 +336,7 @@ template getEnumAttrKind(x: untyped): untyped = getEnumAttributeKindForName(x, x
 let
   attrNoReturn* = getEnumAttrKind("noreturn")
   attrNoInline* = getEnumAttrKind("noinline")
+  attrCold* = getEnumAttrKind("cold")
 
 proc addFuncAttribute*(f: ValueRef, v: AttributeRef) =
   addAttributeAtIndex(f, cast[AttributeIndex](AttributeFunctionIndex), v)

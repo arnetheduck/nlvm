@@ -38,7 +38,8 @@ import
   ],
   llvm/llvm,
 
-  lllink
+  lllink,
+  llplatform
 
 type
   SectionKind = enum
@@ -106,6 +107,7 @@ type
     attrNoInline: AttributeRef
     attrNoReturn: AttributeRef
     attrNoOmitFP: AttributeRef
+    attrCold: AttributeRef
 
     symbols: Table[int, LLValue]
     gmarkers: Table[int, llvm.ValueRef]
@@ -136,7 +138,6 @@ type
     dbgKind: cuint
 
     # target specific stuff
-    tgt: string
     tgtExportLinkage: llvm.Linkage
 
   LLValue = object
@@ -1153,7 +1154,7 @@ proc llType(g: LLGen, typ: PType): llvm.TypeRef =
     g.config.internalError("Unhandled type " & $typ.kind); nil
 
 template preserve(v: typed, body: untyped): untyped =
-  var old = v
+  let old = v
   body
   v = old
 
@@ -2122,7 +2123,7 @@ proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[int] =
   let n = typ.n
   result = g.fieldIndexRecs(n, sym, start)
 
-proc mtypeIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
+proc rootIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
   let zero = g.gep0
   result = @[zero]
   var t = skipTypes(typ, abstractInst)
@@ -2137,7 +2138,12 @@ proc mtypeIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
   if t.isObjLackingTypeField():
     # TODO why is this check in the generator???
     g.config.internalError("no 'of' operator available for pure objects")
-  result = result & @[zero]
+
+proc mtypeIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
+  g.rootIndex(typ) & g.gep0
+
+proc excNameIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
+  g.rootIndex(typ)[0..^2] & g.constGEPIdx(2)
 
 proc setElemIndex(g: LLGen, typ: PType, x: llvm.ValueRef): llvm.ValueRef =
   if g.config.firstOrd(typ) != 0:
@@ -2382,7 +2388,7 @@ proc callWithOverflow(g: LLGen, op: string, a, b: llvm.ValueRef, name: string): 
 
   g.b.buildCall(f, [a, b], name)
 
-proc callRaise(g: LLGen, cond: llvm.ValueRef, raiser: string) =
+proc callRaise(g: LLGen, cond: llvm.ValueRef, raiser: string, args: varargs[llvm.ValueRef]) =
   let
     pre = g.b.getInsertBlock()
     f = pre.getBasicBlockParent()
@@ -2392,7 +2398,7 @@ proc callRaise(g: LLGen, cond: llvm.ValueRef, raiser: string) =
   discard g.b.buildCondBr(cond, raised, cont)
 
   g.b.positionBuilderAtEnd(raised)
-  discard g.callCompilerProc(raiser, [])
+  discard g.callCompilerProc(raiser, args)
   discard g.b.buildUnreachable()
   g.b.positionBuilderAtEnd(cont)
 
@@ -2480,6 +2486,17 @@ proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
     discard g.b.buildStore(g.genTypeInfo(t), tgt)
   of frEmbedded:
     discard g.callCompilerProc("objectInit", [v, g.genTypeInfo(t)])
+
+  if isException(t):
+    let
+      tgt = g.b.buildGEP(v, g.excNameIndex(t), g.nn("name", v))
+      ename = t.skipTypes(abstractInst).sym.name.s
+      init = g.lc.constStringInContext(ename)
+      name = g.m.addPrivateConstant(
+        init.typeOfX(), g.nn(".cstr", t.skipTypes(abstractInst).sym))
+    name.setInitializer(init)
+
+    discard g.b.buildStore(constBitCast(name, g.primitives[tyCString]), tgt)
 
 proc constructLoc(g: LLGen, t: PType, v:llvm.ValueRef) =
   g.buildStoreNull(v)
@@ -2635,6 +2652,11 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
   # This attribute hopefully works around
   # https://github.com/nim-lang/Nim/issues/10625
   f.addFuncAttribute(g.attrNoOmitFP)
+
+  if s.name.s in [
+      "sysFatal", "raiseOverFlow", "raiseIndexError", "raiseIndexError2",
+      "raiseIndexError3", "raiseFieldError"]:
+    f.addFuncAttribute(g.attrCold)
 
   if g.genFakeImpl(s, f):
     f.setLinkage(llvm.InternalLinkage)
@@ -5258,6 +5280,7 @@ proc genNodeBracket(g: LLGen, n: PNode, load: bool): LLValue =
 
 proc genBoundsCheck(g: LLGen, typ: PType, arr, a, b: llvm.ValueRef) =
   let ty = skipTypes(typ, abstractVarRange)
+
   let cond =
     case ty.kind
     of tyOpenArray, tyVarargs:
@@ -5329,16 +5352,19 @@ proc genNodeBracketExprArray(g: LLGen, n: PNode, load: bool): LLValue =
   # it's zero-extended
   let
     bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
+    fi = g.constNimInt(first.int)
     b =
-      if first != 0:
-        g.b.buildSub(bi, g.constNimInt(first.int), g.nn("bra.arr.first", n))
+      if first != 0: g.b.buildSub(bi, fi, g.nn("bra.arr.first", n))
       else: bi
 
   if optBoundsCheck in g.f.options:
     let
       len = g.constNimInt(g.config.lastOrd(ty) - first + 1)
       cond = g.b.buildICmp(llvm.IntUGE, b, len, "bes.bounds")
-    g.callRaise(cond, "raiseIndexError")
+    if first == 0:
+      g.callRaise(cond, "raiseIndexError2", [bi, len])
+    else:
+      g.callRaise(cond, "raiseIndexError3", [bi, fi, len])
 
   g.maybeLoadValue(
     if ax.v.typeOfX().isArrayPtr():
@@ -5382,7 +5408,8 @@ proc genNodeBracketExprOpenArray(g: LLGen, n: PNode, load: bool): LLValue =
       len = g.lenOpenArray(s)
       bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
       cond = g.b.buildICmp(llvm.IntUGE, bi, len, "beoa.bounds")
-    g.callRaise(cond, "raiseIndexError")
+      len2 = g.b.buildSub(len, g.constNimInt(1), "")
+    g.callRaise(cond, "raiseIndexError2", [bi, len2])
 
   g.maybeLoadValue(g.b.buildGEP(ax, [bx], g.nn("beoa.gep")), load)
 
@@ -5396,7 +5423,8 @@ proc genNodeBracketExprSeq(g: LLGen, n: PNode, load: bool): LLValue =
       len = g.loadNimSeqLen(ax.v)
       bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
       cond = g.b.buildICmp(llvm.IntUGE, bi, len, "bes.bounds")
-    g.callRaise(cond, "raiseIndexError")
+      len2 = g.b.buildSub(len, g.constNimInt(1), "")
+    g.callRaise(cond, "raiseIndexError2", [bi, len2])
 
   g.maybeLoadValue(g.buildNimSeqDataGEP(ax, bx), load)
 
@@ -5616,11 +5644,13 @@ proc genNodeObjUpConv(g: LLGen, n: PNode, load: bool): LLValue =
     var r = ax
     var nilCheck: LLValue
     var t = n[0].typ.skipTypes(abstractInst)
-    if n.typ.skipTypes(abstractInst).kind in {tyRef, tyVar, tyLent}:
-      t = t.lastSon.skipTypes(abstractInst)
+    var first = true
     while t.kind in {tyVar, tyLent, tyPtr, tyRef}:
       if t.kind notin {tyVar, tyLent}: nilCheck = r
-      r = g.buildLoadValue(r)
+      if first:
+        first = false
+      else:
+        r = g.buildLoadValue(r)
 
       t = t.lastSon.skipTypes(abstractInst)
     let
@@ -5649,7 +5679,7 @@ proc genNodeObjUpConv(g: LLGen, n: PNode, load: bool): LLValue =
       g.config.internalError(n.info, "Unhandled nkUpDownConv")
       LLValue()
 
-  g.maybeLoadValue(v, load and n.typ.skipTypes(abstractInst).kind notin {tyRef, tyVar, tyLent})
+  g.maybeLoadValue(v, load and n.typ.skipTypes(abstractInst).kind notin {tyVar, tyLent, tyPtr, tyRef})
 
 proc genNodeChckRangeF(g: LLGen, n: PNode): LLValue =
   let
@@ -5991,7 +6021,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
   discard g.f.startBlock(nil, nil)
   g.f.nestedTryStmts.add((n, false))
 
-  if result.v != nil:
+  if result.v != nil and not n[0].typ.isEmptyType():
     g.genAssignment(result, n[0], typ, {needToCopy})
   else:
     g.genNode(n[0])
@@ -6017,7 +6047,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
     if blen == 1:
       # catch-all
       discard g.b.buildStore(g.ni0, statusP)
-      if result.v != nil:
+      if result.v != nil and not b[0].typ.isEmptyType():
         g.genAssignment(result, b[0], typ, {needToCopy})
       else:
         g.genNode(b[0])
@@ -6421,6 +6451,7 @@ proc newLLGen(graph: ModuleGraph, tgt: string, tm: TargetMachineRef): LLGen =
     attrNoInline: lc.createEnumAttribute(llvm.attrNoInline, 0),
     attrNoReturn: lc.createEnumAttribute(llvm.attrNoReturn, 0),
     attrNoOmitFP: lc.createStringAttribute("no-frame-pointer-elim", "true"),
+    attrCold: lc.createEnumAttribute(llvm.attrCold, 0),
 
     symbols: initTable[int, LLValue](),
     gmarkers: initTable[int, llvm.ValueRef](),
@@ -6430,9 +6461,8 @@ proc newLLGen(graph: ModuleGraph, tgt: string, tm: TargetMachineRef): LLGen =
     types: initTable[SigHash, llvm.TypeRef](),
     sigConflicts: initCountTable[SigHash](),
 
-    tgt: tgt,
     tgtExportLinkage:
-      if tgt.startsWith("wasm"): llvm.ExternalLinkage
+      if graph.config.target.targetCPU == cpuWasm32: llvm.ExternalLinkage
       else: llvm.llvm.CommonLinkage,
   )
 
@@ -6584,8 +6614,8 @@ proc loadBase(g: LLGen) =
   let
     base = g.config.prefixDir.string /
       "../nlvm-lib/nlvmbase-$1-$2.ll" %
-        [platform.OS[g.config.target.targetOS].name,
-        platform.CPU[g.config.target.targetCPU].name]
+        [platform.CPU[g.config.target.targetCPU].name,
+        platform.OS[g.config.target.targetOS].name]
     m = parseIRInContext(g.lc, base)
 
   if g.m.linkModules2(m) != 0:
@@ -6597,14 +6627,15 @@ proc runOptimizers(g: LLGen) =
 
   let pmb = llvm.passManagerBuilderCreate()
 
+  # See include/llvm/Analysis/InlineCost.h for inlining thresholds
   if optOptimizeSize in g.config.options:
     pmb.passManagerBuilderSetOptLevel(2)
     pmb.passManagerBuilderSetSizeLevel(2)
-    # pmb.passManagerBuilderUseInlinerWithThreshold(25)
+    # pmb.passManagerBuilderUseInlinerWithThreshold(5)
   else:
     pmb.passManagerBuilderSetOptLevel(3)
     pmb.passManagerBuilderSetSizeLevel(0)
-    # pmb.passManagerBuilderUseInlinerWithThreshold(275)
+    # pmb.passManagerBuilderUseInlinerWithThreshold(250)
 
   let fpm = g.m.createFunctionPassManagerForModule()
   let mpm = llvm.createPassManager()
@@ -6660,7 +6691,7 @@ proc writeOutput(g: LLGen, project: string) =
   g.config.addExternalFileToLink(ofile.AbsoluteFile)
 
   # Linking is a horrible mess - let's reuse the c compiler for now
-  lllink(g.m.getTarget(), g.config)
+  lllink(g.config)
 
 proc genForwardedProcs(g: LLGen) =
   # Forward declared proc:s lack bodies when first encountered, so they're given
@@ -6771,27 +6802,42 @@ proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
     graph.config.cLinkedLibs.add("crypto")
 
   if graph.backend == nil:
-    let tgt =
-      if graph.config.existsConfigVar("nlvm.target"):
-        graph.config.getConfigVar("nlvm.target")
-      else:
-        let
-          p = llvm.getDefaultTargetTriple()
-          tmp = $p
-        disposeMessage(p)
-        tmp
-
+    # Initialize LLVM
     initializeAllAsmPrinters()
     initializeAllTargets()
     initializeAllTargetInfos()
     initializeAllTargetMCs()
 
-    if tgt.startsWith("wasm32"):
-      # TODO i386 most closely matches wasm32 - though it's a bit of a stretch
-      graph.config.target.setTarget(osStandalone, cpuI386)
+    block: # Handle llvm command line arguments
+      var llvmArgs = @["nlvm"]
+      for v in commandLineParams():
+        let c = v.normalize()
+        if c.startsWith("--llvm-"):
+          llvmArgs.add(c[6..^1])
+
+      if llvmArgs.len() > 1:
+        let arr = allocCStringArray(llvmArgs)
+        defer: deallocCStringArray(arr)
+
+        parseCommandLineOptions(llvmArgs.len.cint, arr, "")
+
+    # Before wasm32 was added as a CPU, we used nlvm.target - this is still
+    # around in some tutorials so leave it around for now - perhaps it makes
+    # sense to try to translate classic target triples to nim targets?
+
+    let target =
+      if graph.config.existsConfigVar("nlvm.target"):
+        let
+          tmp = graph.config.getConfigVar("nlvm.target")
+          (cpu, os) = parseTarget(tmp)
+        graph.config.target.setTarget(os, cpu)
+        tmp
+      else:
+        toTriple(
+          graph.config.target.targetCPU, graph.config.target.targetOS)
 
     var tr: llvm.TargetRef
-    discard getTargetFromTriple(tgt, addr(tr), nil)
+    discard getTargetFromTriple(target, addr(tr), nil)
 
     # PIC/PIE is used by default when linking on certain platforms to enable address space randomization:
     # https://stackoverflow.com/q/43367427
@@ -6801,12 +6847,12 @@ proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
         if optOptimizeSpeed in graph.config.options: llvm.CodeGenLevelAggressive
         else: llvm.CodeGenLevelDefault
       tm = createTargetMachine(
-        tr, tgt, "", "", cgl, reloc, llvm.CodeModelDefault)
+        tr, target, "", "", cgl, reloc, llvm.CodeModelDefault)
       layout = tm.createTargetDataLayout()
-      g = newLLGen(graph, tgt, tm)
+      g = newLLGen(graph, target, tm)
 
     g.m.setModuleDataLayout(layout)
-    g.m.setTarget(g.tgt)
+    g.m.setTarget(target)
 
     graph.backend = g
 

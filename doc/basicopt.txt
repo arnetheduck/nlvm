@@ -3,13 +3,17 @@
     nlvm command [options] [projectfile] [arguments]
 
 Command:
-  //compile, c                compile project with default code generator (C)
+  //compile, c                compile project
 
 Arguments:
   arguments are passed to the program being run (if --run option is selected)
 
 nlvm specific options:
-  --nlvm.target:wasm32      cross-compile to WebAssembly (experimental)
+  --nlvm.target:triple      use a specific target triple, for example
+                            arm-linux-gnueabihf or wasm32-unknown-unknown -
+                            this will override --os: and --cpu:!
+  --llvm-<opt>              pass opt to the llvm command line parser - see
+                            --llvm-help for available options
 
 Options:
   -p, --path:PATH           add path to search paths
@@ -18,7 +22,6 @@ Options:
                             (Optionally: Define the value for that symbol,
                             see: "compile time define pragmas")
   -u, --undef:SYMBOL        undefine a conditional symbol
-  -f, --forceBuild:on|off   force rebuilding of all modules
   --threads:on|off          turn support for multi-threading on|off
   -x, --checks:on|off       turn all runtime checks on|off
   -a, --assertions:on|off   turn assertions on|off

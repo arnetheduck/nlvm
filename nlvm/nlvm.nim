@@ -107,6 +107,18 @@ proc expectNoArg(
 proc processSwitch(switch, arg: string, pass: TCmdLinePass,
     info: TLineInfo, conf: ConfigRef) =
   # helper to hijack some nlvm-specific options
+  let sn = switch.normalize
+  if sn.startsWith("llvm-"):
+    if sn == "llvm-help":
+      var llvmArgs = @["nlvm", "--help"]
+      let arr = allocCStringArray(llvmArgs)
+      defer: deallocCStringArray(arr)
+      echo "parsing ", llvmArgs
+      parseCommandLineOptions(llvmArgs.len.cint, arr, "")
+      return
+
+    return
+
   case switch.normalize
   of "version", "v":
     expectNoArg(conf, switch, arg, pass, info)
@@ -155,7 +167,7 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
     if optRun notin config.globalOptions and config.arguments.len > 0 and config.command.normalize != "run":
       rawMessage(config, errGenerated, errArgsNeedRunOption)
 
-proc commandLL(graph: ModuleGraph) =
+proc commandCompile(graph: ModuleGraph) =
   let conf = graph.config
 
   if conf.outDir.isEmpty:
@@ -210,7 +222,7 @@ proc mainCommand*(graph: ModuleGraph) =
 
   case conf.command.normalize
   # Take over the default compile command
-  of "c", "cc", "compile", "compiletoc": commandLL(newModuleGraph(cache, conf))
+  of "c", "cc", "compile", "compiletoc": commandCompile(newModuleGraph(cache, conf))
   of "dump":
     conf.msgWriteln("-- list of currently defined symbols --")
     for s in definedSymbolNames(conf.symbols): conf.msgWriteln(s)

@@ -66,12 +66,17 @@ Nim/testament/tester: $(NIMC) Nim/testament/*.nim
 run-tester: $(NLVMR) Nim/testament/tester
 	-cd Nim; time testament/tester --megatest:off --targets:c "--nim:../nlvm/nlvmr" --skipFrom:../skipped-tests.txt all
 
+run-tester-noskip: $(NLVMR) Nim/testament/tester
+	-cd Nim; time testament/tester --megatest:off --targets:c "--nim:../nlvm/nlvmr" all
+
 .PHONY: test
 test: run-tester stats
 	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
 
-test-bad: run-tester stats
+update-skipped: run-tester-noskip stats
 	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
+	# Output suitable for sticking into skipped-tests.txt
+	-jq -r -s '([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | .[].name' Nim/testresults/*json | sed 's/ C.*//' | sort | uniq > skipped-tests.txt
 
 .PHONY: badeggs.json
 badeggs.json:

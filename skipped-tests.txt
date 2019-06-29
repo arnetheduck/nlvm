@@ -1,191 +1,79 @@
-# Tests which will not be supported in nlvm any time soon
-
-# uses emit (emit pragma is used to output c code mainly)
-tests/closure/tclosure.nim
+examples/talk/hoisting.nim
+lib/nimhcr.nim
+lib/pure/segfaults.nim
+tests/assert/tfailedassert_stacktrace.nim
+tests/async/tasyncall.nim
+tests/async/tasyncawait.nim
+tests/async/tasyncsend4757.nim
+tests/async/tasync_traceback.nim
+tests/casestmt/t7699.nim
 tests/ccgbugs/tcvarargs.nim
 tests/ccgbugs/tforward_decl_only.nim
 tests/ccgbugs/tmangle_field.nim
-tests/float/tfloat3.nim
 tests/ccgbugs/tunsafeaddr.nim
-tests/misc/temit.nim
-tests/macros/tmemit.nim
-tests/misc/tidentconcatenations.nim
-tests/misc/tsizeof.nim
-tests/overload/tstatic_with_converter.nim
-
-# uses c file output (reCodeNotFound)
-tests/ccgbugs/tassign_nil_strings.nim
-tests/ccgbugs/tcodegendecllambda.nim
-tests/ccgbugs/tinefficient_const_table.nim
-tests/ccgbugs/tmissingvolatile.nim
-tests/iter/tshallowcopy_closures.nim
-tests/pragmas/tnoreturn.nim
-tests/parallel/tmissing_deepcopy.nim
-tests/generics/tforwardgeneric.nim
-
-# uses --genscript
-tests/flags
-
-# uses --nilseqs:on
-tests/niminaction/Chapter3/ChatApp/src/client.nim
-tests/niminaction/Chapter3/various3.nim
-tests/niminaction/Chapter6/WikipediaStats/concurrency_regex.nim
-tests/niminaction/Chapter6/WikipediaStats/concurrency.nim
-tests/niminaction/Chapter6/WikipediaStats/parallel_counts.nim
-tests/niminaction/Chapter6/WikipediaStats/race_condition.nim
-tests/niminaction/Chapter7/Tweeter/src/tweeter.nim
-tests/niminaction/Chapter7/Tweeter/src/createDatabase.nim
-tests/niminaction/Chapter7/Tweeter/tests/database_test.nim
-
-# Expects call stack to be printed in a particular way (basically, nlvm does
-# not support --stackTrace:on nad --lineTrace:on)
-tests/assert/tfailedassert_stacktrace.nim
-tests/async/tasync_traceback.nim
-tests/exception/tunhandledexc.nim
-tests/errmsgs/tproper_stacktrace.nim
+tests/ccgbugs/tuplecast.nim
+tests/closure/tclosure.nim
+tests/closure/ttimeinfo.nim
+tests/concepts/tusertypeclasses.nim
+tests/coroutines/tgc.nim
+tests/coroutines/twait.nim
+tests/cpp/t10148.nim
+tests/destructor/tatomicptrs.nim
+tests/destructor/tcaseobj_transitions.nim
+tests/destructor/tconsume_twice.nim
+tests/destructor/texplicit_move.nim
+tests/destructor/tgcdestructors.nim
+tests/destructor/tglobaldestructor.nim
+tests/destructor/tnewruntime_strutils.nim
+tests/destructor/topt.nim
+tests/destructor/towned_binary_tree.nim
+tests/destructor/turn_destroy_into_finalizer.nim
+tests/destructor/tuse_ownedref_after_move.nim
+tests/destructor/tv2_cast.nim
+tests/destructor/tv2_raise.nim
+tests/destructor/twidgets.nim
+tests/destructor/twidgets_unown.nim
+tests/dll/client.nim
+tests/dll/nimhcr_integration.nim
+tests/dll/nimhcr_unit.nim
+tests/errmsgs/tcall_with_default_arg.nim
 tests/errmsgs/tproper_stacktrace2.nim
 tests/errmsgs/tproper_stacktrace3.nim
-tests/misc/tstrace.nim
-tests/errmsgs/tcall_with_default_arg.nim
-tests/exception/tshow_real_exception_name.nim
-
-# Emulated threadvars (not implemented in nlvm)
-tests/threads/tactors.nim
-tests/threads/tactors2.nim
-tests/threads/threadex.nim
-
-# Unsupported importc (can usually be fixed upstream)
-tests/types/tfinalobj.nim
-tests/stdlib/tstdlib_various.nim
-lib/pure/segfaults.nim
-tests/async/tasyncall.nim
-tests/async/tasyncssl.nim
-tests/stdlib/thttpclient.nim
-
-# Still used?
-tests/coroutines/
-
-# In development, let it settle..
-tests/destructor/
-
-# path and link errors
-tests/manyloc/keineschweine/
-tests/manyloc/standalone/
-
-# nim RTL - generation of libraries from Nim code not implemented (yet?)
-tests/dll/client.nim
-
-# Uses dynlib which is not implemented (switch to normal linking?)
-tests/cpp/t10148.nim
-
-# nkParForStmt
-tests/closure/ttimeinfo.nim
-
-# Mixed bag of stuff / tail end that just needs fixing (good first issues!)
-
-# some init bug
-tests/concepts/tusertypeclasses.nim
-# computed gotos
-tests/casestmt/t7699.nim
-# field lookup issue
+tests/errmsgs/tproper_stacktrace.nim
+tests/exception/tunhandledexc.nim
 tests/fields/tfields.nim
-# cast tuple to int - questionable idea..
-tests/ccgbugs/tuplecast.nim
-# field lookup issue
+tests/float/tfloat3.nim
 tests/generics/tgenerics_issues.nim
-# call signature issue
-tests/generics/tobjecttyperel.nim
-# field lookup issue
 tests/generics/treentranttypes.nim
-# library path issue
-tests/manyloc/nake
-# some cast things
 tests/generics/trtree.nim
-# call signature issue
-tests/method/tgeneric_methods.nim
-# bad ir codegen
-tests/method/tmethod_issues.nim
-# bad cast
-tests/method/tmethod_various.nim
-# nlvm printing too much? (easy)
-tests/misc/tinvalidarrayaccess.nim
-# some process runnning issue
-tests/osproc/texecps.nim
-# bit-size pragma
-tests/pragmas/tbitsize.nim
-# assert while running (?)
-tests/parallel/tconvexhull.nim
-# missing output, same as above? maybe deepcopy override unimplemented...
-tests/parallel/tdeepcopy2.nim
-# NPE while running
-tests/parallel/tflowvar.nim
-# SIGSEGV while running
-tests/parallel/tsendtwice.nim
-# codegen issue
-tests/trmacros/trmacros_various.nim
-# openarray lookup issue
-tests/typerel/t4799.nim
-# crash while running
-tests/stdlib/tmarshal.nim
-# {.union.} unimplemented
-tests/types/taliasbugs.nim
-# upstream bug: https://github.com/nim-lang/Nim/issues/10203
-tests/typerel/typalias.nim
-# codegen issue
-examples/talk/hoisting.nim
-# not sure.. looks fine?
-tests/stdlib/tunittestexceptiontype.nim
-# path lookup
-tests/manyloc/standalone.nim
-# not sure
-examples/talk/hoisting.nim
-
-# some closure error most likely
-tests/async/tasyncawait.nim
-
-# not copying the right files
-tests/testament/tshouldfail.nim
-
-# failed on travis (todo: check)
-tests/stdlib/tosproc.nim
-
-# hangs
-tests/parallel/tsysspawn.nim
-
-# depends on files from compiler/ (todo: doable I guess.. geez this is ugly)
-tests/compiler/tunittest_light.nim
-tests/compiler/tasciitables.nim
-
-# hot-code reloading
-lib/nimhcr.nim
-tests/dll/nimhcr_unit.nim
-tests/dll/nimhcr_integration.nim
-
-# Checks for text that only nim compiler prints
-tests/vm/tvmops.nim
-
-# error message in nlvm needs upgrading
-tests/exception/tindexerrorformatbounds.nim
-tests/misc/tinvalidarrayaccess2.nim
-
-# https://github.com/nim-lang/Nim/pull/10422
-tests/exception/texceptions.nim
-
-# I suspect these are due to the use of the hardcoded paths in specialpaths (sigh)
-tests/misc/tparseopt.nim
-tests/system/tparams.nim
-tests/compilerapi/tcompilerapi.nim
-
-# Links to SDL, need to work out that linking support
-tests/niminaction/Chapter8/sdl/sdl_test.nim
-
-# Some weird edge case that eventually will need a fix
 tests/macros/tescape_var_into_quotedo_as_const.nim
-
-# var constants in std lib
-lib/pure/smtp.nim
-lib/pure/reservedmem.nim
-
-
-# Invalid ast: literal node with typ == nil:
 tests/macros/tmacro7.nim
+tests/macros/tmemit.nim
+tests/manyloc/keineschweine/keineschweine.nim
+tests/manyloc/nake/nakefile.nim
+tests/manyloc/standalone/barebone.nim
+tests/method/tmethod_issues.nim
+tests/misc/temit.nim
+tests/misc/tidentconcatenations.nim
+tests/misc/tinvalidarrayaccess2.nim
+tests/misc/tinvalidarrayaccess.nim
+tests/misc/tparseopt.nim
+tests/misc/tsizeof.nim
+tests/misc/tstrace.nim
+tests/niminaction/Chapter3/various3.nim
+tests/niminaction/Chapter8/sdl/sdl_test.nim
+tests/osproc/texecps.nim
+tests/overload/tstatic_with_converter.nim
+tests/parallel/tconvexhull.nim
+tests/parallel/tdeepcopy2.nim
+tests/parallel/tflowvar.nim
+tests/parallel/tsendtwice.nim
+tests/pragmas/tbitsize.nim
+tests/stdlib/tmarshal.nim
+tests/stdlib/tstdlib_various.nim
+tests/stdlib/tunittestexceptiontype.nim
+tests/system/tparams.nim
+tests/trmacros/trmacros_various.nim
+tests/typerel/t4799.nim
+tests/types/taliasbugs.nim
+tests/vm/tvmops.nim

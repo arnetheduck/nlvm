@@ -143,11 +143,11 @@ proc linkWasm32(conf: ConfigRef) =
     rawMessage(conf, errGenerated, "linking failed: '$1'" % (result))
     quit(1)
 
-proc lllink*(target: cstring, conf: ConfigRef) =
+proc lllink*(conf: ConfigRef) =
   if false and conf.target.targetOS == osLinux and conf.target.targetCPU == cpuAmd64:
     # TODO this stuff is not ready for prime time..
     linkLinuxAmd64(conf)
-  elif ($target).startsWith("wasm32"):
+  elif conf.target.targetCPU == cpuWasm32:
     linkWasm32(conf)
   else:
     # TODO configure this elsewhere? also, -Wl vs raw linker options..:/
