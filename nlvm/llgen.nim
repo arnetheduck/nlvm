@@ -3854,8 +3854,11 @@ proc genMagicBinOp(g: LLGen, n: PNode, op: Opcode): LLValue =
 
     # This seems to happen with unsigned ints for example, see
     # https://github.com/nim-lang/Nim/issues/4176
-    ax = g.buildNimIntExt(ax, g.isUnsigned(n[1].typ))
-    bx = g.buildNimIntExt(bx, g.isUnsigned(n[2].typ))
+
+    if ax.typeOfX().getIntTypeWidth() > bx.typeOfX().getIntTypeWidth():
+      bx = g.buildTruncOrExt(bx, ax.typeOfX(), g.isUnsigned(n[2].typ))
+    else:
+      ax = g.buildTruncOrExt(ax, bx.typeOfX(), g.isUnsigned(n[1].typ))
 
   let bo = g.b.buildBinOp(op, ax, bx, g.nn("binop." & $op, n))
   LLValue(v: g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.trunc", n)))
@@ -3874,8 +3877,10 @@ proc genMagicBinOpOverflow(g: LLGen, n: PNode, op: Opcode): LLValue =
 
     # This seems to happen with unsigned ints for example, see
     # https://github.com/nim-lang/Nim/issues/4176
-    ax = g.buildNimIntExt(ax, g.isUnsigned(n[1].typ))
-    bx = g.buildNimIntExt(bx, g.isUnsigned(n[2].typ))
+    if ax.typeOfX().getIntTypeWidth() > bx.typeOfX().getIntTypeWidth():
+      bx = g.buildTruncOrExt(bx, ax.typeOfX(), g.isUnsigned(n[2].typ))
+    else:
+      ax = g.buildTruncOrExt(ax, bx.typeOfX(), g.isUnsigned(n[1].typ))
 
   let bo = g.callBinOpWithOver(ax, bx, op, n.typ)
   LLValue(v: g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.over.trunc", n)))
