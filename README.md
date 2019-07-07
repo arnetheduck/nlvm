@@ -228,13 +228,13 @@ when defined(linux) and defined(amd64):
 tinkering to get it to work.
 
 Presently, the `wasm32-unknown-unknown` target is mapped to `--os:standalone`
-and `--cpu:i386` - this choice is somewhat strange but represents a very raw
-`wasm` engine with 32-bit little-endian integers and pointers - in the future,
-the `nim` standard library and `system.nim` should probably be updated for
-proper wasm support.
+and `--cpu:wasm32` - this choice represents a very raw `wasm` engine with 32-bit
+little-endian integers and pointers - in the future, the `nim` standard library
+and `system.nim` will need to be updated to support WASM system interfaces like
+emscripten or WASI.
 
 To compile wasm files, you will thus need a `panicoverride.nim` - a minimal
-example looks like this:
+example looks like this and discards any errors:
 
 ```nim
 proc rawoutput(s: string) = discard
@@ -258,8 +258,6 @@ To go from there, follow the steps found
 * The nim standard library likes to import C headers directly which works
   because the upstream nim compiler uses a C compiler underneath - ergo,
   large parts of the standard library don't work with nlvm.
-* nlvm should work on any `x86_64` linux, but there is no support for other
-  platforms (int size, calling conventions etc) - patches welcome
-* We build our own LLVM because distros and binary releases typically:
-  * don't include wasm (yet?)
-  * don't enable assertions (useful during nlvm development)
+* Happy to take patches for anything, including better platform support!
+* For development, it's convenient to build LLVM with assertions turned on -
+  the API is pretty unforgiving
