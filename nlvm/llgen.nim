@@ -31,6 +31,7 @@ import
     ropes,
     semparallel,
     sighashes,
+    spawn,
     transf,
     trees,
     types,
@@ -483,6 +484,9 @@ proc constInt1(g: LLGen, v: bool): llvm.ValueRef =
 proc constInt8(g: LLGen, v: int8): ValueRef =
   llvm.constInt(g.primitives[tyInt8], v.culonglong, llvm.False)
 
+proc constUInt8(g: LLGen, v: uint8): ValueRef =
+  llvm.constInt(g.primitives[tyUInt8], v.culonglong, llvm.False)
+
 proc constInt32(g: LLGen, v: int32): ValueRef =
   llvm.constInt(g.primitives[tyInt32], v.culonglong, llvm.False)
 
@@ -519,10 +523,10 @@ proc constOffsetOf(g: LLGen, t: PType, sym: PSym): llvm.ValueRef =
     gep = constGEP(constNull(llt.pointerType()), (@[0] & ind).map(cgi))
   result = constPtrToInt(gep, g.primitives[tyInt])
 
-proc bitSetToWord(s: TBitSet, size: int): int64 =
+proc bitSetToWord(s: TBitSet, size: int): BiggestUInt =
   result = 0
-  for j in countup(0, size - 1):
-    if j < len(s): result = result or `shl`(ze64(s[j]), j * 8)
+  for j in 0 ..< size:
+    if j < len(s): result = result or (BiggestUInt(s[j]) shl (j * 8))
 
 proc constNimSet(g: LLGen, n: PNode): llvm.ValueRef =
   assert n.kind == nkCurly
@@ -535,8 +539,8 @@ proc constNimSet(g: LLGen, n: PNode): llvm.ValueRef =
   if size <= 8:
     result = g.constInt(size * 8, cs.bitSetToWord(size.int))
   else:
-    proc ci8(v: int8): llvm.ValueRef = g.constInt8(v)
-    result = llvm.constArray(g.primitives[tyInt8], cs.map(ci8))
+    proc ci8(v: byte): llvm.ValueRef = g.constUInt8(v)
+    result = llvm.constArray(g.primitives[tyUInt8], cs.map(ci8))
 
 proc constNimString(g: LLGen, n: PNode): llvm.ValueRef =
   if n.typ.kind == tyCString:
@@ -4067,15 +4071,6 @@ proc genMagicAbsF64(g: LLGen, n: PNode): LLValue =
 
   LLValue(v: g.b.buildCall(fabs, [ax], g.nn("fabs", n)))
 
-proc genMagicZe(g: LLGen, n: PNode): LLValue =
-  let a = g.genNode(n[1], true).v
-
-  LLValue(v: g.b.buildZExt(a, g.llType(n.typ), g.nn("zext", n)))
-
-proc genMagicToU(g: LLGen, n: PNode): LLValue =
-  let a = g.genNode(n[1], true).v
-  LLValue(v: g.b.buildTrunc(a, g.llType(n.typ), g.nn("trunc", n)))
-
 proc genMagicToFloat(g: LLGen, n:PNode): LLValue =
   let a = g.genNode(n[1], true).v
   LLValue(v: g.b.buildSIToFP(a, g.llType(n.typ), g.nn("sitofp", n)))
@@ -4837,8 +4832,6 @@ proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   of mBitnotI: result = g.genMagicBitnot(n)
   of mUnaryMinusF64: result = g.genMagicUnaryMinusF64(n)
   of mAbsF64: result = g.genMagicAbsF64(n)
-  of mZe8ToI..mZeIToI64: result = g.genMagicZe(n)
-  of mToU8, mToU16, mToU32: result = g.genMagicToU(n)
   of mToFloat, mToBiggestFloat: result = g.genMagicToFloat(n)
   of mToInt, mToBiggestInt: result = g.genMagicToInt(n)
   of mCharToStr: result = g.genMagicToStr(n, "nimCharToStr")
