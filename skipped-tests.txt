@@ -64,6 +64,7 @@ tests/misc/tinvalidarrayaccess.nim
 tests/misc/tparseopt.nim
 tests/misc/tsizeof.nim
 tests/misc/tstrace.nim
+tests/modules/timport_in_config.nim
 tests/niminaction/Chapter3/various3.nim
 tests/niminaction/Chapter8/sdl/sdl_test.nim
 tests/osproc/texecps.nim
@@ -74,8 +75,10 @@ tests/parallel/tflowvar.nim
 tests/parallel/tsendtwice.nim
 tests/pragmas/tbitsize.nim
 tests/stdlib/tmarshal.nim
+tests/stdlib/tnre.nim
 tests/stdlib/tos.nim
 tests/stdlib/tstdlib_various.nim
+tests/stdlib/ttimes.nim
 tests/stdlib/tunittestexceptiontype.nim
 tests/system/tgogc.nim
 tests/system/tparams.nim

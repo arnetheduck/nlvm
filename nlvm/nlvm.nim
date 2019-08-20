@@ -12,6 +12,7 @@ import llgen, llvm/llvm
 
 import
   compiler/[
+    ast,
     cmdlinehelper,
     commands,
     condsyms,
@@ -113,7 +114,6 @@ proc processSwitch(switch, arg: string, pass: TCmdLinePass,
       var llvmArgs = @["nlvm", "--help"]
       let arr = allocCStringArray(llvmArgs)
       defer: deallocCStringArray(arr)
-      echo "parsing ", llvmArgs
       parseCommandLineOptions(llvmArgs.len.cint, arr, "")
       return
 
@@ -167,6 +167,16 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
     if optRun notin config.globalOptions and config.arguments.len > 0 and config.command.normalize != "run":
       rawMessage(config, errGenerated, errArgsNeedRunOption)
 
+proc llCompileProject(graph: ModuleGraph) =
+  modules.connectCallbacks(graph)
+  let conf = graph.config
+  modules.wantMainModule(conf)
+  let projectFile = conf.projectMainIdx
+  graph.importStack.add projectFile
+
+  graph.compileSystemModule()
+  discard graph.compileModule(conf.projectMainIdx, {sfMainModule})
+
 proc commandCompile(graph: ModuleGraph) =
   let conf = graph.config
 
@@ -182,7 +192,7 @@ proc commandCompile(graph: ModuleGraph) =
   semanticPasses(graph)
   registerPass(graph, llgen.llgenPass)
 
-  modules.compileProject(graph)
+  llCompileProject(graph)
 
 proc commandScan(conf: ConfigRef) =
   var f = addFileExt(mainCommandArg(conf), NimExt)
@@ -205,7 +215,7 @@ proc commandCheck(graph: ModuleGraph) =
   graph.config.errorMax = high(int)  # do not stop after first error
   defineSymbol(graph.config.symbols, "nimcheck")
   semanticPasses(graph)  # use an empty backend for semantic checking only
-  compileProject(graph)
+  llCompileProject(graph)
 
 proc mainCommand*(graph: ModuleGraph) =
   let conf = graph.config
@@ -286,5 +296,10 @@ while not dirExists(tmp / "nlvm-lib") and tmp.len > 1:
 let conf = newConfigRef()
 let cache = newIdentCache()
 condsyms.initDefines(conf.symbols)
+defineSymbol conf.symbols, "nlvm"
+
 conf.prefixDir = AbsoluteDir(tmp / "Nim")
+
+conf.searchPaths.insert conf.prefixDir / RelativeDir"../nlvm-lib", 0
+
 handleCmdLine(cache, conf)
