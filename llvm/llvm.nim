@@ -327,6 +327,11 @@ proc buildCall*(a2: BuilderRef; fn: ValueRef; args: openarray[ValueRef];
                 name: cstring = ""): ValueRef =
   asRaw(args, buildCall(a2, fn, p, n, name))
 
+proc buildInvoke*(a1: BuilderRef; fn: ValueRef;
+    args: openArray[ValueRef]; then: BasicBlockRef; catch: BasicBlockRef;
+    name: cstring = ""): ValueRef =
+  asRaw(args, buildInvoke(a1, fn, p, n, then, catch, name))
+
 proc diBuilderCreateFile*(builder: DIBuilderRef, filename: string, directory: string): MetadataRef =
   diBuilderCreateFile(builder, filename.cstring, filename.len.csize,
     directory.cstring, directory.len.csize)
