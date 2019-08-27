@@ -2684,9 +2684,12 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
 
   if sfImportc in s.flags: return
 
-  if sfExportc notin s.flags:
-    # Because we generate only one module, we can tag all functions internal, except
-    # those that should be importable from c
+  if sfExportc notin s.flags or sfCompilerProc in s.flags:
+    # Because we generate only one module, we can tag all functions internal,
+    # except those that should be importable from c
+    # compilerproc are marker exportc to get a stable name, but it doesn't seem
+    # they need to be exported to C - this might change if we start supporting
+    # dll:s
     result.v.setLinkage(llvm.InternalLinkage)
 
   let
