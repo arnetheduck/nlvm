@@ -101,6 +101,7 @@ clean:
 ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
 	sh ./make-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sha \
 		-DLLVM_BUILD_LLVM_DYLIB=1 \
+		-DLLVM_LINK_LLVM_DYLIB=1 \
 		-DLLVM_ENABLE_ASSERTIONS=1 \
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo
 
