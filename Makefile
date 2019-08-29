@@ -106,3 +106,7 @@ ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
 
 ext/$(LLVM_DIR)/sta/bin/llvm-config:
 	sh ./dl-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sta
+
+.PHONY: docker
+docker:
+	docker build . -t nlvm --no-cache

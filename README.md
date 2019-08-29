@@ -107,6 +107,15 @@ When you update `nlvm` from `git`, don't forget the submodule:
 
     git pull && git submodule update
 
+To build a docker image, use:
+  
+    make docker
+
+To run built `nlvm` docker image use:
+    
+    docker run -v $(pwd):/code/ nlvm c -r /code/test.nim
+
+
 # Compiling your code
 
 On the command line, `nlvm` is mostly compatible with `nim`.
