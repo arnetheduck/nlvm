@@ -351,3 +351,11 @@ proc getMDKindIDInContext*(c: ContextRef, name: string): cuint =
 
 proc createStringAttribute*(c: ContextRef, k, v: string): AttributeRef =
   createStringAttribute(c, k.cstring, k.len.cuint, v.cstring, v.len.cuint)
+
+
+proc appendBasicBlockInContext*(
+    b: BuilderRef, c: ContextRef, name: cstring): BasicBlockRef =
+  let
+    pre = b.getInsertBlock()
+    f = pre.getBasicBlockParent()
+  appendBasicBlockInContext(c, f, name)

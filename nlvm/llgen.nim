@@ -246,7 +246,7 @@ proc endBlock(f: LLFunc): LLBlock {.discardable.} =
 
 proc section(g: LLGen, llf: LLFunc, sk: SectionKind): llvm.BasicBlockRef =
   if llf.sections[sk] == nil:
-    llf.sections[sk] = llf.f.appendBasicBlock(g.nn($sk))
+    llf.sections[sk] = appendBasicBlockInContext(g.lc, llf.f, g.nn($sk))
   llf.sections[sk]
 
 proc positionAndMoveToEnd(b: llvm.BuilderRef, bl: llvm.BasicBlockRef) =
@@ -277,11 +277,9 @@ template withFunc(g: LLGen, llf: LLFunc, body: untyped) =
       g.b.setCurrentDebugLocation(db)
 
 template withNotNil(g: LLGen, v: llvm.ValueRef, body: untyped) =
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
-  let notnil = f.appendBasicBlock(g.nn("nilcheck.notnil", v))
-  let done = f.appendBasicBlock(g.nn("nilcheck.done", v))
+  let
+    notnil = g.b.appendBasicBlockInContext(g.lc, g.nn("nilcheck.notnil", v))
+    done = g.b.appendBasicBlockInContext(g.lc, g.nn("nilcheck.done", v))
 
   # nil check
   let cond = g.b.buildICmp(
@@ -299,11 +297,10 @@ template withNotNil(g: LLGen, v: llvm.ValueRef, body: untyped) =
 
 template withNotNilOrNull(
     g: LLGen, v: llvm.ValueRef, body: untyped): llvm.ValueRef =
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
-  let lload = f.appendBasicBlock(g.nn("nilcheck.notnil", v))
-  let ldone = f.appendBasicBlock(g.nn("nilcheck.done", v))
+  let
+    pre = g.b.getInsertBlock()
+    lload = g.b.appendBasicBlockInContext(g.lc, g.nn("nilcheck.notnil", v))
+    ldone = g.b.appendBasicBlockInContext(g.lc, g.nn("nilcheck.done", v))
 
   # nil check
   let cond = g.b.buildICmp(
@@ -717,7 +714,7 @@ proc buildCallOrInvoke(
     g: LLGen, fx: llvm.ValueRef, args: openArray[llvm.ValueRef], name: cstring = ""): llvm.ValueRef =
   if g.f.nestedTryStmts.len > 0:
     let
-      then = g.b.getInsertBlock().getBasicBlockParent().appendBasicBlock(g.nn("invoke.then", fx))
+      then = g.b.appendBasicBlockInContext(g.lc, g.nn("invoke.then", fx))
       res = g.b.buildInvoke(fx, args, then, g.f.nestedTryStmts[^1].pad, name)
     g.b.positionBuilderAtEnd(then)
     res
@@ -1386,21 +1383,19 @@ proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var 
   of nkRecCase:
     let kind = n[0].sym
     proc cgi(v: int): llvm.ValueRef = g.constGEPIdx(v)
-    var gep = g.b.buildGEP(v, (@[0] & start).map(cgi), g.nn("mk.kind", kind))
-    let vk = g.b.buildLoad(gep, g.nn("mk.kind.load", kind))
-
-    let pre = g.b.getInsertBlock()
-    let f = pre.getBasicBlockParent()
-
-    let caseend = f.appendBasicBlock(g.nn("mk.kind.end", kind))
+    let
+      gep = g.b.buildGEP(v, (@[0] & start).map(cgi), g.nn("mk.kind", kind))
+      vk = g.b.buildLoad(gep, g.nn("mk.kind.load", kind))
+      caseend = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.kind.end", kind))
 
     inc(start)
     var hasElse = false
 
     for i in 1..<n.sonsLen:
-      let branch = n[i]
+      let
+        branch = n[i]
+        ctrue = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.kind.true", branch))
 
-      let ctrue = f.appendBasicBlock(g.nn("mk.kind.true", branch))
       if branch.kind == nkOfBranch:
 
         var length = branch.len
@@ -1426,7 +1421,8 @@ proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var 
               llvm.IntEQ, vk, llvm.constInt(vk.typeOfX(), k.culonglong, llvm.True),
               g.nn("mk.kind.cmp", branch))
 
-          let cfalse = f.appendBasicBlock(g.nn("mk.kind.false", branch))
+          let cfalse = g.b.appendBasicBlockInContext(
+            g.lc, g.nn("mk.kind.false", branch))
           discard g.b.buildCondBr(cmp, ctrue, cfalse)
           g.b.positionBuilderAtEnd(cfalse)
       else:
@@ -1466,16 +1462,13 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
       tyUserTypeClassInst, tyInferred, tyStatic:
     g.genMarker(typ.lastSon(), v, op)
   of tyArray:
-    let arraySize = g.config.lengthOrd(typ.sons[0])
+    let
+      arraySize = g.config.lengthOrd(typ.sons[0])
+      wcmp = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.arr.cmp"))
+      wtrue = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.arr.true"))
+      wfalse = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.arr.false"))
+      cnt = g.localAlloca(g.primitives[tyInt], g.nn("mk.arr.cnt"))
 
-    let pre = g.b.getInsertBlock()
-    let f = pre.getBasicBlockParent()
-
-    let wcmp = f.appendBasicBlock(g.nn("mk.arr.cmp"))
-    let wtrue = f.appendBasicBlock(g.nn("mk.arr.true"))
-    let wfalse = f.appendBasicBlock(g.nn("mk.arr.false"))
-
-    let cnt = g.localAlloca(g.primitives[tyInt], g.nn("mk.arr.cnt"))
     discard g.b.buildStore(g.constNimInt(0), cnt)
 
     # jump to comparison
@@ -1539,16 +1532,13 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
 proc genMarkerSeq(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
   if typ.elemType.kind == tyEmpty: return
 
-  let seqlen = g.loadNimSeqLen(v)
+  let
+    seqlen = g.loadNimSeqLen(v)
+    wcmp = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.seq.cmp"))
+    wtrue = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.seq.true"))
+    wfalse = g.b.appendBasicBlockInContext(g.lc, g.nn("while.false"))
+    cnt = g.localAlloca(g.primitives[tyInt], g.nn("mk.seq.cnt"))
 
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
-  let wcmp = f.appendBasicBlock(g.nn("mk.seq.cmp"))
-  let wtrue = f.appendBasicBlock(g.nn("mk.seq.true"))
-  let wfalse = f.appendBasicBlock(g.nn("while.false"))
-
-  let cnt = g.localAlloca(g.primitives[tyInt], g.nn("mk.seq.cnt"))
   discard g.b.buildStore(g.constNimInt(0), cnt)
 
   # jump to comparison
@@ -2339,8 +2329,8 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
 proc getUnreachableBlock(g: LLGen): llvm.BasicBlockRef =
   if g.f.unreachableBlock == nil:
     g.f.unreachableBlock =
-      g.b.getInsertBlock().getBasicBlockParent().appendBasicBlock(
-        g.nn("unreachable"))
+      g.b.appendBasicBlockInContext(
+        g.lc, g.nn("unreachable", g.b.getInsertBlock().getBasicBlockParent()))
 
     g.withBlock(g.f.unreachableBlock):
       discard g.b.buildUnreachable()
@@ -2482,10 +2472,8 @@ proc callWithOverflow(g: LLGen, op: string, a, b: llvm.ValueRef, name: string): 
 
 proc callRaise(g: LLGen, cond: llvm.ValueRef, raiser: string, args: varargs[llvm.ValueRef]) =
   let
-    pre = g.b.getInsertBlock()
-    f = pre.getBasicBlockParent()
-    raised = f.appendBasicBlock(g.nn("raise.call", cond))
-    cont = f.appendBasicBlock(g.nn("raise.cont", cond))
+    raised = g.b.appendBasicBlockInContext(g.lc, g.nn("raise.call", cond))
+    cont = g.b.appendBasicBlockInContext(g.lc, g.nn("raise.cont", cond))
 
   discard g.b.buildCondBr(cond, raised, cont)
 
@@ -2622,12 +2610,10 @@ template withRangeItems(il: untyped, n: PNode, body: untyped) =
   let i = g.localAlloca(ax.typeOfX(), g.nn("rng.i", n))
   discard g.b.buildStore(ax, i)
 
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
-  let rcmp = f.appendBasicBlock(g.nn("rng.cmp", n))
-  let rloop = f.appendBasicBlock(g.nn("rng.loop", n))
-  let rdone = f.appendBasicBlock(g.nn("rng.done", n))
+  let
+    rcmp = g.b.appendBasicBlockInContext(g.lc, g.nn("rng.cmp", n))
+    rloop = g.b.appendBasicBlockInContext(g.lc, g.nn("rng.loop", n))
+    rdone = g.b.appendBasicBlockInContext(g.lc, g.nn("rng.done", n))
 
   # jump to comparison
   discard g.b.buildBr(rcmp)
@@ -2659,7 +2645,7 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
   if s.name.s == "finished" and s.typ.sons.len == 2 and
       s.typ.sons[1].kind == tyProc:
 
-    g.withBlock(f.appendBasicBlock(g.nn("entry.fake", s))):
+    g.withBlock(appendBasicBlockInContext(g.lc, f, g.nn("entry.fake", s))):
       let gep = g.b.buildGEP(f.getParam(0), [g.gep0, g.gep1])
       let p = g.b.buildLoad(gep, "")
       let ax = g.b.buildBitCast(p, g.primitives[tyInt].pointerType(), "")
@@ -2675,7 +2661,7 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
       s.typ.sons[0].kind == s.typ.sons[1].kind and
       s.typ.sons[1].kind == s.typ.sons[2].kind:
     # prefer intrinsic for these...
-    g.withBlock(f.appendBasicBlock(g.nn("entry.fake", s))):
+    g.withBlock(appendBasicBlockInContext(g.lc, f, g.nn("entry.fake", s))):
       let
         a = f.getParam(0)
         b = f.getParam(1)
@@ -2691,7 +2677,7 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
     return true
 
   if s.name.s == "cpuRelax":
-    g.withBlock(f.appendBasicBlock(g.nn("entry.fake", s))):
+    g.withBlock(appendBasicBlockInContext(g.lc, f, g.nn("entry.fake", s))):
       discard g.b.buildRetVoid()
     return true
 
@@ -3108,41 +3094,41 @@ proc genCall(g: LLGen, n: PNode, load: bool): LLValue =
   var callres: llvm.ValueRef
 
   if typ.callConv == ccClosure:
-    let args = g.genCallArgs(n, nfpt, typ)
-
-    let prc = g.b.buildExtractValue(fx, 0, g.nn("call.clo.prc.ptr", n))
-    let env = g.b.buildExtractValue(fx, 1, g.nn("call.clo.env.ptr", n))
+    let
+      args = g.genCallArgs(n, nfpt, typ)
+      prc = g.b.buildExtractValue(fx, 0, g.nn("call.clo.prc.ptr", n))
+      env = g.b.buildExtractValue(fx, 1, g.nn("call.clo.env.ptr", n))
 
     if tfIterator in typ.flags:
-      let cft = g.llProcType(typ, true).pointerType()
-      let cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.iter.prc", n))
-      let clargs = args & @[env.v]
+      let
+        cft = g.llProcType(typ, true).pointerType()
+        cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.iter.prc", n))
+        clargs = args & @[env.v]
       callres = g.buildCallOrInvoke(cfx, clargs)
     else:
-      let pre = g.b.getInsertBlock()
-      let f = pre.getBasicBlockParent()
+      let
+        clonil = g.b.appendBasicBlockInContext(g.lc, g.nn("call.clo.noenv", n))
+        cloenv = g.b.appendBasicBlockInContext(g.lc, g.nn("call.clo.env", n))
+        cloend = g.b.appendBasicBlockInContext(g.lc, g.nn("call.clo.end", n))
+        cmp = g.b.buildICmp(
+         llvm.IntEQ, env.v, llvm.constNull(env.v.typeOfX()),
+         g.nn("call.clo.noenv", n))
 
-      let clonil = f.appendBasicBlock(g.nn("call.clo.noenv", n))
-      let cloenv = f.appendBasicBlock(g.nn("call.clo.env", n))
-      let cloend = f.appendBasicBlock(g.nn("call.clo.end", n))
-
-      let cmp = g.b.buildICmp(
-        llvm.IntEQ, env.v, llvm.constNull(env.v.typeOfX()), g.nn("call.clo.noenv", n))
       discard g.b.buildCondBr(cmp, clonil, cloenv)
 
       g.b.positionBuilderAtEnd(clonil)
 
-      let fxc = g.b.buildBitCast(prc.v, nft, g.nn("call.clo.prc.noenv", n))
-
-      let res = g.buildCallOrInvokeBr(fxc, cloend, args)
+      let
+        fxc = g.b.buildBitCast(prc.v, nft, g.nn("call.clo.prc.noenv", n))
+        res = g.buildCallOrInvokeBr(fxc, cloend, args)
 
       g.b.positionBuilderAtEnd(cloenv)
 
-      let cft = g.llProcType(typ, true).pointerType()
-      let cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.clo.prc", n))
-
-      let clargs = args & @[env.v]
-      let cres = g.buildCallOrInvokeBr(cfx, cloend, clargs)
+      let
+        cft = g.llProcType(typ, true).pointerType()
+        cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.clo.prc", n))
+        clargs = args & @[env.v]
+        cres = g.buildCallOrInvokeBr(cfx, cloend, clargs)
 
       g.b.positionBuilderAtEnd(cloend)
 
@@ -3156,9 +3142,10 @@ proc genCall(g: LLGen, n: PNode, load: bool): LLValue =
       else:
         fx.v
 
-    let args = g.genCallArgs(n, fxc.typeOfX().getElementType(), typ)
-    let varname =
-      if retty.getTypeKind() != llvm.VoidTypeKind: g.nn("call.res", n) else: ""
+    let
+      args = g.genCallArgs(n, fxc.typeOfX().getElementType(), typ)
+      varname =
+        if retty.getTypeKind() != llvm.VoidTypeKind: g.nn("call.res", n) else: ""
     callres = g.buildCallOrInvoke(fxc, args, varname)
 
   if (retty.getTypeKind() != llvm.VoidTypeKind and not load and
@@ -3216,9 +3203,10 @@ proc genAsgnFromRef(g: LLGen, dest, src: LLValue, typ: PType,
   if destt.getTypeKind() != llvm.PointerTypeKind:
     g.config.internalError("Ptr required in genAssignment: " & $dest)
 
-  let destet = destt.getElementType()
+  let
+    destet = destt.getElementType()
+    ty = typ.skipTypes(abstractRange)
 
-  let ty = typ.skipTypes(abstractRange)
   case ty.kind
   of tyRef:
     let srcl = g.buildLoadValue(src)
@@ -3433,14 +3421,11 @@ proc genAssignment(
 
 proc isSeqLike(n: PNode): bool =
   case n.kind
-  of nkStrLit..nkTripleStrLit: result = true
+  of nkStrLit..nkTripleStrLit: true
   of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
-    result = n[1].isSeqLike()
+    n[1].isSeqLike()
   else:
-    if n.typ.kind == tySequence:
-      result = true
-    else:
-      result = false
+    n.typ.kind == tySequence
 
 proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef
 
@@ -3464,9 +3449,11 @@ proc genConstSeq(g: LLGen, n: PNode): llvm.ValueRef =
     if n.typ.kind in {tyArray, tyUncheckedArray}:
       s
     else:
-      let ll = g.constNimInt(vals.len)
-      let cap = g.constNimInt(vals.len + g.strLitFlag)
-      let x = llvm.constNamedStruct(g.llGenericSeqType(), [ll, cap])
+      let
+        ll = g.constNimInt(vals.len)
+        cap = g.constNimInt(vals.len + g.strLitFlag)
+        x = llvm.constNamedStruct(g.llGenericSeqType(), [ll, cap])
+
       llvm.constStructInContext(g.lc, [x, s])
 
 proc genConstObjConstr(g: LLGen, n: PNode): llvm.ValueRef =
@@ -3481,8 +3468,9 @@ proc genConstObjConstr(g: LLGen, n: PNode): llvm.ValueRef =
     vals[i] = llvm.constNull(t.structGetTypeAtIndex(i.cuint))
 
   for i in 1 ..< n.len:
-    let s = n[i]
-    let ind = g.fieldIndex(typ, s[0].sym)
+    let
+      s = n[i]
+      ind = g.fieldIndex(typ, s[0].sym)
     if ind.len != 1: g.config.internalError(s.info, "unexpected field depth")
 
     if s.isSeqLike():
@@ -3593,9 +3581,10 @@ proc genMagicOf(g: LLGen, n: PNode): LLValue =
   while ax.v.typeOfX().getElementType().getTypeKind() == llvm.PointerTypeKind:
     ax = g.buildLoadValue(ax)
 
-  let mt_gep = g.b.buildGEP(ax, g.mtypeIndex(t), g.nn("mtype", ax))
-  let m_type = g.buildLoadValue(mt_gep)
-  let typ = n[2].typ.skipTypes(typedescPtrs)
+  let
+    mt_gep = g.b.buildGEP(ax, g.mtypeIndex(t), g.nn("mtype", ax))
+    m_type = g.buildLoadValue(mt_gep)
+    typ = n[2].typ.skipTypes(typedescPtrs)
   # TODO nil check if n is a pointer
   LLValue(v: g.callCompilerProc("isObj", [m_type.v, g.genTypeInfo(typ)]))
 
@@ -3781,13 +3770,11 @@ proc genMagicLengthOpenArray(g: LLGen, n: PNode): LLValue =
   LLValue(v: g.lenOpenArray(s))
 
 proc genMagicLengthStr(g: LLGen, n: PNode): LLValue =
-  let v = g.genNode(n[1], true).v
-
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
-  let lload = f.appendBasicBlock(g.nn("str.len.load", n))
-  let ldone = f.appendBasicBlock(g.nn("str.len.done", n))
+  let
+    v = g.genNode(n[1], true).v
+    pre = g.b.getInsertBlock()
+    lload = g.b.appendBasicBlockInContext(g.lc, g.nn("str.len.load", n))
+    ldone = g.b.appendBasicBlockInContext(g.lc, g.nn("str.len.done", n))
 
   # nil check
   let cond = g.b.buildICmp(
@@ -3899,31 +3886,32 @@ proc genMagicCard(g: LLGen, n: PNode): LLValue =
     let tot = g.localAlloca(g.llType(n.typ), g.nn("card.tot", n))
     g.buildStoreNull(tot)
 
-    let pre = g.b.getInsertBlock()
-    let f = pre.getBasicBlockParent()
-
-    let rcmp = f.appendBasicBlock(g.nn("card.cmp", n))
-    let rloop = f.appendBasicBlock(g.nn("card.loop", n))
-    let rdone = f.appendBasicBlock(g.nn("card.done", n))
+    let
+      rcmp = g.b.appendBasicBlockInContext(g.lc, g.nn("card.cmp", n))
+      rloop = g.b.appendBasicBlockInContext(g.lc, g.nn("card.loop", n))
+      rdone = g.b.appendBasicBlockInContext(g.lc, g.nn("card.done", n))
 
     # jump to comparison
     discard g.b.buildBr(rcmp)
 
     # check idx
     g.b.positionBuilderAtEnd(rcmp)
-    let il = g.b.buildLoad(i, g.nn("card.il", n))
-    let cond = g.b.buildICmp(
-      llvm.IntSLT, il, g.constNimInt(size.int), g.nn("card.slt", n))
+    let
+      il = g.b.buildLoad(i, g.nn("card.il", n))
+      cond = g.b.buildICmp(
+        llvm.IntSLT, il, g.constNimInt(size.int), g.nn("card.slt", n))
+
     discard g.b.buildCondBr(cond, rloop, rdone)
 
     # loop body
     g.b.positionBuilderAtEnd(rloop)
 
-    let ai = g.b.buildLoad(g.b.buildGEP(ax, [il]), g.nn("card.ax", n))
-    let a = g.callCtpop(ai, 1)
-    let b = g.b.buildLoad(tot, g.nn("card.tot.load", n))
-    let c = g.b.buildAdd(
-      g.buildTruncOrExt(a, b.typeOfX(), true), b, g.nn("card.add", n))
+    let
+      ai = g.b.buildLoad(g.b.buildGEP(ax, [il]), g.nn("card.ax", n))
+      a = g.callCtpop(ai, 1)
+      b = g.b.buildLoad(tot, g.nn("card.tot.load", n))
+      c = g.b.buildAdd(
+        g.buildTruncOrExt(a, b.typeOfX(), true), b, g.nn("card.add", n))
     discard g.b.buildStore(c, tot)
 
     # inc idx
@@ -4127,11 +4115,10 @@ proc genMagicAbsI(g: LLGen, n: PNode): LLValue =
     ax = g.genNode(n[1], true).v
     bx = llvm.constInt(ax.typeOfX(), 0, llvm.False)
 
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
-  let linv = f.appendBasicBlock(g.nn("abs.inv", n))
-  let ldone = f.appendBasicBlock(g.nn("abs.done", n))
+  let
+    pre = g.b.getInsertBlock()
+    linv = g.b.appendBasicBlockInContext(g.lc, g.nn("abs.inv", n))
+    ldone = g.b.appendBasicBlockInContext(g.lc, g.nn("abs.done", n))
 
   # >=0 check
   let cmp = g.b.buildICmp(llvm.IntSGE, ax, bx, g.nn("abs.sge", n))
@@ -4209,11 +4196,10 @@ proc genMagicAndOr(g: LLGen, n: PNode): LLValue =
   let ax = g.genNode(n[1], true).v
   let a = g.buildI1(ax)
 
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
-  let aonext = f.appendBasicBlock(g.nn("andor.next", n))
-  let aoend = f.appendBasicBlock(g.nn("andor.end", n))
+  let
+    pre = g.b.getInsertBlock()
+    aonext = g.b.appendBasicBlockInContext(g.lc, g.nn("andor.next", n))
+    aoend = g.b.appendBasicBlockInContext(g.lc, g.nn("andor.end", n))
 
   if n[0].sym.magic == mAnd:
     discard g.b.buildCondBr(a, aonext, aoend)
@@ -4284,14 +4270,12 @@ proc genMagicSetCmp(g: LLGen, strict: bool, n: PNode): LLValue =
     let i = g.localAlloca(g.primitives[tyInt], g.nn("set.i", n))
     discard g.b.buildStore(g.ni0, i)
 
-    let pre = g.b.getInsertBlock()
-    let f = pre.getBasicBlockParent()
-
-    let rcmp = f.appendBasicBlock(g.nn("setcmp.cmp", n))
-    let rloop = f.appendBasicBlock(g.nn("setcmp.loop", n))
-    let rinc = f.appendBasicBlock(g.nn("setcmp.inc", n))
-    let rfalse = f.appendBasicBlock(g.nn("setcmp.false", n))
-    let rdone = f.appendBasicBlock(g.nn("setcmp.done", n))
+    let
+      rcmp = g.b.appendBasicBlockInContext(g.lc, g.nn("setcmp.cmp", n))
+      rloop = g.b.appendBasicBlockInContext(g.lc, g.nn("setcmp.loop", n))
+      rinc = g.b.appendBasicBlockInContext(g.lc, g.nn("setcmp.inc", n))
+      rfalse = g.b.appendBasicBlockInContext(g.lc, g.nn("setcmp.false", n))
+      rdone = g.b.appendBasicBlockInContext(g.lc, g.nn("setcmp.done", n))
 
     # jump to comparison
     discard g.b.buildBr(rcmp)
@@ -4306,9 +4290,10 @@ proc genMagicSetCmp(g: LLGen, strict: bool, n: PNode): LLValue =
     # loop body
     g.b.positionBuilderAtEnd(rloop)
 
-    let al = g.b.buildLoad(g.b.buildGEP(ax, [il]), g.nn("setcmp.al", n))
-    let bl = g.b.buildLoad(g.b.buildGEP(bx, [il]), g.nn("setcmp.bl", n))
-    let b = g.buildBitnot(bl)
+    let
+      al = g.b.buildLoad(g.b.buildGEP(ax, [il]), g.nn("setcmp.al", n))
+      bl = g.b.buildLoad(g.b.buildGEP(bx, [il]), g.nn("setcmp.bl", n))
+      b = g.buildBitnot(bl)
 
     var cont: llvm.ValueRef
     let ab = g.b.buildAnd(al, b, g.nn("setcmp.ab", n))
@@ -4354,14 +4339,12 @@ proc genMagicEqSet(g: LLGen, n: PNode): LLValue =
     let i = g.localAlloca(g.primitives[tyInt], g.nn("seteq.i", n))
     discard g.b.buildStore(g.ni0, i)
 
-    let pre = g.b.getInsertBlock()
-    let f = pre.getBasicBlockParent()
-
-    let rcmp = f.appendBasicBlock(g.nn("seteq.cmp", n))
-    let rloop = f.appendBasicBlock(g.nn("seteq.loop", n))
-    let rne = f.appendBasicBlock(g.nn("seteq.ne", n))
-    let rinc = f.appendBasicBlock(g.nn("seteq.inc", n))
-    let rdone = f.appendBasicBlock(g.nn("seteq.done", n))
+    let
+      rcmp = g.b.appendBasicBlockInContext(g.lc, g.nn("seteq.cmp", n))
+      rloop = g.b.appendBasicBlockInContext(g.lc, g.nn("seteq.loop", n))
+      rne = g.b.appendBasicBlockInContext(g.lc, g.nn("seteq.ne", n))
+      rinc = g.b.appendBasicBlockInContext(g.lc, g.nn("seteq.inc", n))
+      rdone = g.b.appendBasicBlockInContext(g.lc, g.nn("seteq.done", n))
 
     # jump to comparison
     discard g.b.buildBr(rcmp)
@@ -4376,10 +4359,10 @@ proc genMagicEqSet(g: LLGen, n: PNode): LLValue =
     # loop body
     g.b.positionBuilderAtEnd(rloop)
 
-    let a = g.b.buildLoad(g.b.buildGEP(ax, [il]), g.nn("seteq.a", n))
-    let b = g.b.buildLoad(g.b.buildGEP(bx, [il]), g.nn("seteq.b", n))
-
-    let cmp = g.b.buildICmp(llvm.IntEQ, a, b, g.nn("seteq.cmp", n))
+    let
+      a = g.b.buildLoad(g.b.buildGEP(ax, [il]), g.nn("seteq.a", n))
+      b = g.b.buildLoad(g.b.buildGEP(bx, [il]), g.nn("seteq.b", n))
+      cmp = g.b.buildICmp(llvm.IntEQ, a, b, g.nn("seteq.cmp", n))
     discard g.b.buildCondBr(cmp, rinc, rne)
     g.b.positionBuilderAtEnd(rne)
 
@@ -4420,12 +4403,10 @@ proc genMagicSetBinOp(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): LLValu
     let i = g.localAlloca(g.primitives[tyInt], g.nn("setbo.i", n))
     discard g.b.buildStore(g.ni0, i)
 
-    let pre = g.b.getInsertBlock()
-    let f = pre.getBasicBlockParent()
-
-    let rcmp = f.appendBasicBlock(g.nn("setbo.cmp", n))
-    let rloop = f.appendBasicBlock(g.nn("setbo.loop", n))
-    let rdone = f.appendBasicBlock(g.nn("setbo.done", n))
+    let
+      rcmp = g.b.appendBasicBlockInContext(g.lc, g.nn("setbo.cmp", n))
+      rloop = g.b.appendBasicBlockInContext(g.lc, g.nn("setbo.loop", n))
+      rdone = g.b.appendBasicBlockInContext(g.lc, g.nn("setbo.done", n))
 
     # jump to comparison
     discard g.b.buildBr(rcmp)
@@ -4439,13 +4420,13 @@ proc genMagicSetBinOp(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): LLValu
     # loop body
     g.b.positionBuilderAtEnd(rloop)
 
-    let a = g.b.buildLoad(g.b.buildGEP(ax, [il]), g.nn("setbo.al", n))
-    let b = g.b.buildLoad(g.b.buildGEP(bx, [il]), g.nn("setbo.bl", n))
+    let
+      a = g.b.buildLoad(g.b.buildGEP(ax, [il]), g.nn("setbo.al", n))
+      b = g.b.buildLoad(g.b.buildGEP(bx, [il]), g.nn("setbo.bl", n))
+      s = if invert: g.buildBitnot(b) else: b
+      o = g.b.buildBinOp(op, a, s, g.nn("setbo.op", n))
+      p = g.b.buildGEP(tmp, [g.gep0, il])
 
-    let s = if invert: g.buildBitnot(b) else: b
-    let o = g.b.buildBinOp(op, a, s, g.nn("setbo.op", n))
-
-    let p = g.b.buildGEP(tmp, [g.gep0, il])
     discard g.b.buildStore(o, p)
 
     # inc idx
@@ -4600,10 +4581,8 @@ proc genMagicInSet(g: LLGen, n: PNode): LLValue =
 
     let res = g.localAlloca(g.primitives[tyBool], g.nn("inset.res", n))
     discard g.b.buildStore(g.nb[false], res)
-    let pre = g.b.getInsertBlock()
-    let f = pre.getBasicBlockParent()
 
-    let strue = f.appendBasicBlock(g.nn("inset.true", n))
+    let strue = g.b.appendBasicBlockInContext(g.lc, g.nn("inset.true", n))
 
     let length = n[1].sonsLen
     let u = g.isUnsigned(s.typ)
@@ -4625,11 +4604,11 @@ proc genMagicInSet(g: LLGen, n: PNode): LLValue =
         let ax = g.genNode(n[1][i], true).v
         cmp = g.b.buildICmp(llvm.IntEQ, sx, g.buildTruncOrExt(ax, sx.typeOfX(), u), "")
 
-      let snext = f.appendBasicBlock(g.nn("inset.cmp", n))
+      let snext = g.b.appendBasicBlockInContext(g.lc, g.nn("inset.cmp", n))
       discard g.b.buildCondBr(cmp, strue, snext)
       g.b.positionBuilderAtEnd(snext)
 
-    let send = f.appendBasicBlock(g.nn("inset.end", n))
+    let send = g.b.appendBasicBlockInContext(g.lc, g.nn("inset.end", n))
     discard g.b.buildBr(send)
 
     g.b.positionBuilderAtEnd(strue)
@@ -5602,9 +5581,6 @@ proc genNodeDeref(g: LLGen, n: PNode, load: bool): LLValue =
   g.maybeLoadValue(tmp, load)
 
 proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): LLValue =
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
   # Sometimes an nkIfStmt appears in the ast even though it looks more like
   # an expression (see tcasestmt with an if in a case else).. it won't have
   # a type of its own so we'll have to cheat..
@@ -5613,7 +5589,7 @@ proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): LLValue =
     g.localAlloca(g.llType(typ), g.nn("ifx.res", n)), storage: OnStack)
   g.buildStoreNull(v.v)
 
-  let iend = f.appendBasicBlock(g.nn("ifx.end", n))
+  let iend = g.b.appendBasicBlockInContext(g.lc, g.nn("ifx.end", n))
 
   for i in 0..<n.sonsLen:
     let s = n[i]
@@ -5632,8 +5608,9 @@ proc genNodeIfExpr(g: LLGen, n: PNode, load: bool): LLValue =
     else:
       let cond = g.buildI1(g.genNode(s[0], true).v)
 
-      let itrue = f.appendBasicBlock(g.nn("ifx.true", n))
-      let ifalse = f.appendBasicBlock(g.nn("ifx.false", n))
+      let
+        itrue = g.b.appendBasicBlockInContext(g.lc, g.nn("ifx.true", n))
+        ifalse = g.b.appendBasicBlockInContext(g.lc, g.nn("ifx.false", n))
 
       discard g.b.buildCondBr(cond, itrue, ifalse)
 
@@ -5878,9 +5855,6 @@ proc genNodeProcDef(g: LLGen, n: PNode) =
     discard g.genFunctionWithBody(s)
 
 proc genNodeIfStmt(g: LLGen, n: PNode): LLValue =
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
   # TODO Single scope enough?
   discard g.f.startBlock(n, nil)
   var iend: llvm.BasicBlockRef
@@ -5895,13 +5869,14 @@ proc genNodeIfStmt(g: LLGen, n: PNode): LLValue =
 
       if g.b.needsTerminator():
         if iend == nil:
-          iend = f.appendBasicBlock(g.nn("if.end", n))
+          iend = g.b.appendBasicBlockInContext(g.lc, g.nn("if.end", n))
         discard g.b.buildBr(iend)
     else:
       let cond = g.buildI1(g.genNode(s[0], true).v)
 
-      let itrue = f.appendBasicBlock(g.nn("if.true", n))
-      let ifalse = f.appendBasicBlock(g.nn("if.false", n))
+      let
+        itrue = g.b.appendBasicBlockInContext(g.lc, g.nn("if.true", n))
+        ifalse = g.b.appendBasicBlockInContext(g.lc, g.nn("if.false", n))
 
       discard g.b.buildCondBr(cond, itrue, ifalse)
 
@@ -5912,7 +5887,7 @@ proc genNodeIfStmt(g: LLGen, n: PNode): LLValue =
 
       if g.b.needsTerminator():
         if iend == nil:
-          iend = f.appendBasicBlock(g.nn("if.end", n))
+          iend = g.b.appendBasicBlockInContext(g.lc, g.nn("if.end", n))
         discard g.b.buildBr(iend)
 
       g.b.positionAndMoveToEnd(ifalse)
@@ -5930,12 +5905,10 @@ proc genNodeWhileStmt(g: LLGen, n: PNode) =
   inc(g.f.withinLoop)
 
   preserve(g.f.breakIdx):
-    let pre = g.b.getInsertBlock()
-    let f = pre.getBasicBlockParent()
-
-    let wcmp = f.appendBasicBlock(g.nn("while.cmp", n))
-    let wtrue = f.appendBasicBlock(g.nn("while.true", n))
-    let wfalse = f.appendBasicBlock(g.nn("while.false", n))
+    let
+      wcmp = g.b.appendBasicBlockInContext(g.lc, g.nn("while.cmp", n))
+      wtrue = g.b.appendBasicBlockInContext(g.lc, g.nn("while.true", n))
+      wfalse = g.b.appendBasicBlockInContext(g.lc, g.nn("while.false", n))
 
     # jump to comparison
     discard g.b.buildBr(wcmp)
@@ -5962,15 +5935,12 @@ proc genNodeWhileStmt(g: LLGen, n: PNode) =
   dec(g.f.withinLoop)
 
 proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-
   let underlying = skipTypes(n[0].typ, abstractVarRange).kind
 
   let ax = g.genNode(n[0], true).v
   let u = g.isUnsigned(n[0].typ)
 
-  let caseend = f.appendBasicBlock(g.nn("case.end", n))
+  let caseend = g.b.appendBasicBlockInContext(g.lc, g.nn("case.end", n))
 
   if not n.typ.isEmptyType():
     result = LLValue(
@@ -5988,12 +5958,12 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
     let cur = g.b.getInsertBlock()
 
     let lbl = if s.kind == nkElse: "case.else" else: "case.of." & $i
-    let casedo = f.appendBasicBlock(g.nn(lbl & ".do", n))
+    let casedo = g.b.appendBasicBlockInContext(g.lc, g.nn(lbl & ".do", n))
 
     let next =
       if isLast: caseend
-      elif n[i+1].kind == nkElse: f.appendBasicBlock(g.nn("case.else", n))
-      else: f.appendBasicBlock(g.nn("case.of." & $(i+1), n))
+      elif n[i+1].kind == nkElse: g.b.appendBasicBlockInContext(g.lc, g.nn("case.else", n))
+      else: g.b.appendBasicBlockInContext(g.lc, g.nn("case.of." & $(i+1), n))
 
     discard g.f.startBlock(n, caseend)
     g.b.positionBuilderAtEnd(casedo)
@@ -6026,7 +5996,7 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
 
           let casenext =
             if isLast2: next
-            else: f.appendBasicBlock(g.nn(lbl & ".or." & $j, n))
+            else: g.b.appendBasicBlockInContext(g.lc, g.nn(lbl & ".or." & $j, n))
           discard g.b.buildCondBr(cmp, casedo, casenext)
 
           g.b.positionBuilderAtEnd(casenext)
@@ -6049,7 +6019,7 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
               g.b.buildICmp(llvm.IntEQ, ax, b, g.nn("case.cmp", n)))
           let casenext =
             if isLast2: next
-            else: f.appendBasicBlock(g.nn(lbl & ".or." & $j, n))
+            else: g.b.appendBasicBlockInContext(g.lc, g.nn(lbl & ".or." & $j, n))
           discard g.b.buildCondBr(cmp, casedo, casenext)
 
           g.b.positionBuilderAtEnd(casenext)
@@ -6071,8 +6041,9 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
 
   g.b.positionAndMoveToEnd(caseend)
 
-  if f.getLastBasicBlock() != caseend:
-    caseend.moveBasicBlockAfter(f.getLastBasicBlock())
+  if g.b.getInsertBlock().getBasicBlockParent().getLastBasicBlock() != caseend:
+    caseend.moveBasicBlockAfter(
+      g.b.getInsertBlock().getBasicBlockParent().getLastBasicBlock())
 
   result = g.maybeLoadValue(result, load and result.v != nil)
 
@@ -6100,9 +6071,7 @@ proc getLandingPadTy(g: LLGen): TypeRef =
 
 proc genLandingPad(g: LLGen, n: PNode, name: string): llvm.BasicBlockRef =
   let
-    pre = g.b.getInsertBlock()
-    f = pre.getBasicBlockParent()
-    pad = f.appendBasicBlock(g.nn(name, n))
+    pad = g.b.appendBasicBlockInContext(g.lc, g.nn(name, n))
     fin = if n[^1].kind == nkFinally: n[^1] else: nil
 
   g.withBlock(pad):
@@ -6144,11 +6113,8 @@ proc getBadCleanupPad(g: LLGen): llvm.BasicBlockRef =
   # Bad cleanup is called when endCatch raises - basically when the destructor
   # of an exception raises, or other similar situations
   if g.f.badCleanupPad.isNil():
-    let
-      pre = g.b.getInsertBlock()
-      f = pre.getBasicBlockParent()
-
-    g.f.badCleanupPad = f.appendBasicBlock(g.nn("cleanup.bad.pad"))
+    g.f.badCleanupPad =
+      g.b.appendBasicBlockInContext(g.lc, g.nn("cleanup.bad.pad"))
 
     g.withBlock(g.f.badCleanupPad):
       # if endCatch raises, this is where we land!
@@ -6173,11 +6139,8 @@ proc getCleanupPadBlock(g: LLGen): llvm.BasicBlockRef =
   # exception is about to leave a function boundary
 
   if g.f.cleanupPad.isNil():
-    let
-      pre = g.b.getInsertBlock()
-      f = pre.getBasicBlockParent()
-
-    g.f.cleanupPad = f.appendBasicBlock(g.nn("cleanup.pad", f))
+    let f = g.b.getInsertBlock().getBasicBlockParent()
+    g.f.cleanupPad = g.b.appendBasicBlockInContext(g.lc, g.nn("cleanup.pad", f))
 
     g.withBlock(g.f.cleanupPad):
       let cleanup = g.b.buildLandingPad(
@@ -6199,8 +6162,6 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
 
   let
     typ = n.typ
-    pre = g.b.getInsertBlock()
-    f = pre.getBasicBlockParent()
 
   if not typ.isEmptyType():
     result = LLValue(
@@ -6222,7 +6183,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
   g.f.endBlock()
 
   # Happy ending - no exception was raised or it was raised and caught
-  let tryEnd = f.appendBasicBlock(g.nn("try.end", n))
+  let tryEnd = g.b.appendBasicBlockInContext(g.lc, g.nn("try.end", n))
   g.b.buildBrFallthrough(tryEnd)
 
   # While catching stuff, we want exceptions to pass through our cleanup pad
@@ -6260,7 +6221,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
     land =
       if g.f.nestedTryStmts[^1].extraPads.len > 0:
         let
-          cmp = f.appendBasicBlock(g.nn("try.type.cmp", n))
+          cmp = g.b.appendBasicBlockInContext(g.lc, g.nn("try.type.cmp", n))
 
         g.b.positionBuilderAtEnd(cmp)
 
@@ -6320,8 +6281,8 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
 
         # Compare raised type with exception handler type
         let
-          eq = f.appendBasicBlock(g.nn("try.eq", n))
-          ne = f.appendBasicBlock(g.nn("try.ne", n))
+          eq = g.b.appendBasicBlockInContext(g.lc, g.nn("try.eq", n))
+          ne = g.b.appendBasicBlockInContext(g.lc, g.nn("try.ne", n))
           localTypeId = g.callEhTypeIdFor(eti)
           isEq = g.b.buildICmp(
             llvm.IntEQ, landedTypeId, localTypeId, g.nn("try.iseq", n))
@@ -6454,11 +6415,9 @@ proc genNodeBreakStmt(g: LLGen, n: PNode) =
   # TODO: one case when this happens is with finally blocks, which are
   # currently broken anyway, but this way at least the generated bytecode is
   # valid
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-  let cont = f.appendBasicBlock(g.nn("block.cont", n))
+  let cont = g.b.appendBasicBlockInContext(g.lc, g.nn("block.cont", n))
   if s.exit == nil:
-    s.exit = f.appendBasicBlock(g.nn("block.exit", n))
+    s.exit = g.b.appendBasicBlockInContext(g.lc, g.nn("block.exit", n))
   discard g.b.buildBr(s.exit)
   g.b.positionBuilderAtEnd(cont)
 
@@ -6529,9 +6488,7 @@ proc genNodeGotoState(g: LLGen, n: PNode) =
 
   let l = g.config.lastOrd(n[0].typ)
 
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-  let prereturn = f.appendBasicBlock(g.nn("goto.prereturn", n))
+  let prereturn = g.b.appendBasicBlockInContext(g.lc, g.nn("goto.prereturn", n))
 
   g.f.blocks[g.f.blocks.len - 1].goto =
     g.b.buildSwitch(ax, prereturn, (l + 1).cuint)
@@ -6542,13 +6499,11 @@ proc genNodeGotoState(g: LLGen, n: PNode) =
   discard g.b.buildBr(g.section(g.f, secReturn))
 
   # Sometimes, there's litter after the gotostate switch - add a block for it!
-  let junk = f.appendBasicBlock(g.nn("goto.junk", n))
-  g.b.positionBuilderAtEnd(junk)
+  g.b.positionBuilderAtEnd(g.getDeadBlock())
 
 proc genNodeState(g: LLGen, n: PNode) =
-  let pre = g.b.getInsertBlock()
-  let f = pre.getBasicBlockParent()
-  let state = f.appendBasicBlock(g.nn("state." & $n[0].intVal, n))
+  let state =
+    g.b.appendBasicBlockInContext(g.lc, g.nn("state." & $n[0].intVal, n))
   g.b.buildBrFallthrough(state)
   g.b.positionBuilderAtEnd(state)
   for i in 0..g.f.blocks.len-1:
@@ -6559,19 +6514,21 @@ proc genNodeState(g: LLGen, n: PNode) =
 proc genNodeBreakState(g: LLGen, n: PNode): LLValue =
   # TODO C code casts to int* and reads second value.. uh, I guess we should be
   # able to do better
-  var ax: llvm.ValueRef
-  if n[0].kind == nkClosure:
-    ax = g.genNode(n[0][1], false).v
-    ax = g.b.buildLoad(ax, g.nn("load.state.break", n))
-    ax = g.b.buildGEP(ax, [g.gep0, g.gep1])
-  else:
-    ax = g.genNode(n[0], false).v
-    ax = g.b.buildGEP(ax, [g.gep0, g.gep1])
-    ax = g.b.buildLoad(ax, g.nn("load.state.break", n))
-    ax = g.b.buildBitCast(ax, g.primitives[tyInt].pointerType(), "")
-    ax = g.b.buildGEP(ax, [g.gep1])
+  let a =
+    if n[0].kind == nkClosure:
+      let
+        ax = g.genNode(n[0][1], false).v
+        al = g.b.buildLoad(ax, g.nn("load.state.break", n))
+      g.b.buildGEP(al, [g.gep0, g.gep1])
+    else:
+      let
+        ax = g.genNode(n[0], false).v
+        ag = g.b.buildGEP(ax, [g.gep0, g.gep1])
+        al = g.b.buildLoad(ag, g.nn("load.state.break", n))
+        ab = g.b.buildBitCast(al, g.primitives[tyInt].pointerType(), "")
+      g.b.buildGEP(ab, [g.gep1])
 
-  let s = g.b.buildLoad(ax, g.nn("state.break.s", n))
+  let s = g.b.buildLoad(a, g.nn("state.break.s", n))
   LLValue(v: g.b.buildICmp(llvm.IntSLT, s, g.ni0, g.nn("state.break.cmp", n)))
 
 proc genNodeTupleConstr(g: LLGen, n: PNode, load: bool): LLValue =
