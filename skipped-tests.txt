@@ -1,4 +1,3 @@
-examples/talk/hoisting.nim
 lib/nimhcr.nim
 lib/pure/segfaults.nim
 tests/assert/tfailedassert_stacktrace.nim
@@ -12,7 +11,6 @@ tests/ccgbugs/tforward_decl_only.nim
 tests/ccgbugs/tmangle_field.nim
 tests/ccgbugs/tunsafeaddr.nim
 tests/ccgbugs/tuplecast.nim
-tests/closure/tclosure.nim
 tests/closure/ttimeinfo.nim
 tests/concepts/tusertypeclasses.nim
 tests/coroutines/tgc.nim
@@ -75,7 +73,6 @@ tests/parallel/tflowvar.nim
 tests/parallel/tsendtwice.nim
 tests/pragmas/tbitsize.nim
 tests/stdlib/tmarshal.nim
-tests/stdlib/tnre.nim
 tests/stdlib/tos.nim
 tests/stdlib/tstdlib_various.nim
 tests/stdlib/tunittestexceptiontype.nim

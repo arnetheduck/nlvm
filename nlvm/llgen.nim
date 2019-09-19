@@ -46,6 +46,8 @@ type
   SectionKind = enum
     secAlloca # Local stack allocations (see localAlloca)
     secArgs # Function argument initialization
+    secPreinit # Globals initialization in main
+    secLastPreinit
     secBody # User code
     secLastBody # Last piece of body code that was written
     secReturn # Final ret instruction
@@ -1219,7 +1221,7 @@ proc finalize(g: LLGen) =
       if cur != g.f.f.getEntryBasicBlock():
         cur.moveBasicBlockBefore(g.f.f.getEntryBasicBlock())
     else:
-      if sk != secLastBody: cur.moveBasicBlockAfter(last)
+      if sk notin {secLastPreinit, secLastBody}: cur.moveBasicBlockAfter(last)
       g.withBlock(last):
         g.b.buildBrFallthrough(cur)
     last = cur
@@ -2642,6 +2644,26 @@ template withRangeItems(il: untyped, n: PNode, body: untyped) =
 proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
   # sometimes the implementation in the nim std library doesn't work for llvm
   # but really needs to be there.. candidate for upstreaming...
+  if s.name.s == "rawProc" and s.typ.sons.len == 2 and
+      s.typ.sons[1].kind == tyProc:
+
+    g.withBlock(appendBasicBlockInContext(g.lc, f, g.nn("entry.fake", s))):
+      let gep = g.b.buildGEP(f.getParam(0), [g.gep0, g.gep0])
+      let p = g.b.buildLoad(gep, "ClP_0")
+      let ax = g.b.buildBitCast(p, g.voidPtrType, "ClP_0_vp")
+      discard g.b.buildRet(ax)
+    return true
+
+  if s.name.s == "rawEnv" and s.typ.sons.len == 2 and
+    s.typ.sons[1].kind == tyProc:
+
+    g.withBlock(appendBasicBlockInContext(g.lc, f, g.nn("entry.fake", s))):
+      let gep = g.b.buildGEP(f.getParam(0), [g.gep0, g.gep1])
+      let p = g.b.buildLoad(gep, "ClE_0")
+      let ax = g.b.buildBitCast(p, g.voidPtrType, "ClE_0_vp")
+      discard g.b.buildRet(ax)
+    return true
+
   if s.name.s == "finished" and s.typ.sons.len == 2 and
       s.typ.sons[1].kind == tyProc:
 
@@ -5143,12 +5165,12 @@ proc genSingleVar(g: LLGen, n: PNode) =
         g.resetLoc(v.typ, tmp)
 
       if init.kind != nkEmpty and sfPure in v.flags:
-        if g.init.sections[secLastBody] == nil:
-          g.init.sections[secLastBody] = g.section(g.init, secBody)
+        if g.init.sections[secLastPreinit] == nil:
+          g.init.sections[secLastPreinit] = g.section(g.init, secPreinit)
 
-        g.withFunc(g.init): g.withBlock(g.section(g.init, secLastBody)):
+        g.withFunc(g.init): g.withBlock(g.section(g.init, secLastPreinit)):
           g.genAssignment(tmp, init, v.typ, v.assignCopy)
-          g.init.sections[secLastBody] = g.b.getInsertBlock()
+          g.init.sections[secLastPreinit] = g.b.getInsertBlock()
 
         LLValue()
       else:
