@@ -21,3 +21,4 @@ tools
 /.vscode/settings.json
 dist/
 /megatest.nim
+.vscode

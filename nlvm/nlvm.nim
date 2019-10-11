@@ -18,6 +18,7 @@ import
     condsyms,
     extccomp,
     idents,
+    idgen,
     lexer,
     lineinfos,
     llstream,
@@ -219,7 +220,6 @@ proc commandCheck(graph: ModuleGraph) =
 
 proc mainCommand*(graph: ModuleGraph) =
   let conf = graph.config
-  let cache = graph.cache
 
   conf.lastCmdTime = epochTime()
   conf.searchPaths.add(conf.libpath)
@@ -227,12 +227,17 @@ proc mainCommand*(graph: ModuleGraph) =
   # No support! but it might work anyway :)
   conf.globalOptions.excl optTlsEmulation
 
+  setId(100)
+
   # lib/pure/bitops.num
   defineSymbol(conf.symbols, "noIntrinsicsBitOpts")
 
   case conf.command.normalize
   # Take over the default compile command
-  of "c", "cc", "compile", "compiletoc": commandCompile(newModuleGraph(cache, conf))
+  of "c", "cc", "compile", "compiletoc":
+    conf.cmd = cmdCompileToC
+    defineSymbol(graph.config.symbols, "c")
+    commandCompile(graph)
   of "dump":
     conf.msgWriteln("-- list of currently defined symbols --")
     for s in definedSymbolNames(conf.symbols): conf.msgWriteln(s)
@@ -275,13 +280,15 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   )
   self.initDefinesProg(conf, "nlvm")
 
-  self.processCmdLineAndProjectPath(conf)
-
   if paramCount() == 0:
     writeHelp(conf, passCmd1)
     return
 
+  self.processCmdLineAndProjectPath(conf)
+
   if not self.loadConfigsAndRunMainCommand(cache, conf):
+    return
+  if conf.errorCounter != 0:
     return
 
   if optRun in conf.globalOptions:
@@ -293,13 +300,11 @@ var tmp = getAppDir()
 while not dirExists(tmp / "nlvm-lib") and tmp.len > 1:
   tmp = tmp.parentDir()
 
-let conf = newConfigRef()
-let cache = newIdentCache()
-condsyms.initDefines(conf.symbols)
-defineSymbol conf.symbols, "nlvm"
+let
+  conf = newConfigRef()
+  cache = newIdentCache()
 
 conf.prefixDir = AbsoluteDir(tmp / "Nim")
-
-conf.searchPaths.insert conf.prefixDir / RelativeDir"../nlvm-lib", 0
+conf.searchPaths.insert(conf.prefixDir / RelativeDir"../nlvm-lib", 0)
 
 handleCmdLine(cache, conf)
