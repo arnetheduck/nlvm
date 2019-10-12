@@ -5,10 +5,10 @@
 import strutils
 
 const
-  LLVMLib = "libLLVM-8.so"
-  LLVMRoot = "../ext/llvm-8.0.0.src/"
-  LLDRoot = "../ext/lld-8.0.0.src/"
-  LLVMVersion* = "8.0.0"
+  LLVMLib = "libLLVM-9.so"
+  LLVMRoot = "../ext/llvm-9.0.0.src/"
+  LLDRoot = "../ext/lld-9.0.0.src/"
+  LLVMVersion* = "9.0.0"
 
 {.passL: "-llldDriver" .}
 {.passL: "-llldELF" .}
@@ -26,7 +26,7 @@ else:
   const
     LLVMOut = LLVMRoot & "sha/"
 
-  {.passL: "-lLLVM-8".}
+  {.passL: "-lLLVM-9".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
 {.passC: "-I" & LLVMRoot & "include".}
@@ -68,6 +68,7 @@ type
   opaqueValueMetadataEntry{.pure, final.} = object
   comdat{.pure, final.} = object
   opaqueModuleFlagEntry{.pure, final.} = object
+  OpaqueBinary{.pure, final.} = object
 
   # Funny type names that came out of c2nim
   int64T = int64

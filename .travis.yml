@@ -3,12 +3,12 @@ os: linux
 dist: trusty
 cache:
   directories:
-    - ext/llvm-8.0.0.src/include
-    - ext/llvm-8.0.0.src/sta/bin
-    - ext/llvm-8.0.0.src/sta/lib
-    - ext/llvm-8.0.0.src/sta/include
-    - ext/llvm-8.0.0.src/projects
-    - ext/lld-8.0.0.src/include
+    - ext/llvm-9.0.0.src/include
+    - ext/llvm-9.0.0.src/sta/bin
+    - ext/llvm-9.0.0.src/sta/lib
+    - ext/llvm-9.0.0.src/sta/include
+    - ext/llvm-9.0.0.src/projects
+    - ext/lld-9.0.0.src/include
 
 compiler: clang
 

@@ -1,9 +1,9 @@
 ## ===-- llvm-c/Core.h - Core Library C Interface ------------------*- C -*-===*\
 ## |*                                                                            *|
-## |*                     The LLVM Compiler Infrastructure                       *|
-## |*                                                                            *|
-## |* This file is distributed under the University of Illinois Open Source      *|
-## |* License. See LICENSE.TXT for details.                                      *|
+## |* Part of the LLVM Project, under the Apache License v2.0 with LLVM          *|
+## |* Exceptions.                                                                *|
+## |* See https://llvm.org/LICENSE.txt for license information.                  *|
+## |* SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception                    *|
 ## |*                                                                            *|
 ## |*===----------------------------------------------------------------------===*|
 ## |*                                                                            *|
@@ -52,9 +52,8 @@ type ##  Terminator Instructions
     ##
   Opcode* {.size: sizeof(cint).} = enum
     Ret = 1, Br = 2, Switch = 3, IndirectBr = 4, Invoke = 5, ##  removed 6 due to API changes
-    Unreachable = 7,            ##  Standard Unary Operators
-    Add = 8, FAdd = 9, Sub = 10, FSub = 11, Mul = 12, FMul = 13, UDiv = 14, SDiv = 15, FDiv = 16,
-    URem = 17, SRem = 18, FRem = 19,  ##  Logical Operators
+    Unreachable = 7, Add = 8, FAdd = 9, Sub = 10, FSub = 11, Mul = 12, FMul = 13, UDiv = 14, SDiv = 15,
+    FDiv = 16, URem = 17, SRem = 18, FRem = 19, ##  Logical Operators
     Shl = 20, LShr = 21, AShr = 22, And = 23, Or = 24, Xor = 25, ##  Memory Operators
     Alloca = 26, Load = 27, Store = 28, GetElementPtr = 29, ##  Cast Operators
     Trunc = 30, ZExt = 31, SExt = 32, FPToUI = 33, FPToSI = 34, UIToFP = 35, SIToFP = 36,
@@ -63,7 +62,8 @@ type ##  Terminator Instructions
     InsertElement = 51, ShuffleVector = 52, ExtractValue = 53, InsertValue = 54, ##  Atomic operators
     Fence = 55, AtomicCmpXchg = 56, AtomicRMW = 57, ##  Exception Handling Operators
     Resume = 58, LandingPad = 59, AddrSpaceCast = 60, ##  Other Operators
-    CleanupRet = 61, CatchRet = 62, CatchPad = 63, CleanupPad = 64, CatchSwitch = 65, FNeg = 66 ##  Standard Binary Operators
+    CleanupRet = 61, CatchRet = 62, CatchPad = 63, CleanupPad = 64, CatchSwitch = 65, FNeg = 66, ##  Standard Binary Operators
+    CallBr = 67                 ##  Standard Unary Operators
   TypeKind* {.size: sizeof(cint).} = enum
     VoidTypeKind,             ## *< type with no size
     HalfTypeKind,             ## *< 16 bit floating point type
@@ -2410,6 +2410,14 @@ proc getPersonalityFn*(fn: ValueRef): ValueRef {.importc: "LLVMGetPersonalityFn"
 proc setPersonalityFn*(fn: ValueRef; personalityFn: ValueRef) {.
     importc: "LLVMSetPersonalityFn", dynlib: LLVMLib.}
 ## *
+##  Obtain the intrinsic ID number which matches the given function name.
+##
+##  @see llvm::Function::lookupIntrinsicID()
+##
+
+proc lookupIntrinsicID*(name: cstring; nameLen: csize): cuint {.
+    importc: "LLVMLookupIntrinsicID", dynlib: LLVMLib.}
+## *
 ##  Obtain the ID number from a function instance.
 ##
 ##  @see llvm::Function::getIntrinsicID()
@@ -2631,6 +2639,108 @@ proc setParamAlignment*(arg: ValueRef; align: cuint) {.
 ##  @}
 ##
 ## *
+##  @defgroup LLVMCCoreValueGlobalIFunc IFuncs
+##
+##  Functions in this group relate to indirect functions.
+##
+##  Functions in this group expect LLVMValueRef instances that correspond
+##  to llvm::GlobalIFunc instances.
+##
+##  @{
+##
+## *
+##  Add a global indirect function to a module under a specified name.
+##
+##  @see llvm::GlobalIFunc::create()
+##
+
+proc addGlobalIFunc*(m: ModuleRef; name: cstring; nameLen: csize; ty: TypeRef;
+                    addrSpace: cuint; resolver: ValueRef): ValueRef {.
+    importc: "LLVMAddGlobalIFunc", dynlib: LLVMLib.}
+## *
+##  Obtain a GlobalIFunc value from a Module by its name.
+##
+##  The returned value corresponds to a llvm::GlobalIFunc value.
+##
+##  @see llvm::Module::getNamedIFunc()
+##
+
+proc getNamedGlobalIFunc*(m: ModuleRef; name: cstring; nameLen: csize): ValueRef {.
+    importc: "LLVMGetNamedGlobalIFunc", dynlib: LLVMLib.}
+## *
+##  Obtain an iterator to the first GlobalIFunc in a Module.
+##
+##  @see llvm::Module::ifunc_begin()
+##
+
+proc getFirstGlobalIFunc*(m: ModuleRef): ValueRef {.
+    importc: "LLVMGetFirstGlobalIFunc", dynlib: LLVMLib.}
+## *
+##  Obtain an iterator to the last GlobalIFunc in a Module.
+##
+##  @see llvm::Module::ifunc_end()
+##
+
+proc getLastGlobalIFunc*(m: ModuleRef): ValueRef {.
+    importc: "LLVMGetLastGlobalIFunc", dynlib: LLVMLib.}
+## *
+##  Advance a GlobalIFunc iterator to the next GlobalIFunc.
+##
+##  Returns NULL if the iterator was already at the end and there are no more
+##  global aliases.
+##
+
+proc getNextGlobalIFunc*(iFunc: ValueRef): ValueRef {.
+    importc: "LLVMGetNextGlobalIFunc", dynlib: LLVMLib.}
+## *
+##  Decrement a GlobalIFunc iterator to the previous GlobalIFunc.
+##
+##  Returns NULL if the iterator was already at the beginning and there are
+##  no previous global aliases.
+##
+
+proc getPreviousGlobalIFunc*(iFunc: ValueRef): ValueRef {.
+    importc: "LLVMGetPreviousGlobalIFunc", dynlib: LLVMLib.}
+## *
+##  Retrieves the resolver function associated with this indirect function, or
+##  NULL if it doesn't not exist.
+##
+##  @see llvm::GlobalIFunc::getResolver()
+##
+
+proc getGlobalIFuncResolver*(iFunc: ValueRef): ValueRef {.
+    importc: "LLVMGetGlobalIFuncResolver", dynlib: LLVMLib.}
+## *
+##  Sets the resolver function associated with this indirect function.
+##
+##  @see llvm::GlobalIFunc::setResolver()
+##
+
+proc setGlobalIFuncResolver*(iFunc: ValueRef; resolver: ValueRef) {.
+    importc: "LLVMSetGlobalIFuncResolver", dynlib: LLVMLib.}
+## *
+##  Remove a global indirect function from its parent module and delete it.
+##
+##  @see llvm::GlobalIFunc::eraseFromParent()
+##
+
+proc eraseGlobalIFunc*(iFunc: ValueRef) {.importc: "LLVMEraseGlobalIFunc",
+                                       dynlib: LLVMLib.}
+## *
+##  Remove a global indirect function from its parent module.
+##
+##  This unlinks the global indirect function from its containing module but
+##  keeps it alive.
+##
+##  @see llvm::GlobalIFunc::removeFromParent()
+##
+
+proc removeGlobalIFunc*(iFunc: ValueRef) {.importc: "LLVMRemoveGlobalIFunc",
+                                        dynlib: LLVMLib.}
+## *
+##  @}
+##
+## *
 ##  @}
 ##
 ## *
@@ -2645,37 +2755,24 @@ proc setParamAlignment*(arg: ValueRef; align: cuint) {.
 ##  @{
 ##
 ## *
-##  Obtain a MDString value from a context.
+##  Create an MDString value from a given string value.
 ##
-##  The returned instance corresponds to the llvm::MDString class.
+##  The MDString value does not take ownership of the given string, it remains
+##  the responsibility of the caller to free it.
 ##
-##  The instance is specified by string data of a specified length. The
-##  string content is copied, so the backing memory can be freed after
-##  this function returns.
+##  @see llvm::MDString::get()
 ##
 
-proc mDStringInContext*(c: ContextRef; str: cstring; sLen: cuint): ValueRef {.
-    importc: "LLVMMDStringInContext", dynlib: LLVMLib.}
+proc mDStringInContext2*(c: ContextRef; str: cstring; sLen: csize): MetadataRef {.
+    importc: "LLVMMDStringInContext2", dynlib: LLVMLib.}
 ## *
-##  Obtain a MDString value from the global context.
+##  Create an MDNode value with the given array of operands.
+##
+##  @see llvm::MDNode::get()
 ##
 
-proc mDString*(str: cstring; sLen: cuint): ValueRef {.importc: "LLVMMDString",
-    dynlib: LLVMLib.}
-## *
-##  Obtain a MDNode value from a context.
-##
-##  The returned value corresponds to the llvm::MDNode class.
-##
-
-proc mDNodeInContext*(c: ContextRef; vals: ptr ValueRef; count: cuint): ValueRef {.
-    importc: "LLVMMDNodeInContext", dynlib: LLVMLib.}
-## *
-##  Obtain a MDNode value from the global context.
-##
-
-proc mDNode*(vals: ptr ValueRef; count: cuint): ValueRef {.importc: "LLVMMDNode",
-    dynlib: LLVMLib.}
+proc mDNodeInContext2*(c: ContextRef; mDs: ptr MetadataRef; count: csize): MetadataRef {.
+    importc: "LLVMMDNodeInContext2", dynlib: LLVMLib.}
 ## *
 ##  Obtain a Metadata as a Value.
 ##
@@ -2721,6 +2818,22 @@ proc getMDNodeNumOperands*(v: ValueRef): cuint {.
 
 proc getMDNodeOperands*(v: ValueRef; dest: ptr ValueRef) {.
     importc: "LLVMGetMDNodeOperands", dynlib: LLVMLib.}
+## * Deprecated: Use LLVMMDStringInContext2 instead.
+
+proc mDStringInContext*(c: ContextRef; str: cstring; sLen: cuint): ValueRef {.
+    importc: "LLVMMDStringInContext", dynlib: LLVMLib.}
+## * Deprecated: Use LLVMMDStringInContext2 instead.
+
+proc mDString*(str: cstring; sLen: cuint): ValueRef {.importc: "LLVMMDString",
+    dynlib: LLVMLib.}
+## * Deprecated: Use LLVMMDNodeInContext2 instead.
+
+proc mDNodeInContext*(c: ContextRef; vals: ptr ValueRef; count: cuint): ValueRef {.
+    importc: "LLVMMDNodeInContext", dynlib: LLVMLib.}
+## * Deprecated: Use LLVMMDNodeInContext2 instead.
+
+proc mDNode*(vals: ptr ValueRef; count: cuint): ValueRef {.importc: "LLVMMDNode",
+    dynlib: LLVMLib.}
 ## *
 ##  @}
 ##
@@ -2844,6 +2957,25 @@ proc getPreviousBasicBlock*(bb: BasicBlockRef): BasicBlockRef {.
 
 proc getEntryBasicBlock*(fn: ValueRef): BasicBlockRef {.
     importc: "LLVMGetEntryBasicBlock", dynlib: LLVMLib.}
+## *
+##  Insert the given basic block after the insertion point of the given builder.
+##
+##  The insertion point must be valid.
+##
+##  @see llvm::Function::BasicBlockListType::insertAfter()
+##
+
+proc insertExistingBasicBlockAfterInsertBlock*(builder: BuilderRef;
+    bb: BasicBlockRef) {.importc: "LLVMInsertExistingBasicBlockAfterInsertBlock",
+                       dynlib: LLVMLib.}
+## *
+##  Append the given basic block to the basic block list of the given function.
+##
+##  @see llvm::Function::BasicBlockListType::push_back()
+##
+
+proc appendExistingBasicBlock*(fn: ValueRef; bb: BasicBlockRef) {.
+    importc: "LLVMAppendExistingBasicBlock", dynlib: LLVMLib.}
 ## *
 ##  Create a new basic block without inserting it into a function.
 ##
@@ -3452,13 +3584,66 @@ proc insertIntoBuilderWithName*(builder: BuilderRef; instr: ValueRef; name: cstr
 proc disposeBuilder*(builder: BuilderRef) {.importc: "LLVMDisposeBuilder",
     dynlib: LLVMLib.}
 ##  Metadata
+## *
+##  Get location information used by debugging information.
+##
+##  @see llvm::IRBuilder::getCurrentDebugLocation()
+##
+
+proc getCurrentDebugLocation2*(builder: BuilderRef): MetadataRef {.
+    importc: "LLVMGetCurrentDebugLocation2", dynlib: LLVMLib.}
+## *
+##  Set location information used by debugging information.
+##
+##  To clear the location metadata of the given instruction, pass NULL to \p Loc.
+##
+##  @see llvm::IRBuilder::SetCurrentDebugLocation()
+##
+
+proc setCurrentDebugLocation2*(builder: BuilderRef; loc: MetadataRef) {.
+    importc: "LLVMSetCurrentDebugLocation2", dynlib: LLVMLib.}
+## *
+##  Attempts to set the debug location for the given instruction using the
+##  current debug location for the given builder.  If the builder has no current
+##  debug location, this function is a no-op.
+##
+##  @see llvm::IRBuilder::SetInstDebugLocation()
+##
+
+proc setInstDebugLocation*(builder: BuilderRef; inst: ValueRef) {.
+    importc: "LLVMSetInstDebugLocation", dynlib: LLVMLib.}
+## *
+##  Get the dafult floating-point math metadata for a given builder.
+##
+##  @see llvm::IRBuilder::getDefaultFPMathTag()
+##
+
+proc builderGetDefaultFPMathTag*(builder: BuilderRef): MetadataRef {.
+    importc: "LLVMBuilderGetDefaultFPMathTag", dynlib: LLVMLib.}
+## *
+##  Set the default floating-point math metadata for the given builder.
+##
+##  To clear the metadata, pass NULL to \p FPMathTag.
+##
+##  @see llvm::IRBuilder::setDefaultFPMathTag()
+##
+
+proc builderSetDefaultFPMathTag*(builder: BuilderRef; fPMathTag: MetadataRef) {.
+    importc: "LLVMBuilderSetDefaultFPMathTag", dynlib: LLVMLib.}
+## *
+##  Deprecated: Passing the NULL location will crash.
+##  Use LLVMGetCurrentDebugLocation2 instead.
+##
 
 proc setCurrentDebugLocation*(builder: BuilderRef; L: ValueRef) {.
     importc: "LLVMSetCurrentDebugLocation", dynlib: LLVMLib.}
+## *
+##  Deprecated: Returning the NULL location will crash.
+##  Use LLVMGetCurrentDebugLocation2 instead.
+##
+
 proc getCurrentDebugLocation*(builder: BuilderRef): ValueRef {.
     importc: "LLVMGetCurrentDebugLocation", dynlib: LLVMLib.}
-proc setInstDebugLocation*(builder: BuilderRef; inst: ValueRef) {.
-    importc: "LLVMSetInstDebugLocation", dynlib: LLVMLib.}
 ##  Terminators
 
 proc buildRetVoid*(a1: BuilderRef): ValueRef {.importc: "LLVMBuildRetVoid",

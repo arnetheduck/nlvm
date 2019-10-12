@@ -1,9 +1,8 @@
 ## ===------------ DebugInfo.h - LLVM C API Debug Info API -----------------===//
 ##
-##                      The LLVM Compiler Infrastructure
-##
-##  This file is distributed under the University of Illinois Open Source
-##  License. See LICENSE.TXT for details.
+##  Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+##  See https://llvm.org/LICENSE.txt for license information.
+##  SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 ##
 ## ===----------------------------------------------------------------------===//
 ## /
@@ -29,16 +28,14 @@ type
     DIFlagRValueReference = 1 shl 14, DIFlagReserved = 1 shl 15,
     DIFlagSingleInheritance = 1 shl 16, DIFlagMultipleInheritance = 2 shl 16,
     DIFlagVirtualInheritance = 3 shl 16, DIFlagIntroducedVirtual = 1 shl 18,
-    DIFlagBitField = 1 shl 19, DIFlagNoReturn = 1 shl 20, DIFlagMainSubprogram = 1 shl 21,
+    DIFlagBitField = 1 shl 19, DIFlagNoReturn = 1 shl 20,
     DIFlagTypePassByValue = 1 shl 22, DIFlagTypePassByReference = 1 shl 23,
     DIFlagEnumClass = 1 shl 24,
-    #DIFlagFixedEnum = DIFlagEnumClass, ##  Deprecated.
-    DIFlagThunk = 1 shl 25, DIFlagTrivial = 1 shl 26, DIFlagBigEndian = 1 shl 27,
+    DIFlagThunk = 1 shl 25, DIFlagNonTrivial = 1 shl 26, DIFlagBigEndian = 1 shl 27,
     DIFlagLittleEndian = 1 shl 28,
     #DIFlagIndirectVirtualBase = (1 shl 2) or (1 shl 5),
-    #DIFlagAccessibility = DIFlagPrivate or DIFlagProtected or DIFlagPublic,
-    #DIFlagPtrToMemberRep = DIFlagSingleInheritance or
-    #    DIFlagMultipleInheritance or DIFlagVirtualInheritance
+    #DIFlagAccessibility = dIFlagPrivate or dIFlagProtected or dIFlagPublic, DIFlagPtrToMemberRep = dIFlagSingleInheritance or
+    #    dIFlagMultipleInheritance or dIFlagVirtualInheritance
 
 
 ## *
@@ -111,6 +108,7 @@ const
   DIImportedEntityMetadataKind* = 28
   DIMacroMetadataKind* = 29
   DIMacroFileMetadataKind* = 30
+  DICommonBlockMetadataKind* = 31
 
 type
   MetadataKind* = cuint
@@ -400,6 +398,54 @@ proc dILocationGetColumn*(location: MetadataRef): cuint {.
 proc dILocationGetScope*(location: MetadataRef): MetadataRef {.
     importc: "LLVMDILocationGetScope", dynlib: LLVMLib.}
 ## *
+##  Get the "inline at" location associated with this debug location.
+##  \param Location     The debug location.
+##
+##  @see DILocation::getInlinedAt()
+##
+
+proc dILocationGetInlinedAt*(location: MetadataRef): MetadataRef {.
+    importc: "LLVMDILocationGetInlinedAt", dynlib: LLVMLib.}
+## *
+##  Get the metadata of the file associated with a given scope.
+##  \param Scope     The scope object.
+##
+##  @see DIScope::getFile()
+##
+
+proc dIScopeGetFile*(scope: MetadataRef): MetadataRef {.
+    importc: "LLVMDIScopeGetFile", dynlib: LLVMLib.}
+## *
+##  Get the directory of a given file.
+##  \param File     The file object.
+##  \param Len      The length of the returned string.
+##
+##  @see DIFile::getDirectory()
+##
+
+proc dIFileGetDirectory*(file: MetadataRef; len: ptr cuint): cstring {.
+    importc: "LLVMDIFileGetDirectory", dynlib: LLVMLib.}
+## *
+##  Get the name of a given file.
+##  \param File     The file object.
+##  \param Len      The length of the returned string.
+##
+##  @see DIFile::getFilename()
+##
+
+proc dIFileGetFilename*(file: MetadataRef; len: ptr cuint): cstring {.
+    importc: "LLVMDIFileGetFilename", dynlib: LLVMLib.}
+## *
+##  Get the source of a given file.
+##  \param File     The file object.
+##  \param Len      The length of the returned string.
+##
+##  @see DIFile::getSource()
+##
+
+proc dIFileGetSource*(file: MetadataRef; len: ptr cuint): cstring {.
+    importc: "LLVMDIFileGetSource", dynlib: LLVMLib.}
+## *
 ##  Create a type array.
 ##  \param Builder        The DIBuilder.
 ##  \param Data           The type elements.
@@ -424,6 +470,18 @@ proc dIBuilderCreateSubroutineType*(builder: DIBuilderRef; file: MetadataRef;
                                    parameterTypes: ptr MetadataRef;
                                    numParameterTypes: cuint; flags: DIFlags): MetadataRef {.
     importc: "LLVMDIBuilderCreateSubroutineType", dynlib: LLVMLib.}
+## *
+##  Create debugging information entry for an enumerator.
+##  @param Builder        The DIBuilder.
+##  @param Name           Enumerator name.
+##  @param NameLen        Length of enumerator name.
+##  @param Value          Enumerator value.
+##  @param IsUnsigned     True if the value is unsigned.
+##
+
+proc dIBuilderCreateEnumerator*(builder: DIBuilderRef; name: cstring; nameLen: csize;
+                               value: int64T; isUnsigned: Bool): MetadataRef {.
+    importc: "LLVMDIBuilderCreateEnumerator", dynlib: LLVMLib.}
 ## *
 ##  Create debugging information entry for an enumeration.
 ##  \param Builder        The DIBuilder.
@@ -966,6 +1024,51 @@ proc dIBuilderCreateGlobalVariableExpression*(builder: DIBuilderRef;
     expr: MetadataRef; decl: MetadataRef; alignInBits: uint32): MetadataRef {.
     importc: "LLVMDIBuilderCreateGlobalVariableExpression", dynlib: LLVMLib.}
 ## *
+##  Retrieves the \c DIVariable associated with this global variable expression.
+##  \param GVE    The global variable expression.
+##
+##  @see llvm::DIGlobalVariableExpression::getVariable()
+##
+
+proc dIGlobalVariableExpressionGetVariable*(gve: MetadataRef): MetadataRef {.
+    importc: "LLVMDIGlobalVariableExpressionGetVariable", dynlib: LLVMLib.}
+## *
+##  Retrieves the \c DIExpression associated with this global variable expression.
+##  \param GVE    The global variable expression.
+##
+##  @see llvm::DIGlobalVariableExpression::getExpression()
+##
+
+proc dIGlobalVariableExpressionGetExpression*(gve: MetadataRef): MetadataRef {.
+    importc: "LLVMDIGlobalVariableExpressionGetExpression", dynlib: LLVMLib.}
+## *
+##  Get the metadata of the file associated with a given variable.
+##  \param Var     The variable object.
+##
+##  @see DIVariable::getFile()
+##
+
+proc dIVariableGetFile*(`var`: MetadataRef): MetadataRef {.
+    importc: "LLVMDIVariableGetFile", dynlib: LLVMLib.}
+## *
+##  Get the metadata of the scope associated with a given variable.
+##  \param Var     The variable object.
+##
+##  @see DIVariable::getScope()
+##
+
+proc dIVariableGetScope*(`var`: MetadataRef): MetadataRef {.
+    importc: "LLVMDIVariableGetScope", dynlib: LLVMLib.}
+## *
+##  Get the source line where this \c DIVariable is declared.
+##  \param Var     The DIVariable.
+##
+##  @see DIVariable::getLine()
+##
+
+proc dIVariableGetLine*(`var`: MetadataRef): cuint {.
+    importc: "LLVMDIVariableGetLine", dynlib: LLVMLib.}
+## *
 ##  Create a new temporary \c MDNode.  Suitable for use in constructing cyclic
 ##  \c MDNode structures. A temporary \c MDNode is not uniqued, may be RAUW'd,
 ##  and must be manually deleted with \c LLVMDisposeTemporaryMDNode.
@@ -1134,6 +1237,33 @@ proc getSubprogram*(`func`: ValueRef): MetadataRef {.importc: "LLVMGetSubprogram
 
 proc setSubprogram*(`func`: ValueRef; sp: MetadataRef) {.
     importc: "LLVMSetSubprogram", dynlib: LLVMLib.}
+## *
+##  Get the line associated with a given subprogram.
+##  \param Subprogram     The subprogram object.
+##
+##  @see DISubprogram::getLine()
+##
+
+proc dISubprogramGetLine*(subprogram: MetadataRef): cuint {.
+    importc: "LLVMDISubprogramGetLine", dynlib: LLVMLib.}
+## *
+##  Get the debug location for the given instruction.
+##
+##  @see llvm::Instruction::getDebugLoc()
+##
+
+proc instructionGetDebugLoc*(inst: ValueRef): MetadataRef {.
+    importc: "LLVMInstructionGetDebugLoc", dynlib: LLVMLib.}
+## *
+##  Set the debug location for the given instruction.
+##
+##  To clear the location metadata of the given instruction, pass NULL to \p Loc.
+##
+##  @see llvm::Instruction::setDebugLoc()
+##
+
+proc instructionSetDebugLoc*(inst: ValueRef; loc: MetadataRef) {.
+    importc: "LLVMInstructionSetDebugLoc", dynlib: LLVMLib.}
 ## *
 ##  Obtain the enumerated type of a Metadata instance.
 ##
