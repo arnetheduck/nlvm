@@ -5957,19 +5957,20 @@ proc genNodeWhileStmt(g: LLGen, n: PNode) =
   dec(g.f.withinLoop)
 
 proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
-  let underlying = skipTypes(n[0].typ, abstractVarRange).kind
-
-  let ax = g.genNode(n[0], true).v
-  let u = g.isUnsigned(n[0].typ)
+  let
+    underlying = skipTypes(n[0].typ, abstractVarRange).kind
+    typ = n.typ
+    ax = g.genNode(n[0], true).v
+    u = g.isUnsigned(n[0].typ)
 
   let caseend = g.b.appendBasicBlockInContext(g.lc, g.nn("case.end", n))
 
-  if not n.typ.isEmptyType():
+  if not typ.isEmptyType():
     result = LLValue(
-      v: g.localAlloca(g.llType(n.typ), g.nn("case.res", n)),
+      v: g.localAlloca(g.llType(typ), g.nn("case.res", n)),
       storage: OnStack)
     g.buildStoreNull(result.v)
-    g.genObjectInit(n.typ, result.v)
+    g.genObjectInit(typ, result.v)
 
   for i in 1..<n.sonsLen:
     let s = n[i]
@@ -5991,7 +5992,7 @@ proc genNodeCaseStmt(g: LLGen, n: PNode, load: bool): LLValue =
     g.b.positionBuilderAtEnd(casedo)
     # branches might not have a return value if they exit instead (quit?)
     if result.v != nil and not s.lastSon.typ.isEmptyType():
-      g.genAssignment(result, s.lastSon, n.typ, {needToCopy})
+      g.genAssignment(result, s.lastSon, typ, {needToCopy})
     else:
       g.genNode(s.lastSon)
 
@@ -6183,7 +6184,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
       g.genNode(n)
 
   let
-    typ = n.typ
+    typ = n.deepTyp
 
   if not typ.isEmptyType():
     result = LLValue(
