@@ -23,7 +23,26 @@ Jacek Sieka (arnetheduck on gmail point com)
 
 # Status
 
-Things that work already:
+`nlvm` is generally at par with `nim` in terms of features, with the following
+notable differences:
+
+* Fast compile times - no intermediate `C` compiler step
+* DWARF ("zero-cost") exception handling
+* High-quality `gdb`/`lldb` debug information with source stepping, type
+  information etc
+* Smart code generation - compiler intrinsics for overflow checking,
+  smart constant initialization, etc
+* Native `wasm32` support with no extra tooling
+
+Most things from `nim` work just fine (see notes below however!):
+
+* the same standard library is used
+* similar command line options are supported (just change `nim` to `nlvm`!)
+* `importc` works without needing `C` header files - the declaration in the
+  `.nim` file needs to be accurate
+
+Test coverage is not too bad either:
+
 * bootstrapping and compiling itself
 * ~95% of all upstream tests - most failures can be traced to
   the standard library and compiler relying on C implementation details - see
@@ -33,18 +52,8 @@ Things that work already:
 * majority of the nim standard library (the rest can be fixed easily -
   requires upstream changes however)
 
-In terms of features, most things work just fine:
-* overflow, bounds and other checks (usually faster than `nim-via-c`)
-* `importc` for interfacing with `C` (and other language) libraries
-* `setjmp`-based exception handling - dwarf ("zero-cost") is possible but
-  not implemented
-* same standard library and test suite used
-
-Compared to upstream, NLVM:
-* does not generate C code - see notes below
-* has native debug support that works with GDB
-
 How you could contribute:
+
 * work on making [skipped-tests.txt](skipped-tests.txt) smaller
 * improve platform support (`osx` and `windows` should be easy, `arm` would be
   nice)
@@ -54,8 +63,9 @@ How you could contribute:
 * leave the computer for a bit and do something real for your fellow earthlings
 
 `nlvm` does _not_:
-* understand C - as a consequence, `header`, `emit` and similar pragmas
-  will not work - neither will the fancy `C++` features
+
+* understand `C` - as a consequence, `header`, `emit` and similar pragmas
+  will not work - neither will the fancy `importcpp`/`C++` features
 * support all nim compiler flags and features - do file bugs for anything
   useful that's missing
 
@@ -80,7 +90,7 @@ processes library dependencies (see dynlib section below):
     # Debian, ubuntu etc
     sudo apt-get install libpcre3-dev libssl-dev libsqlite3-dev ninja-build
 
-Compile NLVM (if needed, this will also build nim and llvm):
+Compile `nlvm` (if needed, this will also build `nim` and `llvm`):
 
     make
 
@@ -114,7 +124,6 @@ To build a docker image, use:
 To run built `nlvm` docker image use:
     
     docker run -v $(pwd):/code/ nlvm c -r /code/test.nim
-
 
 # Compiling your code
 

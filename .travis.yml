@@ -35,6 +35,7 @@ script:
   - export PATH=$TRAVIS_BUILD_DIR/ext:$PATH
   - export PATH=$TRAVIS_BUILD_DIR/ext/cmake-3.10.3-Linux-x86_64/bin:$PATH
   - make STATIC_LLVM=1 test
+  - make STATIC_LLVM=1 compare
   - bash make-dist.sh
 
 after_success:
