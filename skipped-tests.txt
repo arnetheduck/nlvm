@@ -78,6 +78,7 @@ tests/stdlib/tstdlib_various.nim
 tests/stdlib/tunittestexceptiontype.nim
 tests/system/tgogc.nim
 tests/system/tparams.nim
+tests/threads/t8535.nim
 tests/trmacros/trmacros_various.nim
 tests/typerel/t4799.nim
 tests/types/taliasbugs.nim

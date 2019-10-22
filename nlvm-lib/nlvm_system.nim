@@ -13,31 +13,6 @@
 import system/ansi_c
 
 const
-  # UnwindReasonCode
-  # URC_NO_REASON = 0
-  # URC_FOREIGN_EXCEPTION_CAUGHT = 1
-  URC_FATAL_PHASE2_ERROR = 2
-  URC_FATAL_PHASE1_ERROR = 3
-  # URC_NORMAL_STOP = 4
-  URC_END_OF_STACK = 5
-  URC_HANDLER_FOUND = 6
-  URC_INSTALL_CONTEXT = 7
-  URC_CONTINUE_UNWIND = 8
-  # URC_FAILURE = 9 # used only by ARM EHABI
-
-  # UnwindAction
-  UA_SEARCH_PHASE = 1
-  UA_CLEANUP_PHASE = 2
-  UA_HANDLER_FRAME = 4
-  UA_FORCE_UNWIND = 8
-  # UA_END_OF_STACK = 16
-
-  UNWIND_DATA_REG =
-    # see __builtin_eh_return_data / clang "getEHDataRegisterNumber" - this
-    # list is incomplete
-    when defined(x86): [0.cint, 2]
-    else: [0.cint, 1]
-
   DW_EH_PE_omit = 0xFF'u8
   DW_EH_PE_absptr = 0x00'u8
 
@@ -63,24 +38,13 @@ const
 # Need these for the runtime type information
 include system/inclrtl, system/hti
 
+import ./nlvm_unwind
+
 # Chicken and egg in system.nim...
 template `+=`(x: var SomeInteger, y: SomeInteger) = x = x + y
 template `-=`(x: var SomeInteger, y: SomeInteger) = x = x - y
 
 type
-  UnwindReasonCode = cint # c enum
-  UnwindAction = cint # c enum
-  UnwindExceptionClass = uint64
-  UnwindWord = uint # uintptr_t
-  UnwindContext = distinct pointer
-  UnwindExceptionCleanupFn = proc(
-    unwindCode: UnwindReasonCode, exception: ptr UnwindException) {.cdecl.}
-
-  UnwindException = object
-    exceptionClass: UnwindExceptionClass
-    exceptionCleanup: UnwindExceptionCleanupFn
-    privateData: array[6, UnwindWord]
-
   NlvmException = object
     ## Additional exception handling data needed by the personality function as
     ## well as a storage area for libunwind. By convention, the unwind
@@ -118,21 +82,11 @@ proc isNil(x: UnwindContext): bool {.borrow.}
 func isSet(action: UnwindAction, checkFor: UnwindAction): bool =
   (action and checkFor) > 0
 
-func isNative(c: UnwindExceptionClass): bool =
+func isNative(c: uint64): bool =
   c == nlvmExceptionClass
 
 func isNative(e: UnwindException): bool =
   e.exceptionClass.isNative()
-
-proc deleteException(exception: ptr UnwindException) {.importc: "_Unwind_DeleteException".}
-proc getDataRelBase(ctx: UnwindContext): pointer {.importc: "_Unwind_GetDataRelBase".}
-proc getIPInfo(ctx: UnwindContext, ipBeforeInsn: ptr cint): UnwindWord {.importc: "_Unwind_GetIPInfo".}
-proc getLanguageSpecificData(ctx: UnwindContext): pointer {.importc: "_Unwind_GetLanguageSpecificData".}
-proc getRegionStart(ctx: UnwindContext): pointer {.importc: "_Unwind_GetRegionStart".}
-proc getTextRelBase(ctx: UnwindContext): pointer {.importc: "_Unwind_GetTextRelBase".}
-proc raiseException(exception: ptr UnwindException): UnwindReasonCode {.importc: "_Unwind_RaiseException".}
-proc setGR(ctx: UnwindContext, reg_index: cint, value: UnwindWord) {.importc: "_Unwind_SetGR".}
-proc setIP(ctx: UnwindContext, value: UnwindWord) {.importc: "_Unwind_SetIP".}
 
 # TODO upstream: needs noreturn!
 proc c_abort() {.
@@ -216,9 +170,9 @@ proc readEncodedPointer(
     case encoding and 0x70
     of DW_EH_PE_absptr: 0.uint
     of DW_EH_PE_pcrel: cast[uint](tmp) # relative to address of the encoded value, despite the name
-    of DW_EH_PE_funcrel: cast[uint](context.getRegionStart())
-    of DW_EH_PE_textrel: cast[uint](context.getTextRelBase())
-    of DW_EH_PE_datarel: cast[uint](context.getDataRelBase())
+    of DW_EH_PE_funcrel: context.getRegionStart()
+    of DW_EH_PE_textrel: context.getTextRelBase()
+    of DW_EH_PE_datarel: context.getDataRelBase()
     else: c_abort()
 
   let loc = p + rel
@@ -480,7 +434,7 @@ func scanEHTable(
     return ScanResult(reason: URC_FATAL_PHASE1_ERROR)
 
   let lsda = context.getLanguageSpecificData()
-  if lsda.isNil():
+  if lsda == 0:
     return ScanResult(reason: URC_CONTINUE_UNWIND)
 
   var ipBeforeInsn: cint
@@ -488,13 +442,14 @@ func scanEHTable(
     ipp = context.getIPInfo(addr ipBeforeInsn)
     ip = ipp - (if ipBeforeInsn == 0: 1 else: 0)
     funcStart = context.getRegionStart()
-    ipOffset = cast[uint](ip) - cast[uint](funcStart)
+    ipOffset = ip - funcStart
 
-  var header = lsda
+  var header = cast[pointer](lsda)
   let
     startEncoding = header.readBytes(uint8)
     lpStartEncoded = header.readEncodedPointer(context, startEncoding)
-    lpStart = if lpStartEncoded.isNil(): funcStart else: lpStartEncoded
+    lpStart =
+      if lpStartEncoded.isNil(): cast[pointer](funcStart) else: lpStartEncoded
 
   let
     ttypeEncoding = header.readBytes(uint8)
@@ -638,14 +593,14 @@ func scanEHTable(
 proc setRegisters(
     unwindException: ptr UnwindException, context: UnwindContext,
     results: ScanResult) =
-  context.setGR(UNWIND_DATA_REG[0], cast[UnwindWord](unwindException))
-  context.setGR(UNWIND_DATA_REG[1], cast[UnwindWord](results.ttypeIndex))
-  context.setIP(cast[UnwindWord](results.landingPad))
+  context.setGR(UNWIND_DATA_REG[0], cast[uint](unwindException))
+  context.setGR(UNWIND_DATA_REG[1], cast[uint](results.ttypeIndex))
+  context.setIP(cast[uint](results.landingPad))
 
 proc nlvmEHPersonality(
     version: cint,
     actions: UnwindAction,
-    exceptionClass: UnwindExceptionClass,
+    exceptionClass: uint64,
     unwindException: ptr UnwindException,
     context: UnwindContext): UnwindReasonCode {.compilerproc.} =
   ## Personality function called whenever the exception handling stack is being
