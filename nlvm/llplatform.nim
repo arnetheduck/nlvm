@@ -62,6 +62,7 @@ const
       @["netware"], # ?
       @["macos"], # ? how to disambiguate with osx?
       @["macos"],
+      @["ios"], # ?
       @["haiku"],
       @["android"], # ?
       @["vxworks"], # ?

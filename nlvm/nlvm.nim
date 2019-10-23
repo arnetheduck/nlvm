@@ -25,7 +25,6 @@ import
     modulegraphs,
     modules,
     msgs,
-    nimconf,
     options,
     passes,
     passaux,

@@ -59,21 +59,21 @@ nlvm/nlvm.self.ll: nlvm/nlvm.self
 compare: nlvm/nlvm.self.ll nlvm/nlvm.ll
 	diff -u nlvm/nlvm.self.ll nlvm/nlvm.ll
 
-Nim/testament/tester: $(NIMC) Nim/testament/*.nim
-	$(NIMC) -d:release c Nim/testament/tester
+Nim/testament/testament: $(NIMC) Nim/testament/*.nim
+	$(NIMC) -d:release c Nim/testament/testament
 
-.PHONY: run-tester
-run-tester: $(NLVMR) Nim/testament/tester
-	-cd Nim; time testament/tester --megatest:off --targets:c "--nim:../nlvm/nlvmr" --skipFrom:../skipped-tests.txt all
+.PHONY: run-testament
+run-testament: $(NLVMR) Nim/testament/testament
+	-cd Nim; time testament/testament --megatest:off --targets:c "--nim:../nlvm/nlvmr" --skipFrom:../skipped-tests.txt all
 
-run-tester-noskip: $(NLVMR) Nim/testament/tester
-	-cd Nim; time testament/tester --megatest:off --targets:c "--nim:../nlvm/nlvmr" all
+run-testament-noskip: $(NLVMR) Nim/testament/testament
+	-cd Nim; time testament/testament --megatest:off --targets:c "--nim:../nlvm/nlvmr" all
 
 .PHONY: test
-test: run-tester stats
+test: run-testament stats
 	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
 
-update-skipped: run-tester-noskip stats
+update-skipped: run-testament-noskip stats
 	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
 	# Output suitable for sticking into skipped-tests.txt
 	-jq -r -s '([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | .[].name' Nim/testresults/*json | sed 's/ C.*//' | sort | uniq > skipped-tests.txt
