@@ -12,7 +12,6 @@ import
 import
   compiler/[
     ast,
-    astalgo,
     bitsets,
     cgmeth,
     ccgutils,
@@ -517,6 +516,9 @@ proc constNimInt(g: LLGen, val: int64): llvm.ValueRef =
   # int64 because we could compile 64-bit programs on 32-bit
   llvm.constInt(g.primitives[tyInt], val.culonglong, llvm.True)
 
+proc constNimInt(g: LLGen, val: Int128): llvm.ValueRef =
+  g.constNimInt(val.toInt64())
+
 proc isZero(v: llvm.ValueRef): bool =
   v.isConstant() == llvm.True and
     v.typeOfX().getTypeKind() == IntegerTypeKind and
@@ -566,10 +568,11 @@ proc constNimString(g: LLGen, n: PNode): llvm.ValueRef =
   if n.strVal.len == 0:
     llvm.constNull(g.llType(n.typ))
   else:
-    let s = g.lc.constStringInContext(n.strVal)
-    let ll = g.constNimInt(n.strVal.len)
-    let cap = g.constNimInt(n.strVal.len + g.strLitFlag)
-    let x = llvm.constNamedStruct(g.llGenericSeqType(), [ll, cap])
+    let
+      s = g.lc.constStringInContext(n.strVal)
+      ll = g.constNimInt(n.strVal.len)
+      cap = g.constNimInt(n.strVal.len + g.strLitFlag)
+      x = llvm.constNamedStruct(g.llGenericSeqType(), [ll, cap])
     llvm.constStructInContext(g.lc, [x, s])
 
 proc buildExtractValue(b: llvm.BuilderRef, v: LLValue, index: cuint,
@@ -1469,7 +1472,7 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
     g.genMarker(typ.lastSon(), v, op)
   of tyArray:
     let
-      arraySize = g.config.lengthOrd(typ.sons[0]).toInt() # TODO Int128
+      arraySize = g.config.lengthOrd(typ.sons[0])
       wcmp = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.arr.cmp"))
       wtrue = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.arr.true"))
       wfalse = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.arr.false"))
@@ -3095,8 +3098,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
           len = g.b.buildLoad(g.symbols[-pr.sym.id].v, g.nn("call.seq.oa.len", n))
         of tyArray, tyUncheckedArray:
           v = g.genNode(p, true).v
-          # TODO Int128
-          len = g.constNimInt(g.config.lengthOrd(pr.typ).toInt)
+          len = g.constNimInt(g.config.lengthOrd(pr.typ))
         of tyPtr, tyRef:
           case pr.typ.lastSon().kind
           of tyString, tySequence:
@@ -3862,8 +3864,7 @@ proc genMagicLength(g: LLGen, n: PNode): LLValue =
   of tyOpenArray, tyVarargs: g.genMagicLengthOpenArray(n)
   of tyCString: g.genMagicLengthStr(n)
   of tySequence, tyString: g.genMagicLengthSeq(n)
-  # TODO Int128
-  of tyArray: LLValue(v: g.constNimInt(g.config.lengthOrd(typ).toInt))
+  of tyArray: LLValue(v: g.constNimInt(g.config.lengthOrd(typ)))
   else:
     g.config.internalError(n.info, "genMagicLength " & $n[1].typ)
     LLValue()
@@ -4200,10 +4201,6 @@ proc genMagicUnaryMinusF64(g: LLGen, n: PNode): LLValue =
   let ax = g.genNode(n[1], true).v
   LLValue(v: g.b.buildFSub(
     llvm.constReal(ax.typeOfX(), 0.0.cdouble), ax, g.nn("neg", ax)))
-
-proc genMagicToInt(g: LLGen, n:PNode): LLValue =
-  let a = g.genNode(n[1], true).v
-  LLValue(v: g.b.buildFPToSI(a, g.llType(n.typ), g.nn("fptosi", n)))
 
 proc genMagicToStr(g: LLGen, n: PNode, f: string): LLValue =
   let a = g.genNode(n[1], true).v
@@ -4808,7 +4805,7 @@ proc genMagicArrToSeq(g: LLGen, n: PNode): LLValue =
   let
     tmp = LLValue(v:
       g.localAlloca(g.llType(n.typ), g.nn("arrtoseq", n)), storage: OnStack)
-    l = g.config.lengthOrd(skipTypes(n[1].typ, abstractInst)).toInt # TODO Int128
+    l = g.config.lengthOrd(skipTypes(n[1].typ, abstractInst))
 
   g.buildStoreNull(tmp.v)
   g.genNewSeqAux(tmp, n.typ, g.constNimInt(l))
@@ -4816,7 +4813,7 @@ proc genMagicArrToSeq(g: LLGen, n: PNode): LLValue =
   let tmpl = g.buildLoadValue(tmp)
   let src = g.genNode(n[1], true)
 
-  for i in 0..<l:
+  for i in 0..<l.toInt():
     let tgt = g.buildNimSeqDataGEP(tmpl, g.constGEPIdx(i))
     let srcg = g.b.buildGEP(src, [g.constGEPIdx(i)], g.nn("arrtoseq.gep", n))
     g.genAsgnFromRef(
@@ -5464,14 +5461,14 @@ proc genNodeBracketExprArray(g: LLGen, n: PNode, load: bool): LLValue =
   # it's zero-extended
   let
     bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
-    fi = g.constNimInt(first.toInt) # TODO Int128
+    fi = g.constNimInt(first)
     b =
       if first != 0: g.b.buildSub(bi, fi, g.nn("bra.arr.first", n))
       else: bi
 
   if optBoundsCheck in g.f.options:
     let
-      len = g.constNimInt((g.config.lastOrd(ty) - first + 1).toInt) # TODO Int128
+      len = g.constNimInt(g.config.lastOrd(ty) - first + 1)
       cond = g.b.buildICmp(llvm.IntUGE, b, len, "bes.bounds")
     if first == 0:
       g.callRaise(cond, "raiseIndexError2", [bi, len])
@@ -5499,7 +5496,7 @@ proc genNodeBracketExprUncheckedArray(g: LLGen, n: PNode, load: bool): LLValue =
   let bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
   let b =
     if first != 0:
-      g.b.buildSub(bi, g.constNimInt(first.toInt), g.nn("bra.arr.first", n)) # TODO Int128
+      g.b.buildSub(bi, g.constNimInt(first), g.nn("bra.arr.first", n))
     else: bi
 
   g.maybeLoadValue(LLValue(v:
