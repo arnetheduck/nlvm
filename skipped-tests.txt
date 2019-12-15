@@ -32,9 +32,11 @@ tests/destructor/tglobaldestructor.nim
 tests/destructor/tmove_objconstr.nim
 tests/destructor/tnewruntime_misc.nim
 tests/destructor/tnewruntime_strutils.nim
+tests/destructor/tobjfield_analysis.nim
 tests/destructor/topt.nim
 tests/destructor/towned_binary_tree.nim
 tests/destructor/tsimpleclosure.nim
+tests/destructor/ttuple.nim
 tests/destructor/turn_destroy_into_finalizer.nim
 tests/destructor/tuse_ownedref_after_move.nim
 tests/destructor/tv2_cast.nim
@@ -91,4 +93,5 @@ tests/threads/t8535.nim
 tests/trmacros/trmacros_various.nim
 tests/typerel/t4799.nim
 tests/types/taliasbugs.nim
+tests/valgrind/tbasic_valgrind.nim
 tests/vm/tvmops.nim
