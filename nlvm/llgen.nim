@@ -2896,12 +2896,30 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
   if nf.kind != nkSym: return false
 
   let s = nf.sym
-
   if s.originatingModule().name.s == "system":
+    if s.name.s == "atomicLoad":
+      let p0 = g.genNode(n[1], false).v
+      let p1 = g.genNode(n[2], false).v
+      let ld = g.b.buildLoad(p0, g.nn("a.load"))
+      ld.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
+      ld.setAlignment(1) # TODO
+      discard g.b.buildStore(ld, p1)
+      return true
+
     if s.name.s == "atomicLoadN":
       let p0 = g.genNode(n[1], false).v
       o = LLValue(v: g.b.buildLoad(p0, g.nn("a.load.n")))
+      o.v.setAlignment(1) # TODO
       o.v.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
+      return true
+
+    if s.name.s == "atomicStore":
+      let p0 = g.genNode(n[1], false).v
+      let p1 = g.genNode(n[2], false).v
+      let ld = g.b.buildLoad(p1, g.nn("a.load"))
+      let ax = g.b.buildStore(ld, p0)
+      ax.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
+      ax.setAlignment(1.cuint)  # TODO(j) align all over the place.
       return true
 
     if s.name.s == "atomicStoreN":
@@ -2938,6 +2956,19 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       let p1 = g.genNode(n[2], true).v
       let p2 = g.genNode(n[3], true).v
       let x = g.b.buildAtomicCmpXchg(p0, p1, p2,
+        llvm.AtomicOrderingSequentiallyConsistent,
+        llvm.AtomicOrderingSequentiallyConsistent, llvm.False)
+      o = LLValue(v: g.buildI8(
+        g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
+      return true
+
+    if s.name.s == "atomicCompareExchange":
+      let p0 = g.genNode(n[1], false).v
+      let p1 = g.genNode(n[2], false).v
+      let p2 = g.genNode(n[3], false).v
+      let l1 = g.b.buildLoad(p1, g.nn("ace.1"))
+      let l2 = g.b.buildLoad(p2, g.nn("ace.2"))
+      let x = g.b.buildAtomicCmpXchg(p0, l1, l2,
         llvm.AtomicOrderingSequentiallyConsistent,
         llvm.AtomicOrderingSequentiallyConsistent, llvm.False)
       o = LLValue(v: g.buildI8(
@@ -3002,7 +3033,8 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
   let parTypes = fxt.getParamTypes()
   for i in 1..<n.len:
     let p = n[i]
-    let pr = (if p.kind == nkHiddenAddr: p[0] else: p).skipConv()
+    let pr = (if p.kind == nkHiddenAddr: p[0] else: p)
+
     if i >= ftyp.n.len: # varargs like printf, for example
       let v = g.genNode(pr, true).v
       # In some transformations, the compiler produces a call node to a
@@ -3021,15 +3053,14 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
 
     var v: llvm.ValueRef
 
+    var q = skipConv(pr)
+    var skipped = false
+    while q.kind == nkStmtListExpr and q.len > 0:
+      skipped = true
+      q = q.lastSon
+
     if skipTypes(param.typ, abstractVar).kind in {tyOpenArray, tyVarargs}:
       var len: llvm.ValueRef
-
-      var q = skipConv(pr)
-      var skipped = false
-      while q.kind == nkStmtListExpr and q.len > 0:
-        skipped = true
-        q = q.lastSon
-
       if q.getMagic() == mSlice:
         if skipped:
           q = skipConv(pr)
@@ -3095,7 +3126,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
           v = g.getNimSeqDataPtr(v)
         of tyOpenArray, tyVarargs:
           v = g.genNode(p, param.typ.kind in {tyVar, tyLent}).v
-          len = g.b.buildLoad(g.symbols[-pr.sym.id].v, g.nn("call.seq.oa.len", n))
+          len = g.b.buildLoad(g.symbols[-q.sym.id].v, g.nn("call.seq.oa.len", n))
         of tyArray, tyUncheckedArray:
           v = g.genNode(p, true).v
           len = g.constNimInt(g.config.lengthOrd(pr.typ))
@@ -4762,10 +4793,10 @@ proc skipAddr(n: PNode): PNode =
 proc genMagicWasMoved(g: LLGen, n: PNode) =
   g.resetLoc(n[1].skipAddr.typ, g.genNode(n[1], false))
 
-proc genMagicDefault(g: LLGen, n: PNode): LLValue =
+proc genMagicDefault(g: LLGen, n: PNode, load: bool): LLValue =
   let typ = n.typ.skipTypes(abstractInst)
 
-  if typ.kind == tyArray:
+  if typ.kind == tyArray or not load:
     let
       t = g.llType(typ)
       v = g.m.addGlobal(t, "")
@@ -4977,7 +5008,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   of mSwap: g.genMagicSwap(n)
   of mMove: result = g.genMagicMove(n, load)
   of mWasMoved: g.genMagicWasMoved(n)
-  of mDefault: result = g.genMagicDefault(n)
+  of mDefault: result = g.genMagicDefault(n, load)
   of mReset: g.genMagicReset(n)
   of mIsNil: result = g.genMagicIsNil(n)
   of mArrToSeq: result = g.genMagicArrToSeq(n)
@@ -5168,9 +5199,15 @@ proc genSingleVar(g: LLGen, n: PNode) =
           g.init.sections[secLastPreinit] = g.section(g.init, secPreinit)
 
         g.withFunc(g.init): g.withBlock(g.section(g.init, secLastPreinit)):
+          # Avoid using the wrong exception handling context when initializing
+          # globals..
+          # TODO use the right exception handling context
+          let nts = g.f.nestedTryStmts
+          g.f.nestedTryStmts = @[]
+
           g.genAssignment(tmp, init, v.typ, v.assignCopy)
           g.init.sections[secLastPreinit] = g.b.getInsertBlock()
-
+          g.f.nestedTryStmts = nts
         LLValue()
       else:
         tmp
