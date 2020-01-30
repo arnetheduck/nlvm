@@ -69,6 +69,8 @@ type
   comdat{.pure, final.} = object
   opaqueModuleFlagEntry{.pure, final.} = object
   OpaqueBinary{.pure, final.} = object
+  orcOpaqueJITStack{.pure, final.} = object
+  OpaqueError{.pure, final.} = object
 
   # Funny type names that came out of c2nim
   int64T = int64
@@ -132,11 +134,14 @@ include llvm/Core
 include llvm/DebugInfo
 include llvm/BitReader
 include llvm/BitWriter
+include llvm/Error
 include llvm/IRReader
 include llvm/Linker
 include llvm/Target
 include llvm/TargetMachine
 include llvm/Transforms/PassManagerBuilder
+
+include llvm/OrcBindings
 
 include preprocessed
 
@@ -414,10 +419,10 @@ proc getMDKindIDInContext*(c: ContextRef, name: string): cuint =
 proc createStringAttribute*(c: ContextRef, k, v: string): AttributeRef =
   createStringAttribute(c, k.cstring, k.len.cuint, v.cstring, v.len.cuint)
 
-
 proc appendBasicBlockInContext*(
     b: BuilderRef, c: ContextRef, name: cstring): BasicBlockRef =
   let
     pre = b.getInsertBlock()
     f = pre.getBasicBlockParent()
   appendBasicBlockInContext(c, f, name)
+
