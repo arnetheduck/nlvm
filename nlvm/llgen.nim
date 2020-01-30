@@ -39,6 +39,7 @@ import
   llvm/llvm,
 
   lllink,
+  lljit,
   llplatform
 
 type
@@ -156,6 +157,9 @@ type
     # Exception handling
     personalityFn: llvm.ValueRef
     landingPadTy: llvm.TypeRef
+
+    # Running
+    runCtx: RunContext
 
   LLValue = object
     v: llvm.ValueRef
@@ -2298,6 +2302,11 @@ proc genLocal(g: LLGen, n: PNode): LLValue =
   g.symbols[s.id] = lv
   lv
 
+proc initToType(g: LLGen, v: var seq[byte], t: llvm.TypeRef) =
+  let sz = g.debugSize(t)
+  if v.len() != sz.storeBits.int div 8:
+    v.setLen(sz.storeBits.int div 8)
+
 proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   let s = n.sym
   if s.id in g.symbols:
@@ -2336,6 +2345,9 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
 
   result = LLValue(v: v, lode: n, storage: s.loc.storage)
   g.symbols[s.id] = result
+
+  if optWasNimscript in g.config.globalOptions:
+    g.initToType(g.runCtx.store.mgetOrPut(s.llName, @[]), v.typeOfX())
 
 proc getUnreachableBlock(g: LLGen): llvm.BasicBlockRef =
   if g.f.unreachableBlock == nil:
@@ -7015,18 +7027,18 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
 
   g.finalize()
 
-  if g.d != nil:
-    g.d.dIBuilderFinalize()
-
   g.loadBase()
 
-  g.writeOutput(changeFileExt(g.config.projectFull, "").string)
-
   if g.d != nil:
+    g.d.dIBuilderFinalize()
     g.d.disposeDIBuilder()
     g.d = nil
 
-  g.m.disposeModule()
+  if optWasNimscript in g.config.globalOptions:
+    runModule(g.config, g.runCtx, g.tm, g.m)
+  else:
+    g.writeOutput(changeFileExt(g.config.projectFull, "").string)
+    g.m.disposeModule()
 
   n
 

@@ -162,7 +162,13 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
       else:
         processSwitch(pass, p, config)
     of cmdArgument:
-      if processArgument(pass, p, argsCount, config): break
+      if argsCount == 0 and p.key.endsWith(".nim"):
+        config.command = "e"
+        incl(config.globalOptions, optWasNimscript)
+        config.projectName = unixToNativePath(p.key)
+        config.arguments = cmdLineRest(p)
+        break
+      elif processArgument(pass, p, argsCount, config): break
   if pass == passCmd2:
     if optRun notin config.globalOptions and config.arguments.len > 0 and config.command.normalize != "run":
       rawMessage(config, errGenerated, errArgsNeedRunOption)
@@ -252,6 +258,26 @@ proc mainCommand*(graph: ModuleGraph) =
   of "check":
     conf.cmd = cmdCheck
     commandCheck(graph)
+
+  of "e":
+    if not fileExists(conf.projectFull):
+      rawMessage(conf, errGenerated, "file does not exist: " & conf.projectFull.string)
+    elif conf.projectFull.string.endsWith(".nim"):
+      conf.cmd = cmdRun
+
+      # TODO: gc unsupported as of yet
+      conf.selectedGC = gcNone
+      conf.verbosity = 0
+      conf.notes = NotesVerbosity[0]
+
+      defineSymbol(conf.symbols, "nogc")
+      defineSymbol(conf.symbols, "useMalloc")
+
+
+      incl conf.globalOptions, optWasNimscript
+      commandCompile(graph)
+    elif not conf.projectFull.string.endsWith(".nims"):
+      rawMessage(conf, errGenerated, "not a NimScript file: " & conf.projectFull.string)
 
   else: conf.rawMessage(errGenerated, conf.command)
 
