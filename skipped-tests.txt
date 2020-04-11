@@ -72,6 +72,7 @@ tests/misc/tparseopt.nim
 tests/misc/tsizeof.nim
 tests/misc/tstrace.nim
 tests/modules/timport_in_config.nim
+tests/newconfig/tfoo.nim
 tests/niminaction/Chapter3/various3.nim
 tests/niminaction/Chapter8/sdl/sdl_test.nim
 tests/osproc/texecps.nim

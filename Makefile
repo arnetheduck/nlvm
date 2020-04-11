@@ -11,7 +11,7 @@ NIMFLAGS=--debuginfo --linedir:on
 
 NLVMFLAGS= --debuginfo --linedir:on
 
-LLVM_MAJ=9
+LLVM_MAJ=10
 LLVM_MIN=0
 LLVM_PAT=0
 
