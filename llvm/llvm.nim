@@ -5,10 +5,10 @@
 import strutils
 
 const
-  LLVMLib = "libLLVM-9.so"
-  LLVMRoot = "../ext/llvm-9.0.0.src/"
-  LLDRoot = "../ext/lld-9.0.0.src/"
-  LLVMVersion* = "9.0.0"
+  LLVMLib = "libLLVM-10.so"
+  LLVMRoot = "../ext/llvm-10.0.0.src/"
+  LLDRoot = "../ext/lld-10.0.0.src/"
+  LLVMVersion* = "10.0.0"
 
 {.passL: "-llldDriver" .}
 {.passL: "-llldELF" .}
@@ -26,7 +26,7 @@ else:
   const
     LLVMOut = LLVMRoot & "sha/"
 
-  {.passL: "-lLLVM-9".}
+  {.passL: "-lLLVM-10".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
 {.passC: "-I" & LLVMRoot & "include".}

@@ -21,7 +21,7 @@ LLVM_ROOT=llvm-$VER2.src
 LLD_ROOT=lld-$VER2.src
 
 [ -f $LLVM_ROOT.tar.xz ] || {
-  wget http://releases.llvm.org/$VER2/$LLVM_ROOT.tar.xz
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$LLVM_ROOT.tar.xz
 }
 
 [ -f $LLVM_ROOT/CMakeLists.txt ] || {
@@ -29,7 +29,7 @@ LLD_ROOT=lld-$VER2.src
 }
 
 [ -f $LLD_ROOT.tar.xz ] || {
-  wget http://releases.llvm.org/$VER2/$LLD_ROOT.tar.xz
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$LLD_ROOT.tar.xz
 }
 
 [ -f $LLD_ROOT/CMakeLists.txt ] || {

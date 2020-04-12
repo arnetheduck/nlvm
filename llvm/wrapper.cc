@@ -46,12 +46,12 @@ extern "C" void LLVMNimSetMetadataGlobal(LLVMValueRef Global,
 
 extern "C" const char* LLVMNimLLDLinkElf(const char **args, size_t arg_count) {
     ArrayRef<const char *> array_ref_args(args, arg_count);
-    SmallVector<char, 128> sv;
-    raw_svector_ostream os(sv);
+    SmallVector<char, 128> osv, esv;
+    raw_svector_ostream os(osv), es(esv);
 
-    if (!lld::elf::link(array_ref_args, false, os)) {
-      sv.push_back(0);
-      return LLVMCreateMessage(&sv[0]);
+    if (!lld::elf::link(array_ref_args, false, os, es)) {
+      osv.push_back(0);
+      return LLVMCreateMessage(&osv[0]);
     }
 
     return nullptr;
@@ -59,12 +59,12 @@ extern "C" const char* LLVMNimLLDLinkElf(const char **args, size_t arg_count) {
 
 extern "C" const char* LLVMNimLLDLinkWasm(const char **args, size_t arg_count) {
     ArrayRef<const char *> array_ref_args(args, arg_count);
-    SmallVector<char, 128> sv;
-    raw_svector_ostream os(sv);
+    SmallVector<char, 128> osv, esv;
+    raw_svector_ostream os(osv), es(esv);
 
-    if (!lld::wasm::link(array_ref_args, false, os)) {
-      sv.push_back(0);
-      return LLVMCreateMessage(&sv[0]);
+    if (!lld::wasm::link(array_ref_args, false, os, es)) {
+      osv.push_back(0);
+      return LLVMCreateMessage(&osv[0]);
     }
 
     return nullptr;

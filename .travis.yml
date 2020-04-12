@@ -1,14 +1,14 @@
 language: c++
 os: linux
-dist: trusty
+dist: bionic
 cache:
   directories:
-    - ext/llvm-9.0.0.src/include
-    - ext/llvm-9.0.0.src/sta/bin
-    - ext/llvm-9.0.0.src/sta/lib
-    - ext/llvm-9.0.0.src/sta/include
-    - ext/llvm-9.0.0.src/projects
-    - ext/lld-9.0.0.src/include
+    - ext/llvm-10.0.0.src/include
+    - ext/llvm-10.0.0.src/sta/bin
+    - ext/llvm-10.0.0.src/sta/lib
+    - ext/llvm-10.0.0.src/sta/include
+    - ext/llvm-10.0.0.src/projects
+    - ext/lld-10.0.0.src/include
 
 compiler: clang
 
@@ -20,20 +20,14 @@ addons:
     - libgc-dev
     - libncurses5-dev
     - jq
+    - cmake
+    - ninja-build
 
 before_script:
   - git submodule update --init
   - mkdir -p ext
-  - cd ext
-  - wget https://cmake.org/files/v3.10/cmake-3.10.3-Linux-x86_64.tar.gz
-  - tar xf cmake-3.10.3-Linux-x86_64.tar.gz
-  - wget https://github.com/ninja-build/ninja/releases/download/v1.8.2/ninja-linux.zip
-  - unzip ninja-linux.zip
-  - cd ..
 
 script:
-  - export PATH=$TRAVIS_BUILD_DIR/ext:$PATH
-  - export PATH=$TRAVIS_BUILD_DIR/ext/cmake-3.10.3-Linux-x86_64/bin:$PATH
   - make STATIC_LLVM=1 test
   - make STATIC_LLVM=1 compare
   - bash make-dist.sh
