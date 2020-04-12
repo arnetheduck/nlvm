@@ -231,8 +231,9 @@ proc nlvmRaise(e: ref Exception, ename: cstring) {.compilerProc, noreturn.} =
   # TODO for reasons unknown, using `new` aka the GC here fails, even if we
   #      GC_ref the given reference - in release mode, the personality function
   #      ends up not being called and the handler not found. hmm...
-  let excMem = c_malloc(sizeof NlvmException)
-  nimZeroMem(excMem, sizeof NlvmException)
+  let esize = cast[csize_t](sizeof NlvmException)
+  let excMem = c_malloc(esize)
+  nimZeroMem(excMem, esize)
   let exc = cast[ptr NlvmException](excMem)
 
   exc.unwindException.exceptionClass = nlvmExceptionClass

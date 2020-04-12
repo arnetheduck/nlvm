@@ -23,6 +23,7 @@ const
       @["powerpc64le"],
       @["sparc"],
       @["vm"], # ?
+      @["hppa"], # ?
       @["ia64"], # ?
       @["x86_64", "amd64"],
       @["mips"],
@@ -70,7 +71,8 @@ const
       @["js"], # ?
       @["nimvm"], # ?
       @["unknown"], # ?
-      @["nintendoswitch"] # ?
+      @["nintendoswitch"], # ?,
+      @["any"]
     ]
 
 proc toTriple*(cpu: TSystemCPU, os: TSystemOS): string =

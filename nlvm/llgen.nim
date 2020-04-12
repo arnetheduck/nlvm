@@ -1697,7 +1697,8 @@ proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
     g.finalize()
 
 proc registerGcRoot(g: LLGen, sym: PSym, v: llvm.ValueRef) =
-  if g.config.selectedGC in {gcMarkAndSweep, gcDestructors, gcV2, gcRefc} and
+  if g.config.selectedGC in  {gcMarkAndSweep, gcHooks, gcV2, gcRefc} and
+      optOwnedRefs notin g.config.globalOptions and
       sym.typ.containsGarbageCollectedRef() and sym.id notin g.gmarkers:
     g.gcRoots.add((sym, v))
 
@@ -2546,13 +2547,21 @@ proc callBinOpWithOver(
       bx =
         if i64: g.buildTruncOrExt(b, g.primitives[tyInt64], u)
         else: g.buildNimIntExt(b, u)
-      opfn = case op
-        of llvm.SDiv:
-          if i64: "divInt64" else: "divInt"
-        of llvm.SRem:
-          if i64: "modInt64" else: "modInt"
-        else: g.config.internalError("Unexpected op: " & $op); ""
-      bo = g.callCompilerProc(opfn, [ax, bx])
+      divzero = g.b.buildICmp(llvm.IntEQ, bx, constInt(ax.typeOfX(), 0, llvm.False), "")
+
+    g.callRaise(divzero, "raiseDivByZero")
+
+    let bo =
+      if op == llvm.SDiv:
+        let
+          opfn = if i64: "nimDivInt64" else: "nimDivInt"
+          res = g.localAlloca(ax.typeOfX(), g.nn("res", a))
+          isover = g.buildI1(g.callCompilerProc(opfn, [ax, bx, res]))
+
+        g.callRaise(isover, "raiseOverflow")
+        g.b.buildLoad(res, "")
+      else:
+        g.b.buildBinOp(op, ax, bx, "")
 
     let rangeCheck = typ.kind in
       {tyRange, tyEnum, tyInt8, tyInt16, tyInt32, tyUInt8, tyUInt16, tyUint32}
@@ -2771,8 +2780,10 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
   f.addFuncAttribute(g.attrNoOmitFP)
 
   if s.name.s in [
-      "sysFatal", "raiseOverFlow", "raiseIndexError", "raiseIndexError2",
-      "raiseIndexError3", "raiseFieldError"]:
+      "sysFatal", "raiseOverflow", "raiseDivByZero", "raiseFloatInvalidOp",
+      "raiseFloatOverflow", "raiseAssert", "raiseRangeError",
+      "raiseIndexError", "raiseIndexError2", "raiseIndexError3",
+      "raiseFieldError"]:
     f.addFuncAttribute(g.attrCold)
 
   if g.genFakeImpl(s, f):
@@ -3681,16 +3692,6 @@ proc genMagicEcho(g: LLGen, n: PNode) =
     let y = g.constNimInt(b.len)
     discard g.callCompilerProc("echoBinSafe", [x, y])
 
-proc genMagicUnaryLt(g: LLGen, n: PNode): LLValue =
-  let
-    ax = g.genNode(n[1], true).v
-    bx = llvm.constInt(ax.typeOfX(), 1, False)
-  LLValue(v:
-    if optOverflowCheck in g.f.options:
-      g.callBinOpWithOver(ax, bx, llvm.Sub, n.typ)
-    else:
-      g.b.buildSub(ax, bx, g.nn("lt", n)))
-
 proc genMagicIncDec(g: LLGen, n: PNode, op: Opcode) =
   let
     ax = g.genNode(n[1], false).v
@@ -3899,13 +3900,6 @@ proc genMagicLength(g: LLGen, n: PNode): LLValue =
   else:
     g.config.internalError(n.info, "genMagicLength " & $n[1].typ)
     LLValue()
-
-proc genMagicXLen(g: LLGen, n: PNode): LLValue =
-  let v = g.genNode(n[1], true).v
-
-  # load length if v is not nil
-  let gep = g.buildNimSeqLenGEP(v)
-  LLValue(v: g.b.buildLoad(gep, g.nn("seq.len.load", n)))
 
 proc genMagicIncl(g: LLGen, n: PNode) =
   let
@@ -4901,7 +4895,6 @@ proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   of mSizeOf: result = g.genMagicSizeOf(n)
   of mOf: result = g.genMagicOf(n)
   of mEcho: g.genMagicEcho(n)
-  of mUnaryLt: result = g.genMagicUnaryLt(n)
   of mInc: g.genMagicIncDec(n, llvm.Add)
   of mDec: g.genMagicIncDec(n, llvm.Sub)
   of mOrd: result = g.genMagicOrd(n)
@@ -4913,7 +4906,6 @@ proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   of mLengthStr: result = g.genMagicLength(n)
   of mLengthArray: result = g.genMagicLength(n)
   of mLengthSeq: result = g.genMagicLength(n)
-  of mXLenStr, mXLenSeq: result = g.genMagicXLen(n)
   of mIncl: g.genMagicIncl(n)
   of mExcl: g.genMagicExcl(n)
   of mCard: result = g.genMagicCard(n)
@@ -4952,8 +4944,6 @@ proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   of mLtF64: result = g.genMagicCmpF(n, llvm.RealOLT) # TODO ordered?
   of mLeU: result = g.genMagicCmpI(n, llvm.IntULE)
   of mLtU: result = g.genMagicCmpI(n, llvm.IntULT)
-  of mLeU64: result = g.genMagicCmpI(n, llvm.IntULE)
-  of mLtU64: result = g.genMagicCmpI(n, llvm.IntULT)
   of mEqEnum: result = g.genMagicCmpI(n, llvm.IntEQ)
   of mLeEnum: result = g.genMagicCmpI(n, llvm.IntULE) # TODO underlying
   of mLtEnum: result = g.genMagicCmpI(n, llvm.IntULT) # TODO underlying
@@ -4964,7 +4954,6 @@ proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   of mLeB: result = g.genMagicCmpI(n, llvm.IntULE)
   of mLtB: result = g.genMagicCmpI(n, llvm.IntULT)
   of mEqRef: result = g.genMagicCmpI(n, llvm.IntEQ)
-  of mEqUntracedRef: result = g.genMagicCmpI(n, llvm.IntEQ)
   of mLePtr: result = g.genMagicCmpI(n, llvm.IntULE)
   of mLtPtr: result = g.genMagicCmpI(n, llvm.IntULT)
   of mXor: result = g.genMagicCmpI(n, llvm.IntNE)
@@ -4993,7 +4982,6 @@ proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   of mMulSet: result = g.genMagicSetBinOp(llvm.And, false, n)
   of mPlusSet: result = g.genMagicSetBinOp(llvm.Or, false, n)
   of mMinusSet: result = g.genMagicSetBinOp(llvm.And, true, n)
-  of mSymDiffSet: result = g.genMagicSetBinOp(llvm.Xor, false, n)
   of mConStrStr: result = g.genMagicConStrStr(n)
   of mDotDot: result = g.genMagicDotDot(n, load)
   of mAppendStrCh: g.genMagicAppendStrCh(n)
@@ -5012,7 +5000,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool): LLValue =
   of mReset: g.genMagicReset(n)
   of mIsNil: result = g.genMagicIsNil(n)
   of mArrToSeq: result = g.genMagicArrToSeq(n)
-  of mCopyStr, mCopyStrLast, mNewString, mNewStringOfCap, mParseBiggestFloat:
+  of mNewString, mNewStringOfCap, mParseBiggestFloat:
     result = g.genMagicCall(n, load)
   of mSpawn: result = g.genMagicSpawn(n)
   of mDeepCopy: g.genMagicDeepCopy(n)
