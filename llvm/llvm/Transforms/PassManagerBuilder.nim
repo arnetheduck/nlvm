@@ -14,6 +14,7 @@
 type
   PassManagerBuilderRef* = ptr OpaquePassManagerBuilder
 
+## LLVM_C_EXTERN_C_BEGIN
 ## *
 ##  @defgroup LLVMCTransformsPassManagerBuilder Pass manager builder
 ##  @ingroup LLVMCTransforms
@@ -72,3 +73,4 @@ proc passManagerBuilderPopulateLTOPassManager*(pmb: PassManagerBuilderRef;
 ## *
 ##  @}
 ##
+## LLVM_C_EXTERN_C_END

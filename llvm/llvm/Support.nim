@@ -11,6 +11,7 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
+## LLVM_C_EXTERN_C_BEGIN
 ## *
 ##  This function permanently loads the dynamic library at the given path.
 ##  It is safe to call this function multiple times for the same library.
@@ -51,3 +52,4 @@ proc searchForAddressOfSymbol*(symbolName: cstring): pointer {.
 
 proc addSymbol*(symbolName: cstring; symbolValue: pointer) {.
     importc: "LLVMAddSymbol", dynlib: LLVMLib.}
+## LLVM_C_EXTERN_C_END

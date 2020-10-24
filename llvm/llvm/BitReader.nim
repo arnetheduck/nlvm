@@ -16,6 +16,7 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
+## LLVM_C_EXTERN_C_BEGIN
 ## *
 ##  @defgroup LLVMCBitReader Bit Reader
 ##  @ingroup LLVMC
@@ -68,3 +69,4 @@ proc getBitcodeModule2*(memBuf: MemoryBufferRef; outM: ptr ModuleRef): Bool {.
 ## *
 ##  @}
 ##
+## LLVM_C_EXTERN_C_END

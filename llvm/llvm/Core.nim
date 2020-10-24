@@ -12,6 +12,7 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
+## LLVM_C_EXTERN_C_BEGIN
 ## *
 ##  @defgroup LLVMC LLVM-C: C interface to LLVM
 ##
@@ -59,11 +60,12 @@ type ##  Terminator Instructions
     Trunc = 30, ZExt = 31, SExt = 32, FPToUI = 33, FPToSI = 34, UIToFP = 35, SIToFP = 36,
     FPTrunc = 37, FPExt = 38, PtrToInt = 39, IntToPtr = 40, BitCast = 41, ICmp = 42, FCmp = 43,
     PHI = 44, Call = 45, Select = 46, UserOp1 = 47, UserOp2 = 48, VAArg = 49, ExtractElement = 50,
-    InsertElement = 51, ShuffleVector = 52, ExtractValue = 53, InsertValue = 54, ##  Atomic operators
-    Fence = 55, AtomicCmpXchg = 56, AtomicRMW = 57, ##  Exception Handling Operators
+    InsertElement = 51, ShuffleVector = 52, ExtractValue = 53, InsertValue = 54, Fence = 55,
+    AtomicCmpXchg = 56, AtomicRMW = 57, ##  Exception Handling Operators
     Resume = 58, LandingPad = 59, AddrSpaceCast = 60, ##  Other Operators
     CleanupRet = 61, CatchRet = 62, CatchPad = 63, CleanupPad = 64, CatchSwitch = 65, FNeg = 66, ##  Standard Binary Operators
-    CallBr = 67                 ##  Standard Unary Operators
+    CallBr = 67,                ##  Standard Unary Operators
+    Freeze = 68                 ##  Atomic operators
   TypeKind* {.size: sizeof(cint).} = enum
     VoidTypeKind,             ## *< type with no size
     HalfTypeKind,             ## *< 16 bit floating point type
@@ -78,10 +80,12 @@ type ##  Terminator Instructions
     StructTypeKind,           ## *< Structures
     ArrayTypeKind,            ## *< Arrays
     PointerTypeKind,          ## *< Pointers
-    VectorTypeKind,           ## *< SIMD 'packed' format, or other vector type
+    VectorTypeKind,           ## *< Fixed width SIMD vector type
     MetadataTypeKind,         ## *< Metadata
     X86MMXTypeKind,           ## *< X86 MMX
-    TokenTypeKind             ## *< Tokens
+    TokenTypeKind,            ## *< Tokens
+    ScalableVectorTypeKind,   ## *< Scalable SIMD vector type
+    BFloatTypeKind            ## *< 16 bit brain floating point type
   Linkage* {.size: sizeof(cint).} = enum
     ExternalLinkage,          ## *< Externally visible function
     AvailableExternallyLinkage, LinkOnceAnyLinkage, ## *< Keep one copy of function when linking (inline)
@@ -205,9 +209,13 @@ type ##  Terminator Instructions
     AtomicRMWBinOpUMax, ## *< Sets the value if it's greater than the
                        ##                              original using an unsigned comparison and return
                        ##                              the old one
-    AtomicRMWBinOpUMin ## *< Sets the value if it's greater than the
-                      ##                              original using an unsigned comparison  and return
-                      ##                              the old one
+    AtomicRMWBinOpUMin, ## *< Sets the value if it's greater than the
+                       ##                               original using an unsigned comparison and return
+                       ##                               the old one
+    AtomicRMWBinOpFAdd,       ## *< Add a floating point value and return the
+                       ##                               old one
+    AtomicRMWBinOpFSub        ## *< Subtract a floating point value and return the
+                      ##                              old one
   DiagnosticSeverity* {.size: sizeof(cint).} = enum
     DSError, DSWarning, DSRemark, DSNote
   InlineAsmDialect* {.size: sizeof(cint).} = enum
@@ -1044,6 +1052,12 @@ proc getIntTypeWidth*(integerTy: TypeRef): cuint {.importc: "LLVMGetIntTypeWidth
 proc halfTypeInContext*(c: ContextRef): TypeRef {.importc: "LLVMHalfTypeInContext",
     dynlib: LLVMLib.}
 ## *
+##  Obtain a 16-bit brain floating point type from a context.
+##
+
+proc bFloatTypeInContext*(c: ContextRef): TypeRef {.
+    importc: "LLVMBFloatTypeInContext", dynlib: LLVMLib.}
+## *
 ##  Obtain a 32-bit floating point type from a context.
 ##
 
@@ -1081,6 +1095,7 @@ proc pPCFP128TypeInContext*(c: ContextRef): TypeRef {.
 ##
 
 proc halfType*(): TypeRef {.importc: "LLVMHalfType", dynlib: LLVMLib.}
+proc bFloatType*(): TypeRef {.importc: "LLVMBFloatType", dynlib: LLVMLib.}
 proc floatType*(): TypeRef {.importc: "LLVMFloatType", dynlib: LLVMLib.}
 proc doubleType*(): TypeRef {.importc: "LLVMDoubleType", dynlib: LLVMLib.}
 proc x86FP80Type*(): TypeRef {.importc: "LLVMX86FP80Type", dynlib: LLVMLib.}
@@ -1446,6 +1461,7 @@ proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 ##           macro(GlobalVariable)             \
 ##       macro(UndefValue)                     \
 ##     macro(Instruction)                      \
+##       macro(UnaryOperator)                  \
 ##       macro(BinaryOperator)                 \
 ##       macro(CallInst)                       \
 ##         macro(IntrinsicInst)                \
@@ -1478,6 +1494,8 @@ proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 ##       macro(ResumeInst)                     \
 ##       macro(CleanupReturnInst)              \
 ##       macro(CatchReturnInst)                \
+##       macro(CatchSwitchInst)                \
+##       macro(CallBrInst)                     \
 ##       macro(FuncletPadInst)                 \
 ##         macro(CatchPadInst)                 \
 ##         macro(CleanupPadInst)               \
@@ -1499,7 +1517,11 @@ proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 ##           macro(ZExtInst)                   \
 ##         macro(ExtractValueInst)             \
 ##         macro(LoadInst)                     \
-##         macro(VAArgInst)
+##         macro(VAArgInst)                    \
+##         macro(FreezeInst)                   \
+##       macro(AtomicCmpXchgInst)              \
+##       macro(AtomicRMWInst)                  \
+##       macro(FenceInst)
 ##
 ## *
 ##  @defgroup LLVMCCoreValueGeneral General APIs
@@ -1586,9 +1608,11 @@ proc isUndef*(val: ValueRef): Bool {.importc: "LLVMIsUndef", dynlib: LLVMLib.}
 ##
 ##  @see llvm::dyn_cast_or_null<>
 ##
+##
 ## #define LLVM_DECLARE_VALUE_CAST(name) \
 ##   LLVMValueRef LLVMIsA##name(LLVMValueRef Val);
 ## LLVM_FOR_EACH_VALUE_SUBCLASS(LLVM_DECLARE_VALUE_CAST)
+##
 
 proc isAMDNode*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDNode", dynlib: LLVMLib.}
 proc isAMDString*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDString",
@@ -3299,8 +3323,8 @@ proc getCalledFunctionType*(c: ValueRef): TypeRef {.
 ##  This expects an LLVMValueRef that corresponds to a llvm::CallInst or
 ##  llvm::InvokeInst.
 ##
-##  @see llvm::CallInst::getCalledValue()
-##  @see llvm::InvokeInst::getCalledValue()
+##  @see llvm::CallInst::getCalledOperand()
+##  @see llvm::InvokeInst::getCalledOperand()
 ##
 
 proc getCalledValue*(instr: ValueRef): ValueRef {.importc: "LLVMGetCalledValue",
@@ -3705,7 +3729,7 @@ proc addDestination*(indirectBr: ValueRef; dest: BasicBlockRef) {.
 
 proc getNumClauses*(landingPad: ValueRef): cuint {.importc: "LLVMGetNumClauses",
     dynlib: LLVMLib.}
-##  Get the value of the clause at idnex Idx on the landingpad instruction
+##  Get the value of the clause at index Idx on the landingpad instruction
 
 proc getClause*(landingPad: ValueRef; idx: cuint): ValueRef {.
     importc: "LLVMGetClause", dynlib: LLVMLib.}
@@ -3915,10 +3939,17 @@ proc getVolatile*(memoryAccessInst: ValueRef): Bool {.importc: "LLVMGetVolatile"
     dynlib: LLVMLib.}
 proc setVolatile*(memoryAccessInst: ValueRef; isVolatile: Bool) {.
     importc: "LLVMSetVolatile", dynlib: LLVMLib.}
+proc getWeak*(cmpXchgInst: ValueRef): Bool {.importc: "LLVMGetWeak", dynlib: LLVMLib.}
+proc setWeak*(cmpXchgInst: ValueRef; isWeak: Bool) {.importc: "LLVMSetWeak",
+    dynlib: LLVMLib.}
 proc getOrdering*(memoryAccessInst: ValueRef): AtomicOrdering {.
     importc: "LLVMGetOrdering", dynlib: LLVMLib.}
 proc setOrdering*(memoryAccessInst: ValueRef; ordering: AtomicOrdering) {.
     importc: "LLVMSetOrdering", dynlib: LLVMLib.}
+proc getAtomicRMWBinOp*(atomicRMWInst: ValueRef): AtomicRMWBinOp {.
+    importc: "LLVMGetAtomicRMWBinOp", dynlib: LLVMLib.}
+proc setAtomicRMWBinOp*(atomicRMWInst: ValueRef; binOp: AtomicRMWBinOp) {.
+    importc: "LLVMSetAtomicRMWBinOp", dynlib: LLVMLib.}
 ##  Casts
 
 proc buildTrunc*(a1: BuilderRef; val: ValueRef; destTy: TypeRef; name: cstring): ValueRef {.
@@ -4004,6 +4035,8 @@ proc buildExtractValue*(a1: BuilderRef; aggVal: ValueRef; index: cuint; name: cs
 proc buildInsertValue*(a1: BuilderRef; aggVal: ValueRef; eltVal: ValueRef;
                       index: cuint; name: cstring): ValueRef {.
     importc: "LLVMBuildInsertValue", dynlib: LLVMLib.}
+proc buildFreeze*(a1: BuilderRef; val: ValueRef; name: cstring): ValueRef {.
+    importc: "LLVMBuildFreeze", dynlib: LLVMLib.}
 proc buildIsNull*(a1: BuilderRef; val: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildIsNull", dynlib: LLVMLib.}
 proc buildIsNotNull*(a1: BuilderRef; val: ValueRef; name: cstring): ValueRef {.
@@ -4019,6 +4052,28 @@ proc buildAtomicCmpXchg*(b: BuilderRef; `ptr`: ValueRef; cmp: ValueRef; new: Val
                         successOrdering: AtomicOrdering;
                         failureOrdering: AtomicOrdering; singleThread: Bool): ValueRef {.
     importc: "LLVMBuildAtomicCmpXchg", dynlib: LLVMLib.}
+## *
+##  Get the number of elements in the mask of a ShuffleVector instruction.
+##
+
+proc getNumMaskElements*(shuffleVectorInst: ValueRef): cuint {.
+    importc: "LLVMGetNumMaskElements", dynlib: LLVMLib.}
+## *
+##  \returns a constant that specifies that the result of a \c ShuffleVectorInst
+##  is undefined.
+##
+
+proc getUndefMaskElem*(): cint {.importc: "LLVMGetUndefMaskElem", dynlib: LLVMLib.}
+## *
+##  Get the mask value at position Elt in the mask of a ShuffleVector
+##  instruction.
+##
+##  \Returns the result of \c LLVMGetUndefMaskElem() if the mask value is undef
+##  at that position.
+##
+
+proc getMaskValue*(shuffleVectorInst: ValueRef; elt: cuint): cint {.
+    importc: "LLVMGetMaskValue", dynlib: LLVMLib.}
 proc isAtomicSingleThread*(atomicInst: ValueRef): Bool {.
     importc: "LLVMIsAtomicSingleThread", dynlib: LLVMLib.}
 proc setAtomicSingleThread*(atomicInst: ValueRef; singleThread: Bool) {.
@@ -4182,3 +4237,4 @@ proc isMultithreaded*(): Bool {.importc: "LLVMIsMultithreaded", dynlib: LLVMLib.
 ## *
 ##  @}
 ##
+## LLVM_C_EXTERN_C_END

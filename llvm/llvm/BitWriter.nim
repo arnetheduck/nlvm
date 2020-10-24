@@ -16,6 +16,7 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
+## LLVM_C_EXTERN_C_BEGIN
 ## *
 ##  @defgroup LLVMCBitWriter Bit Writer
 ##  @ingroup LLVMC
@@ -43,3 +44,4 @@ proc writeBitcodeToMemoryBuffer*(m: ModuleRef): MemoryBufferRef {.
 ## *
 ##  @}
 ##
+## LLVM_C_EXTERN_C_END

@@ -13,6 +13,7 @@
 ## /
 ## ===----------------------------------------------------------------------===//
 
+## LLVM_C_EXTERN_C_BEGIN
 ## *
 ##  Debug info flags.
 ##
@@ -20,7 +21,7 @@
 type
   DIFlags* {.size: sizeof(cint).} = enum
     DIFlagZero = 0, DIFlagPrivate = 1, DIFlagProtected = 2, DIFlagPublic = 3,
-    DIFlagFwdDecl = 1 shl 2, DIFlagAppleBlock = 1 shl 3, DIFlagBlockByrefStruct = 1 shl 4,
+    DIFlagFwdDecl = 1 shl 2, DIFlagAppleBlock = 1 shl 3, DIFlagReservedBit4 = 1 shl 4,
     DIFlagVirtual = 1 shl 5, DIFlagArtificial = 1 shl 6, DIFlagExplicit = 1 shl 7,
     DIFlagPrototyped = 1 shl 8, DIFlagObjcClassComplete = 1 shl 9,
     DIFlagObjectPointer = 1 shl 10, DIFlagVector = 1 shl 11,
@@ -121,6 +122,21 @@ type
   DWARFTypeEncoding* = cuint
 
 ## *
+##  Describes the kind of macro declaration used for LLVMDIBuilderCreateMacro.
+##  @see llvm::dwarf::MacinfoRecordType
+##  @note Values are from DW_MACINFO_* constants in the DWARF specification.
+##
+
+type
+  DWARFMacinfoRecordType* {.size: sizeof(cint).} = enum
+    DWARFMacinfoRecordTypeDefine = 0x00000001,
+    DWARFMacinfoRecordTypeMacro = 0x00000002,
+    DWARFMacinfoRecordTypeStartFile = 0x00000003,
+    DWARFMacinfoRecordTypeEndFile = 0x00000004,
+    DWARFMacinfoRecordTypeVendorExt = 0x000000FF
+
+
+## *
 ##  The current debug metadata version number.
 ##
 
@@ -196,6 +212,10 @@ proc dIBuilderFinalize*(builder: DIBuilderRef) {.importc: "LLVMDIBuilderFinalize
 ##  \param SplitDebugInlining    Whether to emit inline debug info.
 ##  \param DebugInfoForProfiling Whether to emit extra debug info for
 ##                               profile collection.
+##  \param SysRoot         The Clang system root (value of -isysroot).
+##  \param SysRootLen      The length of the C string passed to \c SysRoot.
+##  \param SDK           The SDK. On Darwin, the last component of the sysroot.
+##  \param SDKLen        The length of the C string passed to \c SDK.
 ##
 
 proc dIBuilderCreateCompileUnit*(builder: DIBuilderRef; lang: DWARFSourceLanguage;
@@ -205,7 +225,8 @@ proc dIBuilderCreateCompileUnit*(builder: DIBuilderRef; lang: DWARFSourceLanguag
                                 splitName: cstring; splitNameLen: csize;
                                 kind: DWARFEmissionKind; dWOId: cuint;
                                 splitDebugInlining: Bool;
-                                debugInfoForProfiling: Bool): MetadataRef {.
+                                debugInfoForProfiling: Bool; sysRoot: cstring;
+                                sysRootLen: csize; sdk: cstring; sDKLen: csize): MetadataRef {.
     importc: "LLVMDIBuilderCreateCompileUnit", dynlib: LLVMLib.}
 ## *
 ##  Create a file descriptor to hold debugging information for a file.
@@ -230,15 +251,15 @@ proc dIBuilderCreateFile*(builder: DIBuilderRef; filename: cstring;
 ##  \param ConfigMacrosLen The length of the C string passed to \c ConfigMacros.
 ##  \param IncludePath     The path to the module map file.
 ##  \param IncludePathLen  The length of the C string passed to \c IncludePath.
-##  \param ISysRoot        The Clang system root (value of -isysroot).
-##  \param ISysRootLen     The length of the C string passed to \c ISysRoot.
+##  \param APINotesFile    The path to an API notes file for the module.
+##  \param APINotesFileLen The length of the C string passed to \c APINotestFile.
 ##
 
 proc dIBuilderCreateModule*(builder: DIBuilderRef; parentScope: MetadataRef;
                            name: cstring; nameLen: csize; configMacros: cstring;
                            configMacrosLen: csize; includePath: cstring;
-                           includePathLen: csize; iSysRoot: cstring;
-                           iSysRootLen: csize): MetadataRef {.
+                           includePathLen: csize; aPINotesFile: cstring;
+                           aPINotesFileLen: csize): MetadataRef {.
     importc: "LLVMDIBuilderCreateModule", dynlib: LLVMLib.}
 ## *
 ##  Creates a new descriptor for a namespace with the specified parent scope.
@@ -470,6 +491,37 @@ proc dIBuilderCreateSubroutineType*(builder: DIBuilderRef; file: MetadataRef;
                                    parameterTypes: ptr MetadataRef;
                                    numParameterTypes: cuint; flags: DIFlags): MetadataRef {.
     importc: "LLVMDIBuilderCreateSubroutineType", dynlib: LLVMLib.}
+## *
+##  Create debugging information entry for a macro.
+##  @param Builder         The DIBuilder.
+##  @param ParentMacroFile Macro parent (could be NULL).
+##  @param Line            Source line number where the macro is defined.
+##  @param RecordType      DW_MACINFO_define or DW_MACINFO_undef.
+##  @param Name            Macro name.
+##  @param NameLen         Macro name length.
+##  @param Value           Macro value.
+##  @param ValueLen        Macro value length.
+##
+
+proc dIBuilderCreateMacro*(builder: DIBuilderRef; parentMacroFile: MetadataRef;
+                          line: cuint; recordType: DWARFMacinfoRecordType;
+                          name: cstring; nameLen: csize; value: cstring;
+                          valueLen: csize): MetadataRef {.
+    importc: "LLVMDIBuilderCreateMacro", dynlib: LLVMLib.}
+## *
+##  Create debugging information temporary entry for a macro file.
+##  List of macro node direct children will be calculated by DIBuilder,
+##  using the \p ParentMacroFile relationship.
+##  @param Builder         The DIBuilder.
+##  @param ParentMacroFile Macro parent (could be NULL).
+##  @param Line            Source line number where the macro file is included.
+##  @param File            File descriptor containing the name of the macro file.
+##
+
+proc dIBuilderCreateTempMacroFile*(builder: DIBuilderRef;
+                                  parentMacroFile: MetadataRef; line: cuint;
+                                  file: MetadataRef): MetadataRef {.
+    importc: "LLVMDIBuilderCreateTempMacroFile", dynlib: LLVMLib.}
 ## *
 ##  Create debugging information entry for an enumerator.
 ##  @param Builder        The DIBuilder.
@@ -775,7 +827,7 @@ proc dIBuilderCreateNullPtrType*(builder: DIBuilderRef): MetadataRef {.
 
 proc dIBuilderCreateTypedef*(builder: DIBuilderRef; `type`: MetadataRef;
                             name: cstring; nameLen: csize; file: MetadataRef;
-                            lineNo: cuint; scope: MetadataRef): MetadataRef {.
+                            lineNo: cuint; scope: MetadataRef; alignInBits: uint32): MetadataRef {.
     importc: "LLVMDIBuilderCreateTypedef", dynlib: LLVMLib.}
 ## *
 ##  Create debugging information entry to establish inheritance relationship
@@ -1272,3 +1324,4 @@ proc instructionSetDebugLoc*(inst: ValueRef; loc: MetadataRef) {.
 
 proc getMetadataKind*(metadata: MetadataRef): MetadataKind {.
     importc: "LLVMGetMetadataKind", dynlib: LLVMLib.}
+## LLVM_C_EXTERN_C_END

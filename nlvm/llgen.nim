@@ -6771,7 +6771,7 @@ proc newLLGen(graph: ModuleGraph, tgt: string, tm: TargetMachineRef): LLGen =
     let runtimeVer = 0.cuint # TODO not used for nim?
     g.dcu = d.dIBuilderCreateCompileUnit(
       DWARFSourceLanguageC99, df, "nlvm", 4, isOptimized, flags, len(flags),
-      runtimeVer, "", 0, DWARFEmissionFull, 0, False, False)
+      runtimeVer, "", 0, DWARFEmissionFull, 0, False, False, nil, 0, nil, 0)
 
     proc add(ty: TTypeKind, n: string, sz: uint64, enc: cuint) =
       g.dtypes[ty] = d.dIBuilderCreateBasicType(n, sz, enc)

@@ -11,6 +11,7 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
+## LLVM_C_EXTERN_C_BEGIN
 ##  This enum is provided for backwards-compatibility only. It has no effect.
 
 type
@@ -27,3 +28,4 @@ type
 
 proc linkModules2*(dest: ModuleRef; src: ModuleRef): Bool {.
     importc: "LLVMLinkModules2", dynlib: LLVMLib.}
+## LLVM_C_EXTERN_C_END

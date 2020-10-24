@@ -19,6 +19,7 @@ tests/async/tasyncawait_cyclebreaker.nim
 tests/async/tasyncawait.nim
 tests/async/tasyncclosestall.nim
 tests/async/tasynceagain.nim
+tests/async/tasyncsend4757.nim
 tests/async/tasync_traceback.nim
 tests/async/tasynctry.nim
 tests/casestmt/t12785.nim

@@ -16,6 +16,8 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
+## LLVM_C_EXTERN_C_BEGIN
+
 type
   TargetMachineRef* = ptr OpaqueTargetMachine
   TargetRef* = ptr target
@@ -153,3 +155,4 @@ proc getHostCPUFeatures*(): cstring {.importc: "LLVMGetHostCPUFeatures",
 
 proc addAnalysisPasses*(t: TargetMachineRef; pm: PassManagerRef) {.
     importc: "LLVMAddAnalysisPasses", dynlib: LLVMLib.}
+## LLVM_C_EXTERN_C_END

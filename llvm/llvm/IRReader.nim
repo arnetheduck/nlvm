@@ -11,6 +11,7 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
+## LLVM_C_EXTERN_C_BEGIN
 ## *
 ##  Read LLVM IR from a memory buffer and convert it into an in-memory Module
 ##  object. Returns 0 on success.
@@ -24,3 +25,4 @@
 proc parseIRInContext*(contextRef: ContextRef; memBuf: MemoryBufferRef;
                       outM: ptr ModuleRef; outMessage: cstringArray): Bool {.
     importc: "LLVMParseIRInContext", dynlib: LLVMLib.}
+## LLVM_C_EXTERN_C_END

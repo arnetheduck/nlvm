@@ -11,6 +11,8 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
+## LLVM_C_EXTERN_C_BEGIN
+
 const
   ErrorSuccess* = 0
 
@@ -64,3 +66,4 @@ proc disposeErrorMessage*(errMsg: cstring) {.importc: "LLVMDisposeErrorMessage",
 
 proc getStringErrorTypeId*(): ErrorTypeId {.importc: "LLVMGetStringErrorTypeId",
     dynlib: LLVMLib.}
+## LLVM_C_EXTERN_C_END

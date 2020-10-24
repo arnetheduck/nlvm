@@ -11,6 +11,7 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
+## LLVM_C_EXTERN_C_BEGIN
 ## *
 ##  @defgroup LLVMCSupportTypes Types and Enumerations
 ##
@@ -203,3 +204,4 @@ type
 ## *
 ##  @}
 ##
+## LLVM_C_EXTERN_C_END
