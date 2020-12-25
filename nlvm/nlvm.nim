@@ -167,16 +167,6 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
     if optRun notin config.globalOptions and config.arguments.len > 0 and config.command.normalize != "run":
       rawMessage(config, errGenerated, errArgsNeedRunOption)
 
-proc llCompileProject(graph: ModuleGraph) =
-  modules.connectCallbacks(graph)
-  let conf = graph.config
-  modules.wantMainModule(conf)
-  let projectFile = conf.projectMainIdx
-  graph.importStack.add projectFile
-
-  graph.compileSystemModule()
-  discard graph.compileModule(conf.projectMainIdx, {sfMainModule})
-
 proc commandCompile(graph: ModuleGraph) =
   let conf = graph.config
 
@@ -189,10 +179,11 @@ proc commandCompile(graph: ModuleGraph) =
       conf.projectName & platform.OS[conf.target.targetOS].exeExt
     conf.outFile = RelativeFile targetName
 
+  extccomp.initVars(conf)
   semanticPasses(graph)
   registerPass(graph, llgen.llgenPass)
 
-  llCompileProject(graph)
+  modules.compileProject(graph)
 
 proc commandScan(conf: ConfigRef) =
   var f = addFileExt(mainCommandArg(conf), NimExt)
@@ -215,7 +206,7 @@ proc commandCheck(graph: ModuleGraph) =
   graph.config.errorMax = high(int)  # do not stop after first error
   defineSymbol(graph.config.symbols, "nimcheck")
   semanticPasses(graph)  # use an empty backend for semantic checking only
-  llCompileProject(graph)
+  modules.compileProject(graph)
 
 proc mainCommand*(graph: ModuleGraph) =
   let conf = graph.config
@@ -235,6 +226,7 @@ proc mainCommand*(graph: ModuleGraph) =
   # Take over the default compile command
   of "c", "cc", "compile", "compiletoc":
     conf.cmd = cmdCompileToC
+    if conf.exc == excNone: conf.exc = excSetjmp
     defineSymbol(graph.config.symbols, "c")
     commandCompile(graph)
   of "dump":
