@@ -3482,24 +3482,30 @@ proc genAssignment(
 
   of tyTuple:
     let srcx = g.genNode(src, false)
-    if ty.containsGarbageCollectedRef():
-      g.callGenericAssign(dest, srcx, ty, flags)
-    else:
-      g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
+    if srcx.v != nil: # see tyObject
+      if ty.containsGarbageCollectedRef():
+        g.callGenericAssign(dest, srcx, ty, flags)
+      else:
+        g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
 
   of tyObject:
     let srcx = g.genNode(src, false)
-    if not ty.isObjLackingTypeField() or ty.containsGarbageCollectedRef():
-      g.callGenericAssign(dest, srcx, ty, flags)
-    else:
-      g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
+    # The source should generally not be nil per language rules but certain
+    # transforms may create such code paths anyway when `noreturn` functions
+    # are incorrectly transformed, such as in `let x = try: ... except: quit 1`
+    if srcx.v != nil:
+      if not ty.isObjLackingTypeField() or ty.containsGarbageCollectedRef():
+        g.callGenericAssign(dest, srcx, ty, flags)
+      else:
+        g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
 
   of tyArray:
     let srcx = g.genNode(src, false)
-    if ty.containsGarbageCollectedRef():
-      g.callGenericAssign(dest, srcx, ty, flags)
-    else:
-      g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
+    if srcx.v != nil: # see tyObject
+      if ty.containsGarbageCollectedRef():
+        g.callGenericAssign(dest, srcx, ty, flags)
+      else:
+        g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
 
   of tyOpenArray, tyVarargs:
     let s = if src.kind == nkHiddenDeref: src[0] else: src
