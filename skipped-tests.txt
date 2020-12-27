@@ -19,6 +19,7 @@ tests/async/tasyncawait_cyclebreaker.nim
 tests/async/tasyncawait.nim
 tests/async/tasyncclosestall.nim
 tests/async/tasynceagain.nim
+tests/async/tasyncsend4757.nim
 tests/async/tasync_traceback.nim
 tests/async/tasynctry.nim
 tests/casestmt/t12785.nim
@@ -70,10 +71,8 @@ tests/destructor/tgotoexceptions6.nim
 tests/destructor/tgotoexceptions7.nim
 tests/destructor/tgotoexceptions8.nim
 tests/destructor/tgotoexceptions.nim
-tests/destructor/tmove_objconstr.nim
 tests/destructor/tnewruntime_misc.nim
 tests/destructor/tnewruntime_strutils.nim
-tests/destructor/tobjfield_analysis.nim
 tests/destructor/topt.nim
 tests/destructor/towned_binary_tree.nim
 tests/destructor/tselect.nim
@@ -99,8 +98,6 @@ tests/exception/tfinally3.nim
 tests/exception/tfinally.nim
 tests/exception/tunhandledexc.nim
 tests/fields/tfields.nim
-tests/float/tfloat1.nim
-tests/float/tfloat2.nim
 tests/float/tfloat3.nim
 tests/gc/closureleak
 tests/gc/cyclecollector
