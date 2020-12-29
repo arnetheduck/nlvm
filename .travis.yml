@@ -1,14 +1,14 @@
 language: c++
 os: linux
-dist: bionic
+dist: focal
 cache:
   directories:
-    - ext/llvm-10.0.0.src/include
-    - ext/llvm-10.0.0.src/sta/bin
-    - ext/llvm-10.0.0.src/sta/lib
-    - ext/llvm-10.0.0.src/sta/include
-    - ext/llvm-10.0.0.src/projects
-    - ext/lld-10.0.0.src/include
+    - ext/llvm-11.0.0.src/include
+    - ext/llvm-11.0.0.src/sta/bin
+    - ext/llvm-11.0.0.src/sta/lib
+    - ext/llvm-11.0.0.src/sta/include
+    - ext/llvm-11.0.0.src/projects
+    - ext/lld-11.0.0.src/include
 
 compiler: clang
 
