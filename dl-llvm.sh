@@ -18,7 +18,7 @@ LLVM_ROOT=llvm-$VER2.src
 
 
 [ -f clang+llvm-$VER2-x86_64-linux-gnu-ubuntu-14.04.tar.xz ] || {
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/clang+llvm-$VER2-x86_64-linux-gnu-ubuntu-18.04.tar.xz
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/clang+llvm-$VER2-x86_64-linux-gnu-ubuntu-20.04.tar.xz
 }
 
 [ -f clang+llvm-$VER2-x86_64-linux-gnu-ubuntu-18.04/bin/llvm-config ] || {
