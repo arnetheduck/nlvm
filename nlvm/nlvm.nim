@@ -12,7 +12,6 @@ import llgen, llvm/llvm
 
 import
   compiler/[
-    ast,
     cmdlinehelper,
     commands,
     condsyms,

@@ -558,6 +558,10 @@ proc constNimInt(g: LLGen, val: int64): llvm.ValueRef =
 proc constNimInt(g: LLGen, val: Int128): llvm.ValueRef =
   g.constNimInt(val.toInt64())
 
+proc constStoreSize(g: LLGen, typ: llvm.TypeRef): llvm.ValueRef =
+  let dl = g.m.getModuleDataLayout()
+  g.constInt32(dl.storeSizeOfType(typ).int32)
+
 proc isZero(v: llvm.ValueRef): bool =
   v.isConstant() == llvm.True and
     v.typeOfX().getTypeKind() == IntegerTypeKind and
@@ -759,18 +763,25 @@ proc buildNot(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
 proc buildBitnot(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
   g.b.buildXor(v, llvm.constInt(v.typeOfX(), not culonglong(0), llvm.False), g.nn("bitnot", v))
 
-proc buildStoreNull(g: LLGen, v: llvm.ValueRef) =
-  let t = v.typeOfX()
+proc isLargeType(g: LLGen, t: llvm.TypeRef): bool =
+  # Large types in loads and stores lead to inefficient codegen - "large" is a
+  # bit underdefined in this context, but it seems reasonable to base it off
+  # pointers in general
+  # See also https://llvm.org/docs/Frontend/PerformanceTips.html#avoid-loads-and-stores-of-large-aggregate-type
+  let
+    dl = g.m.getModuleDataLayout()
+  (t.getTypeKind() in {llvm.ArrayTypeKind, llvm.StructTypeKind}) and
+    (dl.storeSizeOfType(t) > (dl.pointerSize() * 8))
+
+proc buildStoreNull(g: LLGen, tgt: llvm.ValueRef) =
+  let t = tgt.typeOfX()
   assert t.getTypeKind() == llvm.PointerTypeKind
   let et = t.getElementType()
-  # TODO I have a vague recollection of seeing constNull explode in size when
-  #      storing zero like this, so we use memset instead for large entities -
-  #      this needs revisiting however, perhaps it was an old llvm or something?
-  if et.getTypeKind() in {llvm.ArrayTypeKind, llvm.StructTypeKind} and
-      g.m.getModuleDataLayout().sizeOfXTypeInBits(et) > (64'u64 * 8):
-    g.callMemset(v, g.constInt8(0), et.sizeOfX())
+  # constNull can take up a lot of space - use memset instead for large values
+  if g.isLargeType(et):
+    g.callMemset(tgt, g.constInt8(0), g.constStoreSize(et))
   else:
-    discard g.b.buildStore(constNull(et), v)
+    discard g.b.buildStore(constNull(et), tgt)
 
 proc buildCallOrInvoke(
     g: LLGen, fx: llvm.ValueRef, args: openArray[llvm.ValueRef], name: cstring = ""): llvm.ValueRef =
@@ -804,17 +815,23 @@ proc getNimSeqDataPtr(g: LLGen, v: llvm.ValueRef, idx: llvm.ValueRef = nil): llv
   g.withNotNilOrNull(v):
     g.buildNimSeqDataGEP(v, idx)
 
-proc isObjLackingTypeField(typ: PType): bool {.inline.} =
+proc isObjLackingTypeField(typ: PType): bool =
   (typ.kind == tyObject) and ((tfFinal in typ.flags) and
       (typ.sons[0] == nil) or isPureObject(typ))
+
+proc isInvalidReturnType(g: LLGen, lt: llvm.TypeRef): bool =
+  # Large return types lead to inefficient codegen, so we avoid them
+  # TODO The C gen does something similar here for objects with refs inside,
+  #      this might need adjustment
+  g.isLargeType(lt)
 
 proc debugSize(g: LLGen, typ: llvm.TypeRef):
     tuple[typeBits, storeBits, allocBits, abiBits: uint32] =
   let
-    tgt = g.m.getModuleDataLayout()
-  (sizeOfXTypeInBits(tgt, typ).uint32, storeSizeOfType(tgt, typ).uint32,
-    aBISizeOfType(tgt, typ).uint32 * 8,
-    preferredAlignmentOfType(tgt, typ).uint32 * 8)
+    dl = g.m.getModuleDataLayout()
+  (sizeOfXTypeInBits(dl, typ).uint32, storeSizeOfType(dl, typ).uint32 * 8,
+    aBISizeOfType(dl, typ).uint32 * 8,
+    preferredAlignmentOfType(dl, typ).uint32 * 8)
 
 proc debugSize(g: LLGen, typ: PType):
     tuple[typeBits, storeBits, allocBits, abiBits: uint32] =
@@ -835,11 +852,11 @@ proc debugMagicType(g: LLGen, name: string): llvm.MetadataRef
 
 proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
   if g.d == nil: return nil
-  let ptrBits = g.m.getModuleDataLayout().pointerSize()
+  let ptrBits = g.m.getModuleDataLayout().pointerSize() * 8
   case typ.kind
   of tyBool: g.dtypes[tyBool]
   of tyChar: g.dtypes[tyChar]
-  of tyNil, tyTyped: nil
+  of tyNil, tyTyped, tyNone: g.dtypes[tyChar] # void*?
   of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
       tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
       tyUserTypeClassInst, tyInferred, tyStatic:
@@ -850,31 +867,24 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
       g.llName(typ, hashType(typ)), bits, DW_ATE_unsigned)
   of tyArray:
     let et = g.debugType(typ.elemType)
-    # Arbitrary limit of 1024 items here - large numbers seem to have a poor
-    # impact on some debuggers that insist on displaying all sub-items (looking
-    # at you, eclipse+gdb) - need to investigate this more
-    # TODO compiler uses the Int128 abomination here - need to rework accordingly
-    let (s, c) =
-      if g.config.lengthOrd(typ) > 1024: (cuint(0), -1.int64)
-      else:
-        (cuint(g.config.lengthOrd(typ).toInt64),
-          g.config.lengthOrd(typ).toInt64)
-    g.d.dIBuilderCreateArrayType(s * 8, 0, et,
-              [g.d.dIBuilderGetOrCreateSubrange(0, c)])
+    let (bits, _, _, _) = g.debugSize(typ)
+
+    g.d.dIBuilderCreateArrayType(bits, 0, et,
+              [g.d.dIBuilderGetOrCreateSubrange(0, g.config.lengthOrd(typ).toInt.int64)])
   of tyUncheckedArray:
     let et = g.debugType(typ.elemType)
     let (s, c) = (cuint(0), -1.int64)
-    g.d.dIBuilderCreateArrayType(s * 8, 0, et,
+    g.d.dIBuilderCreateArrayType(0, 0, et,
                 [g.d.dIBuilderGetOrCreateSubrange(0, c)])
   of tyObject: g.debugStructType(typ)
   of tyTuple: g.debugTupleType(typ)
   of tySet:
-    let (bits, _, _, abi) = g.debugSize(typ)
+    let (bits, _, _, _) = g.debugSize(typ)
     if bits <= 8 * 8:
-      g.d.dIBuilderCreateBasicType("set" & $bits, abi, DW_ATE_unsigned)
+      g.d.dIBuilderCreateBasicType("set" & $bits, bits, DW_ATE_unsigned)
     else:
       g.d.dIBuilderCreateArrayType(
-        bits, abi, g.dtypes[tyUInt8],
+        bits, 0, g.dtypes[tyUInt8],
         [g.d.dIBuilderGetOrCreateSubrange(0, bits.int64 div 8)])
   of tyRange: g.debugType(typ.sons[0])
   of tyPtr, tyRef, tyVar, tyLent:
@@ -894,24 +904,23 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
         line = if typ.sym != nil: typ.sym.info.line else: 0
         sup = g.debugMagicType("TGenericSeq")
         supt = g.llGenericSeqType()
-        (bits, _, _, abi) = g.debugSize(supt)
+        (bits, _, _, _) = g.debugSize(supt)
 
         st = g.d.dIBuilderCreateStructType(g.dcu, name,
-          file, line.cuint, bits, abi, 0, nil, [], 0, nil, name)
+          file, line.cuint, bits, 0, 0, nil, [], 0, nil, name)
       g.dstructs[sig] = st
 
       var elems = @[
-        g.d.dIBuilderCreateMemberType(g.dcu, "Sup", file, 0, bits, abi, 0, 0,
+        g.d.dIBuilderCreateMemberType(g.dcu, "Sup", file, 0, bits, 0, 0, 0,
           sup)
       ]
       if typ.elemType.kind != tyEmpty:
         let
           dt = g.debugType(typ.elemType)
-          (_, _, _, eabi) = g.debugSize(typ.elemType)
 
         elems.add(
-          g.d.dIBuilderCreateMemberType(g.dcu, "data", file, 0, 0, eabi, bits, 0,
-            g.d.dIBuilderCreateArrayType(0, eabi, dt,[
+          g.d.dIBuilderCreateMemberType(g.dcu, "data", file, 0, 0, 0, bits, 0,
+            g.d.dIBuilderCreateArrayType(0, 0, dt,[
               g.d.dIBuilderGetOrCreateSubrange(0, -1)])))
 
       g.d.nimDICompositeTypeSetTypeArray(
@@ -926,7 +935,9 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
     else:
       g.dtypes[tyPointer]
   of tyPointer: g.dtypes[tyPointer]
-  of tyOpenArray, tyVarargs: g.debugType(typ.elemType)
+  of tyOpenArray, tyVarargs:
+    g.d.dIBuilderCreatePointerType(
+      g.debugType(typ.elemType), ptrBits, ptrBits, "openArray")
   of tyString:
     if g.dtypes[tyString] == nil:
       g.dtypes[tyString] = g.d.dIBuilderCreatePointerType(
@@ -972,7 +983,7 @@ proc debugStructFields(
     offset = align(offset, mabi)
     let member = g.d.dIBuilderCreateMemberType(
       g.dcu, name, g.debugGetFile(g.config.projectMainIdx), line.cuint, mbits,
-      mabi, offset, 0, g.debugType(field.typ))
+      0, offset, 0, g.debugType(field.typ))
     offset += malloc
     elements.add(member)
   else: g.config.internalError(n.info, "debugStructFields")
@@ -992,11 +1003,11 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
     name = g.llName(typ, sig)
     line = if typ.sym != nil: typ.sym.info.line else: 0
     file = g.debugGetFile(g.config.projectMainIdx)
-    (bits, _, _, abi) = g.debugSize(typ)
+    (bits, _, _, _) = g.debugSize(typ)
 
   # Create struct before setting body in case it's recursive
   result = g.d.dIBuilderCreateStructType(g.dcu, name,
-    file, line.cuint, bits, abi, 0, nil, [], 0, nil, name)
+    file, line.cuint, bits, 0, 0, nil, [], 0, nil, name)
 
   g.dstructs[sig] = result
 
@@ -1021,10 +1032,10 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
       elements.add(member)
   else:
     let
-      (bits, _, alloc, abi) = g.debugSize(super)
+      (bits, _, alloc, _) = g.debugSize(super)
       member = g.d.dIBuilderCreateMemberType(
         g.dcu, "Sup", g.debugGetFile(g.config.projectMainIdx), 0, bits,
-        abi, offset, 0, g.debugType(super))
+        0, offset, 0, g.debugType(super))
     offset += alloc
 
     elements.add(member)
@@ -1049,10 +1060,10 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
   # Create struct before setting body in case it's recursive
   let
     file = g.debugGetFile(g.config.projectMainIdx)
-    (bits, _, _, abi) = g.debugSize(typ)
+    (bits, _, _, _) = g.debugSize(typ)
 
   result = g.d.dIBuilderCreateStructType(
-    g.dcu, name, file, line.cuint, bits, abi, 0, nil, [], 0, nil, name)
+    g.dcu, name, file, line.cuint, bits, 0, 0, nil, [], 0, nil, name)
 
   g.dstructs[sig] = result
 
@@ -1066,7 +1077,7 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
     offset = align(offset, mabi)
     let member = g.d.dIBuilderCreateMemberType(
       g.dcu, "tup" & $offset, g.debugGetFile(g.config.projectMainIdx), mline,
-      mbits, mabi, offset, 0, g.debugType(t))
+      mbits, 0, offset, 0, g.debugType(t))
     offset += malloc
     elements.add(member)
 
@@ -1140,21 +1151,20 @@ proc debugUpdateLoc(g: LLGen, n: PNode) =
 proc debugVariable(g: LLGen, sym: PSym, v: llvm.ValueRef, argNo = -1) =
   if g.d == nil: return
 
-  var dt = g.debugType(sym.typ)
-
-  let scope = g.debugGetScope()
-
-  let vd =
-    if argNo == -1:
-      g.d.dIBuilderCreateAutoVariable(
-        scope, sym.llName,
-        g.debugGetFile(sym.info.fileIndex),
-        sym.info.line.cuint, dt, false, 0, 0)
-    else:
-      g.d.dIBuilderCreateParameterVariable(
-        scope, sym.llName, argNo.cuint,
-        g.debugGetFile(sym.info.fileIndex),
-        sym.info.line.cuint, dt, false, 0)
+  let
+    dt = g.debugType(sym.typ)
+    scope = g.debugGetScope()
+    vd =
+      if argNo == -1:
+        g.d.dIBuilderCreateAutoVariable(
+          scope, sym.llName,
+          g.debugGetFile(sym.info.fileIndex),
+          sym.info.line.cuint, dt, false, 0, 0)
+      else:
+        g.d.dIBuilderCreateParameterVariable(
+          scope, sym.llName, argNo.cuint,
+          g.debugGetFile(sym.info.fileIndex),
+          sym.info.line.cuint, dt, false, 0)
 
   discard g.d.dIBuilderInsertDeclareAtEnd(v, vd,
     g.d.dIBuilderCreateExpression(nil, 0),
@@ -1209,7 +1219,7 @@ proc llGenericSeqType(g: LLGen): llvm.TypeRef =
 
 proc llType(g: LLGen, typ: PType): llvm.TypeRef =
   case typ.kind
-  of tyBool, tyChar, tyNil, tyTyped: g.primitives[typ.kind]
+  of tyBool, tyChar, tyNil, tyTyped, tyNone: g.primitives[typ.kind]
   of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
      tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
      tyUserTypeClassInst, tyInferred, tyStatic:
@@ -1448,10 +1458,9 @@ proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var 
     for s in n.sons:
       g.genMarker(typ, s, v, op, start)
   of nkRecCase:
-    let kind = n[0].sym
-    proc cgi(v: int): llvm.ValueRef = g.constGEPIdx(v)
     let
-      gep = g.b.buildGEP(v, (@[0] & start).map(cgi), g.nn("mk.kind", kind))
+      kind = n[0].sym
+      gep = g.b.buildGEP(v, [g.gep0, g.constGEPIdx(start)], g.nn("mk.kind", kind))
       vk = g.b.buildLoad(gep, g.nn("mk.kind.load", kind))
       caseend = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.kind.end", kind))
 
@@ -1510,8 +1519,7 @@ proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var 
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
-    proc cgi(v: int): llvm.ValueRef = g.constGEPIdx(v)
-    var gep = g.b.buildGEP(v, (@[0] & start).map(cgi), g.nn("mk", field))
+    var gep = g.b.buildGEP(v, [g.gep0, g.constGEPIdx(start)], g.nn("mk", field))
     if field.typ.skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyLent, tyString, tySequence}:
       gep = g.b.buildLoad(gep, g.nn("mk.load", field))
 
@@ -1550,10 +1558,9 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
     if typ.len > 0 and typ[0] != nil:
       let gep = g.b.buildGEP(v, [g.gep0, g.gep0])
       g.genMarker(typ.sons[0], gep, op)
-      start = 1
+      start = 1 # Skip super type field
     elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
-      # TODO skip m_type in a nicer way
-      start = 1
+      start = 1 # Skip m_type in inheritable root object
 
     if typ.n == nil: g.config.internalError("expected node")
 
@@ -1753,13 +1760,14 @@ proc genGcRegistrar(g: LLGen, sym: PSym, v: llvm.ValueRef) =
 proc genTypeInfoInit(g: LLGen, t: PType, ntlt, lt: llvm.TypeRef,
                      baseVar, nodeVar, finalizerVar, markerVar,
                      deepcopyVar: llvm.ValueRef): llvm.ValueRef =
-  let sizeVar = if lt == nil: g.ni0 else: llvm.sizeOfX(lt)
-
-  let kind =
-    if t.isObjLackingTypeField(): tyPureObject
-    elif t.kind == tyProc and t.callConv == ccClosure: tyTuple
-    else: t.kind
-  let kindVar = g.constInt8(int8(ord(kind)))
+  let
+    dl = g.m.getModuleDataLayout()
+    sizeVar = if lt == nil: g.ni0 else: g.constNimInt(dl.aBISizeOfType(lt).int)
+    kind =
+      if t.isObjLackingTypeField(): tyPureObject
+      elif t.kind == tyProc and t.callConv == ccClosure: tyTuple
+      else: t.kind
+    kindVar = g.constInt8(int8(ord(kind)))
 
   var flags = 0'i8
   if not containsGarbageCollectedRef(t): flags = flags or 1
@@ -2131,22 +2139,30 @@ proc paramStorageLoc(param: PSym): TStorageLoc =
     OnUnknown
 
 proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
-  let retType = if typ.sons[0] == nil: llvm.voidType()
-                else: g.llType(typ.sons[0])
-  var argTypes = newSeq[llvm.TypeRef]()
+  var
+    retType = if typ[0] == nil: llvm.voidType()
+              else: g.llType(typ[0])
+    argTypes = newSeq[llvm.TypeRef]()
+
+  if g.isInvalidReturnType(retType):
+    argTypes.add(retType.pointerType())
+    if typ[0].sym != nil:
+      incl(typ[0].sym.loc.flags, lfIndirect)
+      typ[0].sym.loc.storage = OnUnknown
+    retType = llvm.voidType()
 
   for param in typ.procParams():
     fillLoc(param.sym.loc, locParam, param, param.sym.name.s.mangle.rope,
       param.sym.paramStorageLoc)
 
-    if g.llPassAsPtr(param.typ):
+    if g.llPassAsPtr(param.sym.typ):
       incl(param.sym.loc.flags, lfIndirect)
       param.sym.loc.storage = OnUnknown
 
-    let at = g.llProcParamType(param.typ)
+    let at = g.llProcParamType(param.sym.typ)
     argTypes.add(at)
 
-    if skipTypes(param.typ, {tyVar, tyLent, tySink}).kind in {tyOpenArray, tyVarargs}:
+    if skipTypes(param.sym.typ, {tyVar, tyLent, tySink}).kind in {tyOpenArray, tyVarargs}:
       if param.sym.typ.kind in {tyVar, tyLent}:
         param.sym.loc.storage = OnUnknown
       argTypes.add(g.primitives[tyInt])  # Extra length parameter
@@ -2191,10 +2207,9 @@ proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[int] =
       let s = g.fieldIndex(typ.sons[0], sym)
       if s.len > 0:
         return @[0] & s
-      start = 1
+      start = 1 # Skip super type field
     elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
-      # TODO skip m_type in a nicer way
-      start = 1
+      start = 1 # Skip m_type in inheritable root object
 
   let n = typ.n
   return g.fieldIndexRecs(n, sym, start)
@@ -2391,11 +2406,11 @@ proc callCompilerProc(
     let v = args[i]
 
     # TODO unsigned
-    let a = g.preCast(false, v, param.typ, g.llProcParamType(param.typ))
+    let a = g.preCast(false, v, param.sym.typ, g.llProcParamType(param.sym.typ))
     args[i] = a
 
-    if skipTypes(param.typ, {tyVar, tyLent}).kind in {tyOpenArray, tyVarargs}:
-      i += 1
+    if skipTypes(param.sym.typ, {tyVar, tyLent, tySink}).kind in {tyOpenArray, tyVarargs}:
+      i += 1 # Extra length parameter
     i += 1
 
   template callName(): untyped =
@@ -2826,9 +2841,7 @@ proc resetT(g: LLGen, typ: PType, v: llvm.ValueRef) =
   case typ.kind
   of tyArray:
     if supportsMemset(typ):
-      g.callMemset(
-        g.b.buildBitCast(v, g.voidPtrType, g.nn("reset.p")),
-        g.constInt8(0), v.typeOfX().getElementType().sizeOfX())
+      g.callMemset(v, g.constInt8(0), g.constStoreSize(v.typeOfX().getElementType()))
     else:
       let
         et = typ.elemType
@@ -2839,25 +2852,21 @@ proc resetT(g: LLGen, typ: PType, v: llvm.ValueRef) =
 
   of tyObject:
     if supportsMemset(typ):
-      g.callMemset(
-        g.b.buildBitCast(v, g.voidPtrType, g.nn("reset.p")),
-        g.constInt8(0), v.typeOfX().getElementType().sizeOfX())
+      g.callMemset(v, g.constInt8(0), g.constStoreSize(v.typeOfX().getElementType()))
     else:
       var start = 0
 
       if typ.len > 0 and typ[0] != nil:
         let gep = g.b.buildGEP(v, [g.gep0, g.gep0])
         g.resetT(typ[0], gep)
+        start = 1 # Skip super type field
       elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
-        # TODO skip m_type in a nicer way
-        start = 1
+        start = 1 # Skip m_type in inheritable root object
 
       g.resetN(v, typ.n, typ, start)
   of tyTuple:
     if supportsMemset(typ):
-      g.callMemset(
-        g.b.buildBitCast(v, g.voidPtrType, g.nn("reset.p")),
-        g.constInt8(0), v.typeOfX().getElementType().sizeOfX())
+      g.callMemset(v, g.constInt8(0), g.constStoreSize(v.typeOfX().getElementType()))
     else:
       var start = 0
       g.resetN(v, typ.n, typ, start)
@@ -2915,7 +2924,7 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
 
   let typ = s.typ.skipTypes(abstractInst)
 
-  let ft = g.llProcType(typ, typ.callConv == ccClosure)
+  let ft = g.llProcType(s.typ, typ.callConv == ccClosure)
   let f = g.m.addFunction(name, ft)
 
   if sfNoReturn in s.flags:
@@ -2984,10 +2993,27 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
     g.withBlock(g.section(f, secArgs)):
       var i = 0
 
+      # Fake return
+      if sfPure notin s.flags and typ.sons[0] != nil:
+        let resNode = s.ast[resultPos]
+        let res = resNode.sym
+        if sfNoInit in s.flags: incl(res.flags, sfNoInit)
+        if not g.isInvalidReturnType(g.llType(res.typ)):
+          let resv = g.genLocal(resNode)
+          ret = resv.v
+          g.initLocalVar(res, res.typ, ret, false)
+        else:
+          let arg = result.v.getParam(i.cuint)
+          arg.setValueName("Result")
+          g.symbols[res.id] = LLValue(v: arg)
+          g.initLocalVar(res, res.typ, arg, false)
+          i += 1
+
       # Function arguments
+
       for param in typ.procParams():
         p("a", param, g.depth + 1)
-        p("a", param.typ, g.depth + 2)
+        p("a", param.sym.typ, g.depth + 2)
 
         let arg = result.v.getParam(i.cuint)
         arg.setValueName(param.sym.llName)
@@ -3002,7 +3028,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
 
         i += 1
 
-        if skipTypes(param.typ, {tyVar, tyLent, tySink}).kind in {tyOpenArray, tyVarargs}:
+        if skipTypes(param.sym.typ, {tyVar, tyLent, tySink}).kind in {tyOpenArray, tyVarargs}:
           let argLen = result.v.getParam(i.cuint)
           argLen.setValueName(param.sym.llName & "len")
 
@@ -3011,14 +3037,6 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
           g.symbols[-param.sym.id] =
             LLValue(v: avLen, lode: param, storage: OnStack)
           i += 1
-
-      if sfPure notin s.flags and typ.sons[0] != nil:
-        let resNode = s.ast[resultPos]
-        let res = resNode.sym
-        if sfNoInit in s.flags: incl(res.flags, sfNoInit)
-        let resv = g.genLocal(resNode)
-        ret = resv.v
-        g.initLocalVar(res, res.typ, ret, false)
 
       if tfCapturesEnv in typ.flags:
         let arg = result.v.getParam(i.cuint)
@@ -3235,9 +3253,10 @@ proc lenOpenArray(g: LLGen, s: PNode): llvm.ValueRef =
     g.b.buildAdd(constInt(bx.typeOfX(), 1, llvm.False),
       g.b.buildSub(cx, bx, g.nn("oa.sub", s)), g.nn("oa.add", s))
   else:
+    let s = if s.kind == nkHiddenDeref: s[0] else: s
     g.buildLoadValue(g.symbols[-s.sym.id]).v
 
-proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.ValueRef] =
+proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType, extra: int): seq[llvm.ValueRef] =
   var args: seq[ValueRef] = @[]
 
   let parTypes = fxt.getParamTypes()
@@ -3257,9 +3276,9 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
 
     let param = ftyp.n[i]
 
-    if param.typ.isCompileTimeOnly(): continue
+    if param.sym.typ.isCompileTimeOnly(): continue
 
-    let pt = parTypes[args.len]
+    let pt = parTypes[args.len + extra]
 
     var v: llvm.ValueRef
 
@@ -3269,7 +3288,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
       skipped = true
       q = q.lastSon
 
-    if skipTypes(param.typ, abstractVar).kind in {tyOpenArray, tyVarargs}:
+    if skipTypes(param.sym.typ, abstractVar).kind in {tyOpenArray, tyVarargs}:
       var len: llvm.ValueRef
       if q.getMagic() == mSlice:
         if skipped:
@@ -3344,7 +3363,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
           len = g.b.buildZExt(len, g.primitives[tyInt], g.nn("call.seq.len.ext", n))
           v = g.getNimSeqDataPtr(v)
         of tyOpenArray, tyVarargs:
-          v = g.genNode(p, param.typ.kind in {tyVar, tyLent}).v
+          v = g.genNode(p, param.sym.typ.kind in {tyVar, tyLent, tySink}).v
           let s = if q.kind == nkHiddenDeref: q[0] else: q
           len = g.b.buildLoad(g.symbols[-s.sym.id].v, g.nn("call.seq.oa.len", n))
         of tyArray, tyUncheckedArray:
@@ -3363,41 +3382,51 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType): seq[llvm.V
         else:
           g.config.internalError(n.info, "Unhandled length: " & $pr.typ)
 
-      if v.typeOfX() != g.llProcParamType(param.typ):
-        v = g.b.buildBitCast(v, g.llProcParamType(param.typ), g.nn("call.open", v))
+      if v.typeOfX() != g.llProcParamType(param.sym.typ):
+        v = g.b.buildBitCast(v, g.llProcParamType(param.sym.typ), g.nn("call.open", v))
 
       args.add(v)
       args.add(len)
     else:
-      v = g.genNode(p, not g.llPassAsPtr(param.typ)).v
+      v = g.genNode(p, not g.llPassAsPtr(param.sym.typ)).v
 
       # We need to use the type from the function, because with multimethods,
-      # it looks like the type in param.typ changes during compilation!
+      # it looks like the type in param.sym.typ changes during compilation!
       # seen with tmultim1.nim
-      v = g.preCast(g.isUnsigned(p.deepTyp), v, param.typ, pt)
+      v = g.preCast(g.isUnsigned(p.deepTyp), v, param.sym.typ, pt)
       args.add(v)
 
-  result = args
+  args
 
 proc genCall(g: LLGen, n: PNode, load: bool): LLValue =
   if g.genFakeCall(n, result):
     return
 
-  let nf = n[namePos]
-
-  let typ = nf.typ.skipTypes(abstractInst)
-
-  var fx = g.genNode(nf, true)
-
-  let nfpt = g.llProcType(typ)
-  let nft = nfpt.pointerType()
-  let retty = nfpt.getReturnType()
+  let
+    nf = n[namePos]
+    typ = nf.typ.skipTypes(abstractInst)
+    fx = g.genNode(nf, true)
+    nfpt = g.llProcType(typ)
+    nft = nfpt.pointerType()
+    retty = nfpt.getReturnType()
+    retArgType =
+      if typ[0] == nil: llvm.voidType()
+      else: g.llType(typ[0])
+    retArgs =
+      if g.isInvalidReturnType(retArgType):
+        # TODO this should become RVO when applicable
+        let tmp = g.localAlloca(retArgType, g.nn("call.res.stack", n))
+        g.callMemset(
+          tmp, g.constInt8(0),
+          g.constStoreSize((tmp.typeOfX().getElementType())))
+        @[tmp]
+      else:
+        @[]
 
   var callres: llvm.ValueRef
-
   if typ.callConv == ccClosure:
     let
-      args = g.genCallArgs(n, nfpt, typ)
+      args = g.genCallArgs(n, nfpt, typ, retArgs.len)
       prc = g.b.buildExtractValue(fx, 0, g.nn("call.clo.prc.ptr", n))
       env = g.b.buildExtractValue(fx, 1, g.nn("call.clo.env.ptr", n))
 
@@ -3405,7 +3434,7 @@ proc genCall(g: LLGen, n: PNode, load: bool): LLValue =
       let
         cft = g.llProcType(typ, true).pointerType()
         cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.iter.prc", n))
-        clargs = args & @[env.v]
+        clargs = retArgs & args & @[env.v]
       callres = g.buildCallOrInvoke(cfx, clargs)
     else:
       let
@@ -3422,14 +3451,14 @@ proc genCall(g: LLGen, n: PNode, load: bool): LLValue =
 
       let
         fxc = g.b.buildBitCast(prc.v, nft, g.nn("call.clo.prc.noenv", n))
-        res = g.buildCallOrInvokeBr(fxc, cloend, args)
+        res = g.buildCallOrInvokeBr(fxc, cloend, retArgs & args)
 
       g.b.positionBuilderAtEnd(cloenv)
 
       let
         cft = g.llProcType(typ, true).pointerType()
         cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.clo.prc", n))
-        clargs = args & @[env.v]
+        clargs = retArgs & args & @[env.v]
         cres = g.buildCallOrInvokeBr(cfx, cloend, clargs)
 
       g.b.positionBuilderAtEnd(cloend)
@@ -3445,10 +3474,10 @@ proc genCall(g: LLGen, n: PNode, load: bool): LLValue =
         fx.v
 
     let
-      args = g.genCallArgs(n, fxc.typeOfX().getElementType(), typ)
+      args = g.genCallArgs(n, fxc.typeOfX().getElementType(), typ, retArgs.len)
       varname =
         if retty.getTypeKind() != llvm.VoidTypeKind: g.nn("call.res", n) else: ""
-    callres = g.buildCallOrInvoke(fxc, args, varname)
+    callres = g.buildCallOrInvoke(fxc, retArgs & args, varname)
 
   if (retty.getTypeKind() != llvm.VoidTypeKind and not load and
       nf.typ.sons[0].kind != tyRef):
@@ -3462,6 +3491,8 @@ proc genCall(g: LLGen, n: PNode, load: bool): LLValue =
     let v = g.localAlloca(retty, g.nn("call.res.ptr", n))
     discard g.b.buildStore(callres, v)
     g.maybeLoadValue(LLValue(v: v), load)
+  elif retArgs.len > 0:
+    g.maybeLoadValue(LLValue(v: retArgs[0]), load)
   else:
     LLValue(v: callres)
 
@@ -3490,7 +3521,7 @@ proc callGenericAssign(
       tfShallow in ty.skipTypes(abstractVarRange).flags:
     if (dest.storage == OnStack and g.config.selectedGC != gcGo) or
         not usesWriteBarrier(g.config):
-      g.callMemcpy(dest.v, src.v, dest.v.typeOfX.getElementType().sizeOfX())
+      g.callMemcpy(dest.v, src.v, g.constStoreSize(dest.v.typeOfX.getElementType()))
     else:
       discard g.callCompilerProc(
         "genericShallowAssign", [dest.v, src.v, g.genTypeInfo(ty)])
@@ -3561,13 +3592,13 @@ proc genAsgnFromRef(g: LLGen, dest, src: LLValue, typ: PType,
         g.b.buildBitCast(srcl.v, destet, g.nn("asgn.xc")), dest.v)
   of tyTuple, tyArray:
     if ty.supportsCopyMem():
-      g.callMemcpy(dest.v, src.v, destet.sizeOfX())
+      g.callMemcpy(dest.v, src.v, g.constStoreSize(destet))
     else:
       g.callGenericAssign(dest, src, ty, flags)
 
   of tyObject:
     if ty.supportsCopyMem() and ty.isObjLackingTypeField():
-      g.callMemcpy(dest.v, src.v, destet.sizeOfX())
+      g.callMemcpy(dest.v, src.v, g.constStoreSize(destet))
     else:
       g.callGenericAssign(dest, src, ty, flags)
 
@@ -3578,7 +3609,7 @@ proc genAsgnFromRef(g: LLGen, dest, src: LLValue, typ: PType,
       let srcl = g.buildLoadValue(src)
       discard g.b.buildStore(srcl.v, dest.v)
     else:
-      g.callMemcpy(dest.v, src.v, destet.sizeOfX())
+      g.callMemcpy(dest.v, src.v, g.constStoreSize(destet))
   of tyPtr, tyPointer, tyChar, tyBool, tyEnum, tyCString,
      tyInt..tyUInt64, tyRange, tyVar, tyLent, tyNil:
     let srcl = g.buildLoadValue(src)
@@ -3668,14 +3699,14 @@ proc genAssignment(
     # are incorrectly transformed, such as in `let x = try: ... except: quit 1`
     if srcx.v != nil:
       if ty.supportsCopyMem():
-        g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
+        g.callMemcpy(dest.v, srcx.v, g.constStoreSize(destet))
       else:
         g.callGenericAssign(dest, srcx, ty, flags)
   of tyObject:
     let srcx = g.genNode(src, false)
     if srcx.v != nil:
       if ty.supportsCopyMem() and ty.isObjLackingTypeField():
-        g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
+        g.callMemcpy(dest.v, srcx.v, g.constStoreSize(destet))
       else:
         g.callGenericAssign(dest, srcx, ty, flags)
 
@@ -3684,7 +3715,7 @@ proc genAssignment(
     let p = g.b.buildLoad(g.symbols[s.sym.id].v, "asgn.oa.p")
     let len = g.b.buildLoad(g.symbols[-s.sym.id].v, "asgn.oa.l")
     if ty.supportsCopyMem():
-      g.callMemcpy(dest.v, p, destet.sizeOfX())
+      g.callMemcpy(dest.v, p, g.constStoreSize(destet))
     else:
       discard g.callCompilerProc(
         "genericAssignOpenArray", [dest.v, p, len, g.genTypeInfo(ty)])
@@ -3697,13 +3728,12 @@ proc genAssignment(
       discard g.b.buildStore(srcx.v, dest.v)
     else:
       let srcx = g.genNode(src, false)
-      g.callMemcpy(dest.v, srcx.v, destet.sizeOfX())
+      g.callMemcpy(dest.v, srcx.v, g.constStoreSize(destet))
 
   of tyPtr, tyPointer, tyChar, tyBool, tyEnum, tyCString,
      tyInt..tyUInt64, tyRange, tyVar, tyLent:
     let srcx = g.genNode(src, true)
     let pc = g.preCast(g.isUnsigned(typ), srcx.v, typ, destet)
-
     discard g.b.buildStore(pc, dest.v)
 
   of tyNil:
@@ -3863,9 +3893,11 @@ proc genMagicHigh(g: LLGen, n: PNode): LLValue =
     len, llvm.constInt(len.typeOfX(), 1, llvm.False), g.nn("high", len)))
 
 proc genMagicSizeOf(g: LLGen, n: PNode): LLValue =
-  let t = n[1].typ.skipTypes({tyTypeDesc})
+  let
+    t = n[1].typ.skipTypes({tyTypeDesc})
+    dl = g.m.getModuleDataLayout()
 
-  LLValue(v: llvm.sizeOfX(g.llType(t)))
+  LLValue(v: g.constNimInt(dl.aBISizeOfType(g.llType(t)).int))
 
 proc genMagicOf(g: LLGen, n: PNode): LLValue =
   var ax = g.genNode(n[1], false)
@@ -3926,7 +3958,8 @@ proc rawGenNew(g: LLGen, dest: LLValue, typ: PType) =
     refType = typ.skipTypes(abstractInst)
     bt = refType.lastSon
     lbt = g.llType(bt)
-    sizeExpr = lbt.sizeOfX()
+    dl = g.m.getModuleDataLayout()
+    sizeExpr = g.constNimInt(dl.aBISizeOfType(lbt).int)
     ti = g.genTypeInfo(typ)
 
   assert refType.kind == tyRef
@@ -3970,6 +4003,9 @@ proc genMagicNewFinalize(g: LLGen, n: PNode) =
     f = g.genNode(n[2], false).v
     ti = g.genTypeInfo(refType)
     bt = refType.lastSon.skipTypes(abstractRange)
+    lbt = g.llType(bt)
+    dl = g.m.getModuleDataLayout()
+    sizeOfExpr = g.constNimInt(dl.aBISizeOfType(lbt).int)
 
   # Funny enough, the finalizer is set for all objects of this type, not
   # just the one that's being created (!)
@@ -3985,8 +4021,8 @@ proc genMagicNewFinalize(g: LLGen, n: PNode) =
     init.getOperand(7)]))
 
   let
-    src = LLValue(v: g.callCompilerProc(
-      "newObj", [ti, g.llType(bt).sizeOfX()]),
+    src = LLValue(
+      v: g.callCompilerProc("newObj", [ti, sizeOfExpr]),
       storage: OnHeap)
   g.genRefAssign(dest, src)
   g.genObjectInit(bt, g.b.buildLoad(dest.v, g.nn("new.load")))
@@ -5041,7 +5077,7 @@ proc genMagicDeepCopy(g: LLGen, n: PNode) =
       discard g.b.buildStore(bx, ax)
     else:
       let bx = g.genNode(n[2], false).v
-      g.callMemcpy(ax, bx, ax.typeOfX().getElementType().sizeOfX())
+      g.callMemcpy(ax, bx, g.constStoreSize(ax.typeOfX().getElementType()))
   of tyPointer, tyChar, tyBool, tyEnum, tyCString,
      tyInt..tyUInt64, tyRange, tyVar, tyLent:
     let bx = g.genNode(n[2], true).v
@@ -5843,9 +5879,8 @@ proc genNodeCast(g: LLGen, n: PNode, load: bool): LLValue =
       g.b.buildBitCast(v, nt, g.nn("cast.bit", n))
     else:
       let
-        size = max(
-          g.m.getModuleDataLayout().sizeOfXTypeInBits(vt),
-          g.m.getModuleDataLayout().sizeOfXTypeInBits(nt))
+        dl = g.m.getModuleDataLayout()
+        size = max(dl.storeSizeOfType(vt), dl.storeSizeOfType(nt))
         tmp = g.localAlloca(
           llvm.arrayType(g.primitives[tyUInt8], size.cuint), g.nn("cast.tmp", n))
       discard g.b.buildStore(
@@ -6819,6 +6854,7 @@ proc newLLGen(graph: ModuleGraph, tgt: string, tm: TargetMachineRef): LLGen =
     s(tyBool, llvm.int8TypeInContext(lc)) # needs 8 bits for atomics to work...
     s(tyChar, charType)
     s(tyNil, g.voidPtrType)
+    s(tyNone, g.voidPtrType) # found in `func f(s: openarray, ...)`
     # tyTyped appears for example in `echo()` as the element type of the array
     s(tyTyped, g.voidPtrType)
     s(tyPointer, g.voidPtrType)
@@ -6881,7 +6917,7 @@ proc newLLGen(graph: ModuleGraph, tgt: string, tm: TargetMachineRef): LLGen =
     add(tyInt16, "int16", 16, DW_ATE_signed)
     add(tyInt32, "int32", 32, DW_ATE_signed)
     add(tyInt64, "int64", 64, DW_ATE_signed)
-    add(tyFloat, "float", 32, DW_ATE_float)
+    add(tyFloat, "float", 64, DW_ATE_float)
     add(tyFloat32, "float32", 32, DW_ATE_float)
     add(tyFloat64, "float64", 64, DW_ATE_float)
     add(tyFloat128, "float128", 128, DW_ATE_float)
@@ -6914,8 +6950,8 @@ proc genMain(g: LLGen) =
 
       let f0 = f.getFirstParam()
       let f1 = f0.getNextParam()
-      let argc = g.b.buildAlloca(f0.typeOfX(), g.nn("argc"))
-      let argv = g.b.buildAlloca(f1.typeOfX(), g.nn("argv"))
+      let argc = g.localAlloca(f0.typeOfX(), g.nn("argc"))
+      let argv = g.localAlloca(f1.typeOfX(), g.nn("argv"))
       discard g.b.buildStore(f0, argc)
       discard g.b.buildStore(f1, argv)
 
@@ -6936,7 +6972,7 @@ proc genMain(g: LLGen) =
         dl, g.b.getInsertBlock())
 
     if g.config.target.targetOS != osStandAlone and g.config.selectedGC != gcNone:
-      let bottom = g.b.buildAlloca(g.primitives[tyInt], g.nn("bottom"))
+      let bottom = g.localAlloca(g.primitives[tyInt], g.nn("bottom"))
       discard g.callCompilerProc("initStackBottomWith", [bottom])
 
     let cmdLine = g.m.getNamedGlobal("cmdLine")
@@ -6975,11 +7011,11 @@ proc runOptimizers(g: LLGen) =
   if optOptimizeSize in g.config.options:
     pmb.passManagerBuilderSetOptLevel(2)
     pmb.passManagerBuilderSetSizeLevel(2)
-    # pmb.passManagerBuilderUseInlinerWithThreshold(5)
+    pmb.passManagerBuilderUseInlinerWithThreshold(5)
   else:
     pmb.passManagerBuilderSetOptLevel(3)
     pmb.passManagerBuilderSetSizeLevel(0)
-    # pmb.passManagerBuilderUseInlinerWithThreshold(250)
+    pmb.passManagerBuilderUseInlinerWithThreshold(250)
 
   let fpm = g.m.createFunctionPassManagerForModule()
   let mpm = llvm.createPassManager()

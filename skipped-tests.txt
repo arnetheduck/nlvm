@@ -1,4 +1,3 @@
-lib/nimhcr.nim
 lib/pure/json.nim
 lib/pure/segfaults.nim
 tests/align/talign.nim
@@ -19,7 +18,6 @@ tests/async/tasyncawait_cyclebreaker.nim
 tests/async/tasyncawait.nim
 tests/async/tasyncclosestall.nim
 tests/async/tasynceagain.nim
-tests/async/tasyncsend4757.nim
 tests/async/tasync_traceback.nim
 tests/async/tasynctry.nim
 tests/casestmt/t12785.nim
@@ -117,7 +115,6 @@ tests/gc/tlists
 tests/gc/weakrefs
 tests/generics/tarc_misc.nim
 tests/generics/tforwardgeneric.nim
-tests/generics/tgenerics_issues.nim
 tests/generics/trtree.nim
 tests/iter/tshallowcopy_closures.nim
 tests/macros/tmemit.nim
@@ -156,7 +153,6 @@ tests/stdlib/tunittestexceptiontype.nim
 tests/stdlib/tunittesttemplate.nim
 tests/system/tgogc.nim
 tests/system/tparams.nim
-tests/threads/t8535.nim
 tests/trmacros/trmacros_various.nim
 tests/typerel/t4799.nim
 tests/types/taliasbugs.nim
