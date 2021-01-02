@@ -16,8 +16,6 @@ tests/arc/twrong_sinkinference.nim
 tests/assert/tassert_c.nim
 tests/async/tasyncawait_cyclebreaker.nim
 tests/async/tasyncawait.nim
-tests/async/tasyncclosestall.nim
-tests/async/tasynceagain.nim
 tests/async/tasync_traceback.nim
 tests/async/tasynctry.nim
 tests/casestmt/t12785.nim
@@ -116,6 +114,7 @@ tests/gc/weakrefs
 tests/generics/tarc_misc.nim
 tests/generics/tforwardgeneric.nim
 tests/generics/trtree.nim
+tests/import_in_config/tmain.nim
 tests/iter/tshallowcopy_closures.nim
 tests/macros/tmemit.nim
 tests/magics/trunnableexamples.nim
@@ -127,7 +126,6 @@ tests/misc/temit.nim
 tests/misc/tidentconcatenations.nim
 tests/misc/tinvalidarrayaccess2.nim
 tests/misc/tinvalidarrayaccess.nim
-tests/misc/tparseopt.nim
 tests/misc/tsizeof.nim
 tests/misc/tstrace.nim
 tests/niminaction/Chapter3/various3.nim
@@ -152,8 +150,6 @@ tests/stdlib/tstdlib_various.nim
 tests/stdlib/tunittestexceptiontype.nim
 tests/stdlib/tunittesttemplate.nim
 tests/system/tgogc.nim
-tests/system/tparams.nim
-tests/trmacros/trmacros_various.nim
 tests/typerel/t4799.nim
 tests/types/taliasbugs.nim
 tests/types/tcast1.nim
