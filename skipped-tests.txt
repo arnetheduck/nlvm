@@ -15,7 +15,6 @@ tests/arc/tstrformat.nim
 tests/arc/twrong_sinkinference.nim
 tests/assert/tassert_c.nim
 tests/async/tasyncawait_cyclebreaker.nim
-tests/async/tasyncawait.nim
 tests/async/tasync_traceback.nim
 tests/async/tasynctry.nim
 tests/casestmt/t12785.nim
