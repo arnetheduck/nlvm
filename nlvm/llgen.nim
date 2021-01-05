@@ -12,6 +12,7 @@ import
 import
   compiler/[
     ast,
+    astalgo,
     bitsets,
     cgmeth,
     ccgutils,
@@ -138,7 +139,9 @@ type
     registrar: LLFunc
 
     module: LLModule
-    modules: seq[LLModule] # modules in the order they were closed
+
+    modules: seq[LLModule] # modules in position order
+    closedModules: seq[LLModule] # modules in the order they were closed
 
     markerBody: seq[tuple[v: llvm.ValueRef, typ: PType]]  # Markers looking for a body
     forwardedProcs: seq[PSym] # Proc's looking for a body
@@ -282,6 +285,13 @@ template withFunc(g: LLGen, llf: LLFunc, body: untyped) =
     g.f = f
     if optCDebug in g.config.globalOptions:
       g.b.setCurrentDebugLocation(db)
+
+template withModule(g: LLGen, llm: LLModule, body: untyped) =
+  block:
+    let f = g.module
+    g.module = llm
+    body
+    g.module = f
 
 template withNotNil(g: LLGen, v: llvm.ValueRef, body: untyped) =
   let
@@ -875,9 +885,8 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
               [g.d.dIBuilderGetOrCreateSubrange(0, g.config.lengthOrd(typ).toInt.int64)])
   of tyUncheckedArray:
     let et = g.debugType(typ.elemType)
-    let (s, c) = (cuint(0), -1.int64)
     g.d.dIBuilderCreateArrayType(0, 0, et,
-                [g.d.dIBuilderGetOrCreateSubrange(0, c)])
+                [g.d.dIBuilderGetOrCreateSubrange(0, -1)])
   of tyObject: g.debugStructType(typ)
   of tyTuple: g.debugTupleType(typ)
   of tySet:
@@ -1557,7 +1566,6 @@ proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var 
 
 proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
   if typ == nil: return
-
   case typ.kind
   of tyGenericInst, tyGenericBody, tyTypeDesc, tyAlias, tyDistinct, tyInferred,
      tySink, tyOwned:
@@ -1589,12 +1597,19 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
       g.genMarker(typ, typ.n, v, op, start)
 
   of tyTuple:
-    var i = 0
-    g.genMarker(typ, typ.n, v, op, i)
+    for i in 0..<typ.len:
+      var gep = g.b.buildGEP(v, [g.gep0, g.constGEPIdx(i)])
+      if typ[i].skipTypes(abstractInst).kind in
+          {tyRef, tyPtr, tyVar, tyLent, tyString, tySequence}:
+        gep = g.b.buildLoad(gep, g.nn("mk.tuple.load"))
 
-  of tyRef, tyString, tySequence:
-    let p = g.b.buildBitCast(v, g.voidPtrType, g.nn("mk.p"))
-    discard g.callCompilerProc("nimGCVisit", [p, op])
+      genMarker(g, typ[i], gep, op)
+
+  of tyRef, tySequence:
+    discard g.callCompilerProc("nimGCVisit", [v, op])
+  of tyString:
+    if tfHasAsgn notin typ.flags:
+      discard g.callCompilerProc("nimGCVisit", [v, op])
   of tyProc:
     if typ.callConv == ccClosure:
       let p = g.b.buildGEP(v, [g.gep0, g.gep1])
@@ -1629,7 +1644,7 @@ proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
 
     g.withBlock(g.section(g.f, secBody)):
 
-      let v = f.getFirstParam()
+      var v = f.getFirstParam()
       v.setValueName("v")
       let op = v.getNextParam()
       op.setValueName("op")
@@ -1662,7 +1677,9 @@ proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
       if typ.kind == tySequence:
         g.genMarkerSeq(typ, v, op)
       else:
-        g.genMarker(typ.sons[0], v, op)
+        if typ[0].skipTypes(abstractInst).kind in {tyRef, tyPtr, tyVar, tyLent, tyString, tySequence}:
+          v = g.b.buildLoad(v, g.nn("mk.proc.load"))
+        g.genMarker(typ[0], v, op)
 
       g.f.sections[secLastBody] = g.b.getInsertBlock()
 
@@ -1679,6 +1696,7 @@ proc genMarkerProc(g: LLGen, typ: PType, sig: SigHash): llvm.ValueRef =
     return g.markers[sig]
 
   let
+    typ = typ.skipTypes(abstractInstOwned)
     name = "Marker_" & g.llName(typ, sig)
     pt =
       if typ.kind == tySequence: g.llType(typ)
@@ -2927,8 +2945,9 @@ proc genResetT(g: LLGen, typ: PType, v: llvm.ValueRef) =
     if supportsMemset(typ):
       g.callMemset(v, g.constInt8(0), g.constStoreSize(v.typeOfX().getElementType()))
     else:
-      var start = 0
-      g.genResetN(v, typ.n, typ, start)
+      for i in 0..<typ.len:
+        var gep = g.b.buildGEP(v, [g.gep0, g.constGEPIdx(i)], g.nn("reset", v))
+        g.genResetT(typ[i], gep)
   of tyString, tyRef, tySequence:
     discard g.callCompilerProc(
       "unsureAsgnRef", [v, constNull(v.typeOfX().getElementType())])
@@ -3037,7 +3056,13 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
     typ = s.typ.skipTypes(abstractInst)
     f = g.newLLFunc(result.v, s)
 
-  g.withFunc(f):
+  # Although we only generate one LLVM module, we must use the correct Nim
+  # module context when generating function context so that global init order is
+  # preserved - this gets tricky in particular when dealing with inline modules
+  # which we ignore for now
+  let module = g.modules[s.getModule().position]
+
+  g.withModule(module): g.withFunc(f):
     var ret: llvm.ValueRef
 
     discard g.f.startBlock(s.ast, g.section(f, secReturn))
@@ -7083,14 +7108,14 @@ proc genMain(g: LLGen) =
         cmdCount.setInitializer(llvm.constNull(cmdCount.typeOfX().getElementType()))
         discard g.b.buildStore(main.getParam(0), cmdCount)
 
-      for m in g.modules: # First the system module
+      for m in g.closedModules: # First the system module
         if sfSystemModule notin m.sym.flags: continue
 
         if m.init != nil:
           discard g.b.buildCall(m.init.f, [])
         break
 
-      for m in g.modules: # then the others
+      for m in g.closedModules: # then the others
         if sfSystemModule in m.sym.flags: continue
 
         if m.init != nil:
@@ -7201,7 +7226,12 @@ proc genForwardedProcs(g: LLGen) =
     if sfForward in prc.flags:
       g.config.internalError(prc.info, "still forwarded: " & prc.name.s)
 
-    discard g.genFunctionWithBody(prc)
+    let
+      ms = getModule(prc)
+      m = g.modules[ms.position]
+
+    g.withModule(m):
+      discard g.genFunctionWithBody(prc)
 
 proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   if graph.config.skipCodegen(n): return n
@@ -7209,15 +7239,9 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   let pc = LLModule(b)
   let g = pc.g
   p("Close", n, 0)
+  g.closedModules.add(pc)
 
-  g.modules.add(pc)
-
-  let om = g.module
-  g.module = pc
-  defer:
-    g.module = om
-
-  g.withFunc(pc.getInitFunc()):
+  g.withModule(pc): g.withFunc(pc.getInitFunc()):
     if g.f.ds != nil:
       let dl = g.lc.dIBuilderCreateDebugLocation(1, 1, g.f.ds, nil)
       g.b.setCurrentDebugLocation(g.lc.metadataAsValue(dl))
@@ -7238,13 +7262,14 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   if sfMainModule notin s.flags:
     return n
 
-  let disp = generateMethodDispatchers(graph)
-  for x in disp:
-    discard g.genFunctionWithBody(x.sym)
+  g.withModule(pc):
+    let disp = generateMethodDispatchers(graph)
+    for x in disp:
+      discard g.genFunctionWithBody(x.sym)
 
   g.genForwardedProcs()
 
-  for m in g.modules:
+  for m in g.closedModules:
     if m.init != nil:
       g.withFunc(m.init):
         g.finalize()
@@ -7293,18 +7318,13 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
   if sfInjectDestructors in pc.sym.flags:
     transformedN = injectDestructorCalls(g.graph, pc.sym, transformedN)
 
-  let om = g.module
-  g.module = pc
-
-  g.withFunc(pc.getInitFunc()):
+  g.withModule(pc): g.withFunc(pc.getInitFunc()):
     g.b.positionBuilderAtEnd(g.section(g.f, secLastBody))
     g.debugUpdateLoc(n)
 
     g.f.options = g.config.options
     g.genNode(transformedN)
     g.f.sections[secLastBody] = g.b.getInsertBlock()
-
-  g.module = om
 
   n
 
@@ -7378,6 +7398,12 @@ proc myOpen(graph: ModuleGraph, s: PSym): PPassContext =
 
     graph.backend = g
 
-  LLModule(g: LLGen(graph.backend), sym: s)
+  let g = LLGen(graph.backend)
+
+  if g.modules.len <= s.position:
+    g.modules.setLen(s.position + 1)
+
+  g.modules[s.position] = LLModule(g: LLGen(graph.backend), sym: s)
+  g.modules[s.position]
 
 const llgenPass* = makePass(myOpen, myProcess, myClose)

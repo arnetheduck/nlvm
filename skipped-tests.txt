@@ -134,7 +134,6 @@ tests/overload/tstatic_with_converter.nim
 tests/parallel/tconvexhull.nim
 tests/parallel/tdeepcopy2.nim
 tests/parallel/tdeepcopy.nim
-tests/parallel/tflowvar.nim
 tests/parallel/tmissing_deepcopy.nim
 tests/parallel/tsendtwice.nim
 tests/pragmas/tbitsize.nim
