@@ -19,7 +19,6 @@ tests/async/tasync_traceback.nim
 tests/async/tasynctry.nim
 tests/casestmt/t12785.nim
 tests/casestmt/t7699.nim
-tests/ccgbugs/t6279.nim
 tests/ccgbugs/tassign_nil_strings.nim
 tests/ccgbugs/tcodegenbug1.nim
 tests/ccgbugs/tcodegendecllambda.nim
@@ -150,6 +149,5 @@ tests/stdlib/tunittesttemplate.nim
 tests/system/tgogc.nim
 tests/typerel/t4799.nim
 tests/types/taliasbugs.nim
-tests/types/tcast1.nim
 tests/valgrind/tbasic_valgrind.nim
 tests/vm/tvmops.nim
