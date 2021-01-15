@@ -225,7 +225,7 @@ func exceptionType(e: ref Exception): PNimType =
 
 import system/memory
 
-proc nlvmRaise(e: ref Exception, ename: cstring) {.compilerProc, noreturn.} =
+proc nlvmRaise(e: ref Exception, ename: cstring) {.compilerproc, noreturn.} =
   if e.name.isNil: e.name = ename
 
   # TODO for reasons unknown, using `new` aka the GC here fails, even if we
@@ -409,7 +409,7 @@ func exceptionSpecCanCatch(
   # If any type in the spec list can catch excpType, return false, else return true
   # adjustments to adjustedPtr are ignored.
   while true:
-    let ttypeIndex = cast[int](temp.readULEB128())
+    let ttypeIndex = cast[int](temp.readUleb128())
     if ttypeIndex == 0:
       break
 
@@ -580,7 +580,7 @@ func scanEHTable(
             )
 
         var temp = action
-        let actionOffset = temp.readSLEB128()
+        let actionOffset = temp.readSleb128()
         if actionOffset == 0:
             # End of action list, no matching handler or cleanup found
             # c_printf("noaction\n")
