@@ -14,13 +14,11 @@ tests/arc/trepr.nim
 tests/arc/tstrformat.nim
 tests/arc/twrong_sinkinference.nim
 tests/assert/tassert_c.nim
-tests/async/tasyncawait_cyclebreaker.nim
 tests/async/tasync_traceback.nim
 tests/async/tasynctry.nim
 tests/casestmt/t12785.nim
 tests/casestmt/t7699.nim
 tests/ccgbugs/tassign_nil_strings.nim
-tests/ccgbugs/tcodegenbug1.nim
 tests/ccgbugs/tcodegendecllambda.nim
 tests/ccgbugs/tcvarargs.nim
 tests/ccgbugs/tforward_decl_only.nim

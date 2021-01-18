@@ -833,11 +833,29 @@ proc isObjLackingTypeField(typ: PType): bool =
   (typ.kind == tyObject) and ((tfFinal in typ.flags) and
       (typ.sons[0] == nil) or isPureObject(typ))
 
-proc isInvalidReturnType(g: LLGen, lt: llvm.TypeRef): bool =
-  # Large return types lead to inefficient codegen, so we avoid them
-  # TODO The C gen does something similar here for objects with refs inside,
-  #      this might need adjustment
-  g.isLargeType(lt)
+proc isInvalidReturnType(g: LLGen, rettype: PType): bool =
+  # Large return types lead to inefficient codegen, so we avoid them here - the
+  # cgen also points out that types with refs in them need special treatment -
+  # it's not certain this is the case, but let's follow the practise..
+
+  if rettype == nil:
+    false
+  else:
+    let t = skipTypes(rettype, typedescInst)
+    if t.kind in {tyObject, tyTuple, tyArray} or
+        t.kind == tyProc and t.callConv == ccClosure:
+      # GC and type fields are only problems when returning directly, apparently
+      # In particular, the distinction is needed because the mNewString* magics
+      # use different return value types through an importc trick in the
+      # declaration of newStringOfCap vs rawNewString etc
+      # cgen doesn't support returning any arrays by value - we'll avoid it
+      # for arrays  of ref etc but value arrays will hopefully be fine
+      # TODO this looks wrong, but let's follow the cgen for now
+      g.isLargeType(g.llType(t)) or
+        containsGarbageCollectedRef(t) or
+          (t.kind == tyObject and not isObjLackingTypeField(t))
+    else:
+      g.isLargeType(g.llType(t))
 
 proc debugSize(g: LLGen, typ: llvm.TypeRef):
     tuple[typeBits, storeBits, allocBits, abiBits: uint32] =
@@ -1113,7 +1131,7 @@ proc debugProcParamType(g: LLGen, sym: PSym, retType: PType): llvm.MetadataRef =
 proc debugProcType(g: LLGen, typ: PType, closure: bool): seq[llvm.MetadataRef] =
   let retType = if typ[0] == nil: nil
                 else: g.debugType(typ[0])
-  if retType != nil and g.isInvalidReturnType(g.llType(typ[0])):
+  if retType != nil and g.isInvalidReturnType(typ[0]):
     result.add(nil)
     let ptrBits = g.m.getModuleDataLayout().pointerSize() * 8
     result.add(g.d.dIBuilderCreatePointerType(retType, ptrBits, ptrBits, ""))
@@ -2131,7 +2149,16 @@ proc genTypeInfo(g: LLGen, t: PType): llvm.ValueRef =
     lt = if t.kind == tyEmpty: nil else: g.llType(t)
     els = ntlt.getStructElementTypes()
 
-  result = g.m.addPrivateConstant(ntlt, name)
+  result =
+    if isDefined(g.config, "nimTypeNames"):
+      # nimTypeNames also includes counters for number of allocations, meaning
+      # the type info is written to :O
+      let x = g.m.addGlobal(ntlt, name)
+      x.setLinkage(llvm.PrivateLinkage)
+      x
+    else:
+      g.m.addPrivateConstant(ntlt, name)
+
   if g.d != nil:
     let
       sym = t.sym
@@ -2234,7 +2261,7 @@ proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
               else: g.llType(typ[0])
     argTypes = newSeq[llvm.TypeRef]()
 
-  if g.isInvalidReturnType(retType):
+  if g.isInvalidReturnType(typ[0]):
     argTypes.add(retType.pointerType())
     if typ[0].sym != nil:
       incl(typ[0].sym.loc.flags, lfIndirect)
@@ -3093,11 +3120,11 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
       var i = 0
 
       # Fake return
-      if sfPure notin s.flags and typ.sons[0] != nil:
+      if sfPure notin s.flags and typ[0] != nil:
         let resNode = s.ast[resultPos]
         let res = resNode.sym
         if sfNoInit in s.flags: incl(res.flags, sfNoInit)
-        if not g.isInvalidReturnType(g.llType(res.typ)):
+        if not g.isInvalidReturnType(res.typ):
           let resv = g.genLocal(resNode)
           ret = resv.v
           g.initLocalVar(res, res.typ, ret, false)
@@ -3171,6 +3198,19 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
 
     g.finalize()
 
+proc getOrdering(n: PNode): llvm.AtomicOrdering =
+  if n.kind == nkSym:
+    case n.sym.name.s
+    of "ATOMIC_RELAXED": llvm.AtomicOrderingMonotonic
+    of "ATOMIC_CONSUME": llvm.AtomicOrderingAcquire # TODO clang uses this for __atomic_add_fetch, but what about other ops?
+    of "ATOMIC_ACQUIRE": llvm.AtomicOrderingAcquire
+    of "ATOMIC_RELEASE": llvm.AtomicOrderingRelease
+    of "ATOMIC_ACQ_REL": llvm.AtomicOrderingAcquireRelease
+    of "ATOMIC_SEQ_CST": llvm.AtomicOrderingSequentiallyConsistent
+    else: llvm.AtomicOrderingSequentiallyConsistent
+  else:
+    llvm.AtomicOrderingSequentiallyConsistent
+
 proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
   let nf = n[0]
   if nf.kind != nkSym: return false
@@ -3180,59 +3220,65 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
     if s.name.s == "atomicLoad":
       let p0 = g.genNode(n[1], false).v
       let p1 = g.genNode(n[2], false).v
+      let ord = getOrdering(n[3])
       let ld = g.b.buildLoad(p0, g.nn("a.load"))
-      ld.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
+      ld.setOrdering(ord)
       ld.setAlignment(1) # TODO
       discard g.b.buildStore(ld, p1)
       return true
 
     if s.name.s == "atomicLoadN":
       let p0 = g.genNode(n[1], false).v
+      let ord = getOrdering(n[2])
       o = LLValue(v: g.b.buildLoad(p0, g.nn("a.load.n")))
       o.v.setAlignment(1) # TODO
-      o.v.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
+      o.v.setOrdering(ord)
       return true
 
     if s.name.s == "atomicStore":
       let p0 = g.genNode(n[1], false).v
       let p1 = g.genNode(n[2], false).v
+      let ord = getOrdering(n[3])
       let ld = g.b.buildLoad(p1, g.nn("a.load"))
       let ax = g.b.buildStore(ld, p0)
-      ax.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
+      ax.setOrdering(ord)
       ax.setAlignment(1.cuint)  # TODO(j) align all over the place.
       return true
 
     if s.name.s == "atomicStoreN":
       let p0 = g.genNode(n[1], false).v
       let p1 = g.genNode(n[2], true).v
+      let ord = getOrdering(n[3])
       let ax = g.b.buildStore(p1, p0)
-      ax.setOrdering(llvm.AtomicOrderingSequentiallyConsistent)
+      ax.setOrdering(ord)
       ax.setAlignment(1.cuint)  # TODO(j) align all over the place.
       return true
 
     if s.name.s == "atomicAddFetch":
       let p0 = g.genNode(n[1], false).v
       let p1 = g.genNode(n[2], true).v
+      let ord = getOrdering(n[3])
       o = LLValue(v: g.b.buildAtomicRMW(
-        llvm.AtomicRMWBinOpAdd, p0, p1,
-        llvm.AtomicOrderingSequentiallyConsistent, llvm.False))
+        llvm.AtomicRMWBinOpAdd, p0, p1, ord, llvm.False))
+      o.v = g.b.buildAdd(o.v, p1, g.nn("atomic.addf", n))
       return true
 
     if s.name.s == "atomicSubFetch":
       let p0 = g.genNode(n[1], false).v
       let p1 = g.genNode(n[2], true).v
+      let ord = getOrdering(n[3])
       o = LLValue(v: g.b.buildAtomicRMW(
-        llvm.AtomicRMWBinOpSub, p0, p1,
-        llvm.AtomicOrderingSequentiallyConsistent, llvm.False))
+        llvm.AtomicRMWBinOpSub, p0, p1, ord, llvm.False))
+      o.v = g.b.buildSub(o.v, p1, g.nn("atomic.subf", n))
       return true
 
     if s.name.s == "atomicThreadFence":
-      o = LLValue(v: g.b.buildFence(
-        llvm.AtomicOrderingSequentiallyConsistent, llvm.False, ""))
+      let ord = getOrdering(n[1])
+      o = LLValue(v: g.b.buildFence(ord, llvm.False, ""))
       return true
 
     if s.name.s == "cas":
-      let p0 = g.genNode(n[1], false).v
+      let p0 = g.genNode(n[1], true).v
       let p1 = g.genNode(n[2], true).v
       let p2 = g.genNode(n[3], true).v
       let x = g.b.buildAtomicCmpXchg(p0, p1, p2,
@@ -3242,15 +3288,27 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
         g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
       return true
 
-    if s.name.s == "atomicCompareExchange":
-      let p0 = g.genNode(n[1], false).v
-      let p1 = g.genNode(n[2], false).v
-      let p2 = g.genNode(n[3], false).v
+    if s.name.s == "atomicCompareExchangeN":
+      let p0 = g.genNode(n[1], true).v
+      let p1 = g.genNode(n[2], true).v
+      let p2 = g.genNode(n[3], true).v
+      let ord1 = getOrdering(n[5])
+      let ord2 = getOrdering(n[6])
       let l1 = g.b.buildLoad(p1, g.nn("ace.1"))
-      let l2 = g.b.buildLoad(p2, g.nn("ace.2"))
-      let x = g.b.buildAtomicCmpXchg(p0, l1, l2,
-        llvm.AtomicOrderingSequentiallyConsistent,
-        llvm.AtomicOrderingSequentiallyConsistent, llvm.False)
+      let x = g.b.buildAtomicCmpXchg(p0, l1, p2, ord1, ord2, llvm.False)
+      o = LLValue(v: g.buildI8(
+        g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
+      return true
+
+    if s.name.s == "atomicCompareExchange":
+      let p0 = g.genNode(n[1], true).v
+      let p1 = g.genNode(n[2], true).v
+      let p2 = g.genNode(n[3], true).v
+      let ord1 = getOrdering(n[5])
+      let ord2 = getOrdering(n[6])
+      let l1 = g.b.buildLoad(p1, g.nn("ace.1"))
+      let l2 = g.b.buildLoad(p2, g.nn("ace.1"))
+      let x = g.b.buildAtomicCmpXchg(p0, l1, l2, ord1, ord2, llvm.False)
       o = LLValue(v: g.buildI8(
         g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
       return true
@@ -3552,7 +3610,7 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, tgt: LLValue): LLValue =
       if typ[0] == nil: llvm.voidType()
       else: g.llType(typ[0])
     retArgs =
-      if g.isInvalidReturnType(retArgType):
+      if g.isInvalidReturnType(typ[0]):
         if tgt.v != nil and tgt.v.typeOfX() == retArgType.pointerType() and
             not g.preventNrvo(le, n):
           @[tgt.v]
@@ -3614,7 +3672,6 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, tgt: LLValue): LLValue =
         g.b.buildBitCast(fx.v, nft, g.nn("call.fx", n))
       else:
         fx.v
-
     let
       args = g.genCallArgs(n, fxc.typeOfX().getElementType(), typ, retArgs.len)
       varname =
@@ -4321,12 +4378,12 @@ proc genMagicChr(g: LLGen, n: PNode): LLValue =
   )
 
 proc genMagicGCref(g: LLGen, n: PNode) =
-  let ax = g.genNode(n[1], false).v
+  let ax = g.genNode(n[1], true).v
   g.withNotNil(ax):
     discard g.callCompilerProc("nimGCref", [ax])
 
 proc genMagicGCunref(g: LLGen, n: PNode) =
-  let ax = g.genNode(n[1], false).v
+  let ax = g.genNode(n[1], true).v
   g.withNotNil(ax):
     discard g.callCompilerProc("nimGCunref", [ax])
 
@@ -5515,7 +5572,6 @@ proc genSingleVar(g: LLGen, n: PNode) =
 
   if init.kind != nkEmpty and x.v != nil:
     let
-      lx = g.loadAssignment(v.typ)
       bx = g.genCallOrNode(n[0], init, x)
     g.genAssignment(x, bx, v.typ, v.assignCopy)
 
@@ -5527,7 +5583,6 @@ proc genClosureVar(g: LLGen, n: PNode) =
     g.genObjectInit(n[0].typ, x.v)
   else:
     let
-      lx = g.loadAssignment(n[0].typ)
       bx = g.genCallOrNode(n[0], n[2], x)
     g.genAssignment(x, bx, n[0].typ, {needToCopy})
 
