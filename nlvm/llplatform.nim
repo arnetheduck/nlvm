@@ -37,7 +37,9 @@ const
       @["sparc64"], # ?
       @["mips64"],
       @["mips64el"],
+      @["riscv32"],
       @["riscv64"],
+      @["esp"],
       @["wasm32"]
     ]
   osNames: array[TSystemOS, seq[string]] =
@@ -72,6 +74,7 @@ const
       @["nimvm"], # ?
       @["unknown"], # ?
       @["nintendoswitch"], # ?,
+      @["freertos"], # ?,
       @["any"]
     ]
 
