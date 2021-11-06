@@ -11,20 +11,17 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-type
-  PassManagerBuilderRef* = ptr OpaquePassManagerBuilder
+## !!!Ignored construct:  # LLVM_C_TRANSFORMS_PASSMANAGERBUILDER_H [NewLine] # LLVM_C_TRANSFORMS_PASSMANAGERBUILDER_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] typedef struct LLVMOpaquePassManagerBuilder * LLVMPassManagerBuilderRef ;
+## Error: expected ';'!!!
 
-## LLVM_C_EXTERN_C_BEGIN
-## *
+## !!!Ignored construct:  LLVM_C_EXTERN_C_BEGIN *
 ##  @defgroup LLVMCTransformsPassManagerBuilder Pass manager builder
 ##  @ingroup LLVMCTransforms
 ##
 ##  @{
-##
-## * See llvm::PassManagerBuilder.
+##  * See llvm::PassManagerBuilder. LLVMPassManagerBuilderRef LLVMPassManagerBuilderCreate ( void ) ;
+## Error: expected ';'!!!
 
-proc passManagerBuilderCreate*(): PassManagerBuilderRef {.
-    importc: "LLVMPassManagerBuilderCreate", dynlib: LLVMLib.}
 proc passManagerBuilderDispose*(pmb: PassManagerBuilderRef) {.
     importc: "LLVMPassManagerBuilderDispose", dynlib: LLVMLib.}
 ## * See llvm::PassManagerBuilder::OptLevel.
@@ -73,4 +70,6 @@ proc passManagerBuilderPopulateLTOPassManager*(pmb: PassManagerBuilderRef;
 ## *
 ##  @}
 ##
-## LLVM_C_EXTERN_C_END
+
+## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
+## Error: expected ';'!!!

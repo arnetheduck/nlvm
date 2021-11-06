@@ -11,15 +11,12 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## LLVM_C_EXTERN_C_BEGIN
-## *
+## !!!Ignored construct:  # LLVM_C_TYPES_H [NewLine] # LLVM_C_TYPES_H [NewLine] # llvm-c/DataTypes.h [NewLine] # llvm-c/ExternC.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
 ##  @defgroup LLVMCSupportTypes Types and Enumerations
 ##
 ##  @{
-##
-
-type
-  Bool* = cint
+##  typedef int LLVMBool ;
+## Error: expected ';'!!!
 
 ##  Opaque types.
 ## *
@@ -204,4 +201,6 @@ type
 ## *
 ##  @}
 ##
-## LLVM_C_EXTERN_C_END
+
+## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
+## Error: expected ';'!!!

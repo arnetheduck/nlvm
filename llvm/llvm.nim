@@ -5,10 +5,10 @@
 import strutils
 
 const
-  LLVMLib = "libLLVM-11.so"
-  LLVMRoot = "../ext/llvm-11.0.0.src/"
-  LLDRoot = "../ext/lld-11.0.0.src/"
-  LLVMVersion* = "11.0.0"
+  LLVMLib = "libLLVM-13.so"
+  LLVMRoot = "../ext/llvm-13.0.0.src/"
+  LLDRoot = "../ext/lld-13.0.0.src/"
+  LLVMVersion* = "13.0.0"
 
 {.passL: "-llldDriver" .}
 {.passL: "-llldELF" .}
@@ -26,7 +26,7 @@ else:
   const
     LLVMOut = LLVMRoot & "sha/"
 
-  {.passL: "-lLLVM-11".}
+  {.passL: "-lLLVM-13".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
 {.passC: "-I" & LLVMRoot & "include".}
@@ -75,8 +75,55 @@ type
   uint64T = uint64
   uint8T = uint8
 
+  Bool* = cint
+  AttributeIndex* = cuint
+
   OpaqueTargetData{.pure, final.} = object
   OpaqueTargetLibraryInfotData{.pure, final.} = object
+
+  Opcode* {.size: sizeof(cint).} = enum
+    Ret = 1, Br = 2, Switch = 3, IndirectBr = 4, Invoke = 5, ##  removed 6 due to API changes
+    Unreachable = 7, Add = 8, FAdd = 9, Sub = 10, FSub = 11, Mul = 12, FMul = 13, UDiv = 14, SDiv = 15,
+    FDiv = 16, URem = 17, SRem = 18, FRem = 19, ##  Logical Operators
+    Shl = 20, LShr = 21, AShr = 22, And = 23, Or = 24, Xor = 25, ##  Memory Operators
+    Alloca = 26, Load = 27, Store = 28, GetElementPtr = 29, ##  Cast Operators
+    Trunc = 30, ZExt = 31, SExt = 32, FPToUI = 33, FPToSI = 34, UIToFP = 35, SIToFP = 36,
+    FPTrunc = 37, FPExt = 38, PtrToInt = 39, IntToPtr = 40, BitCast = 41, ICmp = 42, FCmp = 43,
+    PHI = 44, Call = 45, Select = 46, UserOp1 = 47, UserOp2 = 48, VAArg = 49, ExtractElement = 50,
+    InsertElement = 51, ShuffleVector = 52, ExtractValue = 53, InsertValue = 54, Fence = 55,
+    AtomicCmpXchg = 56, AtomicRMW = 57, ##  Exception Handling Operators
+    Resume = 58, LandingPad = 59, AddrSpaceCast = 60, ##  Other Operators
+    CleanupRet = 61, CatchRet = 62, CatchPad = 63, CleanupPad = 64, CatchSwitch = 65, FNeg = 66, ##  Standard Binary Operators
+    CallBr = 67,                ##  Standard Unary Operators
+    Freeze = 68                 ##  Atomic operators
+
+  DIFlags* {.size: sizeof(cint).} = enum
+    DIFlagZero = 0, DIFlagPrivate = 1, DIFlagProtected = 2, DIFlagPublic = 3,
+    DIFlagFwdDecl = 1 shl 2, DIFlagAppleBlock = 1 shl 3, DIFlagReservedBit4 = 1 shl 4,
+    DIFlagVirtual = 1 shl 5, DIFlagArtificial = 1 shl 6, DIFlagExplicit = 1 shl 7,
+    DIFlagPrototyped = 1 shl 8, DIFlagObjcClassComplete = 1 shl 9,
+    DIFlagObjectPointer = 1 shl 10, DIFlagVector = 1 shl 11,
+    DIFlagStaticMember = 1 shl 12, DIFlagLValueReference = 1 shl 13,
+    DIFlagRValueReference = 1 shl 14, DIFlagReserved = 1 shl 15,
+    DIFlagSingleInheritance = 1 shl 16, DIFlagMultipleInheritance = 2 shl 16,
+    DIFlagVirtualInheritance = 3 shl 16, DIFlagIntroducedVirtual = 1 shl 18,
+    DIFlagBitField = 1 shl 19, DIFlagNoReturn = 1 shl 20,
+    DIFlagTypePassByValue = 1 shl 22, DIFlagTypePassByReference = 1 shl 23,
+    DIFlagEnumClass = 1 shl 24,
+    DIFlagThunk = 1 shl 25, DIFlagNonTrivial = 1 shl 26, DIFlagBigEndian = 1 shl 27,
+    DIFlagLittleEndian = 1 shl 28,
+    #DIFlagIndirectVirtualBase = (1 shl 2) or (1 shl 5),
+    #DIFlagAccessibility = dIFlagPrivate or dIFlagProtected or dIFlagPublic, DIFlagPtrToMemberRep = dIFlagSingleInheritance or
+    #    dIFlagMultipleInheritance or dIFlagVirtualInheritance
+
+  DWARFTypeEncoding* = cuint
+  MetadataKind* = cuint
+
+  ByteOrdering* {.size: sizeof(cint).} = enum
+    BigEndian, LittleEndian
+
+  TargetMachineRef* = ptr OpaqueTargetMachine
+  PassManagerBuilderRef* = ptr OpaquePassManagerBuilder
 
 include llvm/Types
 include llvm/Support
@@ -113,6 +160,18 @@ const
   DW_ATE_UTF* = 0x10.cuint
   DW_ATE_lo_user* = 0x80.cuint
   DW_ATE_hi_user* = 0xff.cuint
+
+proc parseIRInContext*(contextRef: ContextRef; memBuf: MemoryBufferRef;
+                      outM: ptr ModuleRef; outMessage: cstringArray): Bool {.
+    importc: "LLVMParseIRInContext", dynlib: LLVMLib.}
+
+proc getModuleDataLayout*(m: ModuleRef): TargetDataRef {.
+    importc: "LLVMGetModuleDataLayout", dynlib: LLVMLib.}
+
+proc typeOfX*(val: ValueRef): TypeRef {.importc: "LLVMTypeOf", dynlib: LLVMLib.}
+
+proc passManagerBuilderCreate*(): PassManagerBuilderRef {.
+    importc: "LLVMPassManagerBuilderCreate", dynlib: LLVMLib.}
 
 template oaAddr(v: openArray): untyped =
   if v.len > 0: v[0].unsafeAddr else: nil

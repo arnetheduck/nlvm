@@ -16,18 +16,14 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## LLVM_C_EXTERN_C_BEGIN
-## *
+## !!!Ignored construct:  # LLVM_C_BITWRITER_H [NewLine] # LLVM_C_BITWRITER_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
 ##  @defgroup LLVMCBitWriter Bit Writer
 ##  @ingroup LLVMC
 ##
 ##  @{
-##
-## ===-- Operations on modules ---------------------------------------------===
-## * Writes a module to the specified path. Returns 0 on success.
+##  ===-- Operations on modules ---------------------------------------------=== * Writes a module to the specified path. Returns 0 on success. int LLVMWriteBitcodeToFile ( LLVMModuleRef M , const char * Path ) ;
+## Error: expected ';'!!!
 
-proc writeBitcodeToFile*(m: ModuleRef; path: cstring): cint {.
-    importc: "LLVMWriteBitcodeToFile", dynlib: LLVMLib.}
 ## * Writes a module to an open file descriptor. Returns 0 on success.
 
 proc writeBitcodeToFD*(m: ModuleRef; fd: cint; shouldClose: cint; unbuffered: cint): cint {.
@@ -44,4 +40,6 @@ proc writeBitcodeToMemoryBuffer*(m: ModuleRef): MemoryBufferRef {.
 ## *
 ##  @}
 ##
-## LLVM_C_EXTERN_C_END
+
+## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
+## Error: expected ';'!!!

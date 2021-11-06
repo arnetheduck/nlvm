@@ -11,16 +11,14 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## LLVM_C_EXTERN_C_BEGIN
-## *
+## !!!Ignored construct:  # LLVM_C_SUPPORT_H [NewLine] # LLVM_C_SUPPORT_H [NewLine] # llvm-c/DataTypes.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
 ##  This function permanently loads the dynamic library at the given path.
 ##  It is safe to call this function multiple times for the same library.
 ##
 ##  @see sys::DynamicLibrary::LoadLibraryPermanently()
-##
+##  LLVMBool LLVMLoadLibraryPermanently ( const char * Filename ) ;
+## Error: expected ';'!!!
 
-proc loadLibraryPermanently*(filename: cstring): Bool {.
-    importc: "LLVMLoadLibraryPermanently", dynlib: LLVMLib.}
 ## *
 ##  This function parses the given arguments using the LLVM command line parser.
 ##  Note that the only stable thing about this function is its signature; you
@@ -52,4 +50,5 @@ proc searchForAddressOfSymbol*(symbolName: cstring): pointer {.
 
 proc addSymbol*(symbolName: cstring; symbolValue: pointer) {.
     importc: "LLVMAddSymbol", dynlib: LLVMLib.}
-## LLVM_C_EXTERN_C_END
+## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
+## Error: expected ';'!!!

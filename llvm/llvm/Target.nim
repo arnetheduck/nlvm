@@ -16,118 +16,65 @@
 ##
 ## ===----------------------------------------------------------------------===
 
-## *
+## !!!Ignored construct:  # LLVM_C_TARGET_H [NewLine] # LLVM_C_TARGET_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] # llvm/Config/llvm-config.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
 ##  @defgroup LLVMCTarget Target information
 ##  @ingroup LLVMC
 ##
 ##  @{
-##
-
-type
-  ByteOrdering* {.size: sizeof(cint).} = enum
-    BigEndian, LittleEndian
-
+##  enum LLVMByteOrdering { LLVMBigEndian , LLVMLittleEndian } ;
+## Error: expected ';'!!!
 
 type
   TargetDataRef* = ptr OpaqueTargetData
   TargetLibraryInfoRef* = ptr OpaqueTargetLibraryInfotData
 
 ##  Declare all of the target-initialization functions that are available.
-## #define LLVM_TARGET(TargetName) \
-##   void LLVMInitialize##TargetName##TargetInfo(void);
 
-## #define LLVM_TARGET(TargetName) void LLVMInitialize##TargetName##Target(void);
+## !!!Ignored construct:  # LLVM_TARGET ( TargetName ) void LLVMInitialize ## TargetName ## TargetInfo ( void ) ;
+## Error: token expected: ; but got: ##!!!
 
-## #define LLVM_TARGET(TargetName) \
-##   void LLVMInitialize##TargetName##TargetMC(void);
+## !!!Ignored construct:  [NewLine] # llvm/Config/Targets.def [NewLine] # LLVM_TARGET  Explicit undef to make SWIG happier [NewLine] # LLVM_TARGET ( TargetName ) void LLVMInitialize ## TargetName ## Target ( void ) ;
+## Error: did not expect [NewLine]!!!
 
-##  Declare all of the available assembly printer initialization functions.
-## #define LLVM_ASM_PRINTER(TargetName) \
-##   void LLVMInitialize##TargetName##AsmPrinter(void);
+## !!!Ignored construct:  [NewLine] # llvm/Config/Targets.def [NewLine] # LLVM_TARGET  Explicit undef to make SWIG happier [NewLine] # LLVM_TARGET ( TargetName ) void LLVMInitialize ## TargetName ## TargetMC ( void ) ;
+## Error: did not expect [NewLine]!!!
 
-##  Declare all of the available assembly parser initialization functions.
-## #define LLVM_ASM_PARSER(TargetName) \
-##   void LLVMInitialize##TargetName##AsmParser(void);
+## !!!Ignored construct:  [NewLine] # llvm/Config/Targets.def [NewLine] # LLVM_TARGET  Explicit undef to make SWIG happier [NewLine]  Declare all of the available assembly printer initialization functions. # LLVM_ASM_PRINTER ( TargetName ) void LLVMInitialize ## TargetName ## AsmPrinter ( void ) ;
+## Error: did not expect [NewLine]!!!
 
-##  Declare all of the available disassembler initialization functions.
-## #define LLVM_DISASSEMBLER(TargetName) \
-##   void LLVMInitialize##TargetName##Disassembler(void);
+## !!!Ignored construct:  [NewLine] # llvm/Config/AsmPrinters.def [NewLine] # LLVM_ASM_PRINTER  Explicit undef to make SWIG happier [NewLine]  Declare all of the available assembly parser initialization functions. # LLVM_ASM_PARSER ( TargetName ) void LLVMInitialize ## TargetName ## AsmParser ( void ) ;
+## Error: did not expect [NewLine]!!!
 
-## * LLVMInitializeAllTargetInfos - The main program should call this function if
+## !!!Ignored construct:  [NewLine] # llvm/Config/AsmParsers.def [NewLine] # LLVM_ASM_PARSER  Explicit undef to make SWIG happier [NewLine]  Declare all of the available disassembler initialization functions. # LLVM_DISASSEMBLER ( TargetName ) void LLVMInitialize ## TargetName ## Disassembler ( void ) ;
+## Error: did not expect [NewLine]!!!
+
+## !!!Ignored construct:  [NewLine] # llvm/Config/Disassemblers.def [NewLine] # LLVM_DISASSEMBLER  Explicit undef to make SWIG happier [NewLine] * LLVMInitializeAllTargetInfos - The main program should call this function if
 ##     it wants access to all available targets that LLVM is configured to
-##     support.
-## static inline void LLVMInitializeAllTargetInfos(void) {
-## #define LLVM_TARGET(TargetName) LLVMInitialize##TargetName##TargetInfo();
-## #include "llvm/Config/Targets.def"
-## #undef LLVM_TARGET  /* Explicit undef to make SWIG happier */
-## }
-## * LLVMInitializeAllTargets - The main program should call this function if it
+##     support. static inline void LLVMInitializeAllTargetInfos ( void ) { # LLVM_TARGET ( TargetName ) LLVMInitialize ## TargetName ## TargetInfo ( ) ; [NewLine] # llvm/Config/Targets.def [NewLine] # LLVM_TARGET  Explicit undef to make SWIG happier [NewLine] } * LLVMInitializeAllTargets - The main program should call this function if it
 ##     wants to link in all available targets that LLVM is configured to
-##     support.
-## static inline void LLVMInitializeAllTargets(void) {
-## #define LLVM_TARGET(TargetName) LLVMInitialize##TargetName##Target();
-## #include "llvm/Config/Targets.def"
-## #undef LLVM_TARGET  /* Explicit undef to make SWIG happier */
-## }
-## * LLVMInitializeAllTargetMCs - The main program should call this function if
+##     support. static inline void LLVMInitializeAllTargets ( void ) { # LLVM_TARGET ( TargetName ) LLVMInitialize ## TargetName ## Target ( ) ; [NewLine] # llvm/Config/Targets.def [NewLine] # LLVM_TARGET  Explicit undef to make SWIG happier [NewLine] } * LLVMInitializeAllTargetMCs - The main program should call this function if
 ##     it wants access to all available target MC that LLVM is configured to
-##     support.
-## static inline void LLVMInitializeAllTargetMCs(void) {
-## #define LLVM_TARGET(TargetName) LLVMInitialize##TargetName##TargetMC();
-## #include "llvm/Config/Targets.def"
-## #undef LLVM_TARGET  /* Explicit undef to make SWIG happier */
-## }
-## * LLVMInitializeAllAsmPrinters - The main program should call this function if
+##     support. static inline void LLVMInitializeAllTargetMCs ( void ) { # LLVM_TARGET ( TargetName ) LLVMInitialize ## TargetName ## TargetMC ( ) ; [NewLine] # llvm/Config/Targets.def [NewLine] # LLVM_TARGET  Explicit undef to make SWIG happier [NewLine] } * LLVMInitializeAllAsmPrinters - The main program should call this function if
 ##     it wants all asm printers that LLVM is configured to support, to make them
-##     available via the TargetRegistry.
-## static inline void LLVMInitializeAllAsmPrinters(void) {
-## #define LLVM_ASM_PRINTER(TargetName) LLVMInitialize##TargetName##AsmPrinter();
-## #include "llvm/Config/AsmPrinters.def"
-## #undef LLVM_ASM_PRINTER  /* Explicit undef to make SWIG happier */
-## }
-## * LLVMInitializeAllAsmParsers - The main program should call this function if
+##     available via the TargetRegistry. static inline void LLVMInitializeAllAsmPrinters ( void ) { # LLVM_ASM_PRINTER ( TargetName ) LLVMInitialize ## TargetName ## AsmPrinter ( ) ; [NewLine] # llvm/Config/AsmPrinters.def [NewLine] # LLVM_ASM_PRINTER  Explicit undef to make SWIG happier [NewLine] } * LLVMInitializeAllAsmParsers - The main program should call this function if
 ##     it wants all asm parsers that LLVM is configured to support, to make them
-##     available via the TargetRegistry.
-## static inline void LLVMInitializeAllAsmParsers(void) {
-## #define LLVM_ASM_PARSER(TargetName) LLVMInitialize##TargetName##AsmParser();
-## #include "llvm/Config/AsmParsers.def"
-## #undef LLVM_ASM_PARSER  /* Explicit undef to make SWIG happier */
-## }
-## * LLVMInitializeAllDisassemblers - The main program should call this function
+##     available via the TargetRegistry. static inline void LLVMInitializeAllAsmParsers ( void ) { # LLVM_ASM_PARSER ( TargetName ) LLVMInitialize ## TargetName ## AsmParser ( ) ; [NewLine] # llvm/Config/AsmParsers.def [NewLine] # LLVM_ASM_PARSER  Explicit undef to make SWIG happier [NewLine] } * LLVMInitializeAllDisassemblers - The main program should call this function
 ##     if it wants all disassemblers that LLVM is configured to support, to make
-##     them available via the TargetRegistry.
-## static inline void LLVMInitializeAllDisassemblers(void) {
-## #define LLVM_DISASSEMBLER(TargetName) \
-##   LLVMInitialize##TargetName##Disassembler();
-## #include "llvm/Config/Disassemblers.def"
-## #undef LLVM_DISASSEMBLER  /* Explicit undef to make SWIG happier */
-## }
-## * LLVMInitializeNativeTarget - The main program should call this function to
+##     them available via the TargetRegistry. static inline void LLVMInitializeAllDisassemblers ( void ) { # LLVM_DISASSEMBLER ( TargetName ) LLVMInitialize ## TargetName ## Disassembler ( ) ; [NewLine] # llvm/Config/Disassemblers.def [NewLine] # LLVM_DISASSEMBLER  Explicit undef to make SWIG happier [NewLine] } * LLVMInitializeNativeTarget - The main program should call this function to
 ##     initialize the native target corresponding to the host.  This is useful
-##     for JIT applications to ensure that the target gets linked in correctly.
-
-
-## * LLVMInitializeNativeTargetAsmParser - The main program should call this
+##     for JIT applications to ensure that the target gets linked in correctly. static inline LLVMBool LLVMInitializeNativeTarget ( void ) {  If we have a native target, initialize it to ensure it is linked in. # LLVM_NATIVE_TARGET [NewLine] LLVM_NATIVE_TARGETINFO ( ) ; LLVM_NATIVE_TARGET ( ) ; LLVM_NATIVE_TARGETMC ( ) ; return 0 ; # [NewLine] return 1 ; # [NewLine] } * LLVMInitializeNativeTargetAsmParser - The main program should call this
 ##     function to initialize the parser for the native target corresponding to the
-##     host.
-
-## * LLVMInitializeNativeTargetAsmPrinter - The main program should call this
+##     host. static inline LLVMBool LLVMInitializeNativeAsmParser ( void ) { # LLVM_NATIVE_ASMPARSER [NewLine] LLVM_NATIVE_ASMPARSER ( ) ; return 0 ; # [NewLine] return 1 ; # [NewLine] } * LLVMInitializeNativeTargetAsmPrinter - The main program should call this
 ##     function to initialize the printer for the native target corresponding to
-##     the host.
-
-## * LLVMInitializeNativeTargetDisassembler - The main program should call this
+##     the host. static inline LLVMBool LLVMInitializeNativeAsmPrinter ( void ) { # LLVM_NATIVE_ASMPRINTER [NewLine] LLVM_NATIVE_ASMPRINTER ( ) ; return 0 ; # [NewLine] return 1 ; # [NewLine] } * LLVMInitializeNativeTargetDisassembler - The main program should call this
 ##     function to initialize the disassembler for the native target corresponding
-##     to the host.
-
-## ===-- Target Data -------------------------------------------------------===
-## *
+##     to the host. static inline LLVMBool LLVMInitializeNativeDisassembler ( void ) { # LLVM_NATIVE_DISASSEMBLER [NewLine] LLVM_NATIVE_DISASSEMBLER ( ) ; return 0 ; # [NewLine] return 1 ; # [NewLine] } ===-- Target Data -------------------------------------------------------=== *
 ##  Obtain the data layout for a module.
 ##
 ##  @see Module::getDataLayout()
-##
+##  LLVMTargetDataRef LLVMGetModuleDataLayout ( LLVMModuleRef M ) ;
+## Error: did not expect [NewLine]!!!
 
-proc getModuleDataLayout*(m: ModuleRef): TargetDataRef {.
-    importc: "LLVMGetModuleDataLayout", dynlib: LLVMLib.}
 ## *
 ##  Set the data layout for a module.
 ##
@@ -245,3 +192,6 @@ proc offsetOfElement*(td: TargetDataRef; structTy: TypeRef; element: cuint): cul
 ## *
 ##  @}
 ##
+
+## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
+## Error: expected ';'!!!

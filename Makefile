@@ -11,7 +11,7 @@ NIMFLAGS=--debuginfo --linedir:on
 
 NLVMFLAGS= --debuginfo --linedir:on
 
-LLVM_MAJ=11
+LLVM_MAJ=13
 LLVM_MIN=0
 LLVM_PAT=0
 
@@ -103,6 +103,8 @@ ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
 		-DLLVM_BUILD_LLVM_DYLIB=1 \
 		-DLLVM_LINK_LLVM_DYLIB=1 \
 		-DLLVM_ENABLE_ASSERTIONS=1 \
+		-DLLVM_INCLUDE_TESTS=Off \
+		-DLLVM_INCLUDE_EXAMPLES=Off \
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 ext/$(LLVM_DIR)/sta/bin/llvm-config:

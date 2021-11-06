@@ -16,22 +16,18 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## LLVM_C_EXTERN_C_BEGIN
-## *
+## !!!Ignored construct:  # LLVM_C_BITREADER_H [NewLine] # LLVM_C_BITREADER_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
 ##  @defgroup LLVMCBitReader Bit Reader
 ##  @ingroup LLVMC
 ##
 ##  @{
-##
-##  Builds a module from the bitcode in the specified memory buffer, returning a
+##   Builds a module from the bitcode in the specified memory buffer, returning a
 ##    reference to the module via the OutModule parameter. Returns 0 on success.
 ##    Optionally returns a human-readable error message via OutMessage.
 ##
-##    This is deprecated. Use LLVMParseBitcode2.
+##    This is deprecated. Use LLVMParseBitcode2. LLVMBool LLVMParseBitcode ( LLVMMemoryBufferRef MemBuf , LLVMModuleRef * OutModule , char * * OutMessage ) ;
+## Error: expected ';'!!!
 
-proc parseBitcode*(memBuf: MemoryBufferRef; outModule: ptr ModuleRef;
-                  outMessage: cstringArray): Bool {.importc: "LLVMParseBitcode",
-    dynlib: LLVMLib.}
 ##  Builds a module from the bitcode in the specified memory buffer, returning a
 ##    reference to the module via the OutModule parameter. Returns 0 on success.
 
@@ -69,4 +65,6 @@ proc getBitcodeModule2*(memBuf: MemoryBufferRef; outM: ptr ModuleRef): Bool {.
 ## *
 ##  @}
 ##
-## LLVM_C_EXTERN_C_END
+
+## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
+## Error: expected ';'!!!
