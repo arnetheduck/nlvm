@@ -13,31 +13,10 @@
 ## /
 ## ===----------------------------------------------------------------------===//
 
-## LLVM_C_EXTERN_C_BEGIN
-## *
+## !!!Ignored construct:  # LLVM_C_DEBUGINFO_H [NewLine] # LLVM_C_DEBUGINFO_H [NewLine] # llvm-c/Core.h [NewLine] # llvm-c/ExternC.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
 ##  Debug info flags.
-##
-
-type
-  DIFlags* {.size: sizeof(cint).} = enum
-    DIFlagZero = 0, DIFlagPrivate = 1, DIFlagProtected = 2, DIFlagPublic = 3,
-    DIFlagFwdDecl = 1 shl 2, DIFlagAppleBlock = 1 shl 3, DIFlagReservedBit4 = 1 shl 4,
-    DIFlagVirtual = 1 shl 5, DIFlagArtificial = 1 shl 6, DIFlagExplicit = 1 shl 7,
-    DIFlagPrototyped = 1 shl 8, DIFlagObjcClassComplete = 1 shl 9,
-    DIFlagObjectPointer = 1 shl 10, DIFlagVector = 1 shl 11,
-    DIFlagStaticMember = 1 shl 12, DIFlagLValueReference = 1 shl 13,
-    DIFlagRValueReference = 1 shl 14, DIFlagReserved = 1 shl 15,
-    DIFlagSingleInheritance = 1 shl 16, DIFlagMultipleInheritance = 2 shl 16,
-    DIFlagVirtualInheritance = 3 shl 16, DIFlagIntroducedVirtual = 1 shl 18,
-    DIFlagBitField = 1 shl 19, DIFlagNoReturn = 1 shl 20,
-    DIFlagTypePassByValue = 1 shl 22, DIFlagTypePassByReference = 1 shl 23,
-    DIFlagEnumClass = 1 shl 24,
-    DIFlagThunk = 1 shl 25, DIFlagNonTrivial = 1 shl 26, DIFlagBigEndian = 1 shl 27,
-    DIFlagLittleEndian = 1 shl 28,
-    #DIFlagIndirectVirtualBase = (1 shl 2) or (1 shl 5),
-    #DIFlagAccessibility = dIFlagPrivate or dIFlagProtected or dIFlagPublic, DIFlagPtrToMemberRep = dIFlagSingleInheritance or
-    #    dIFlagMultipleInheritance or dIFlagVirtualInheritance
-
+##  typedef enum { LLVMDIFlagZero = 0 , LLVMDIFlagPrivate = 1 , LLVMDIFlagProtected = 2 , LLVMDIFlagPublic = 3 , LLVMDIFlagFwdDecl = 1 << 2 , LLVMDIFlagAppleBlock = 1 << 3 , LLVMDIFlagReservedBit4 = 1 << 4 , LLVMDIFlagVirtual = 1 << 5 , LLVMDIFlagArtificial = 1 << 6 , LLVMDIFlagExplicit = 1 << 7 , LLVMDIFlagPrototyped = 1 << 8 , LLVMDIFlagObjcClassComplete = 1 << 9 , LLVMDIFlagObjectPointer = 1 << 10 , LLVMDIFlagVector = 1 << 11 , LLVMDIFlagStaticMember = 1 << 12 , LLVMDIFlagLValueReference = 1 << 13 , LLVMDIFlagRValueReference = 1 << 14 , LLVMDIFlagReserved = 1 << 15 , LLVMDIFlagSingleInheritance = 1 << 16 , LLVMDIFlagMultipleInheritance = 2 << 16 , LLVMDIFlagVirtualInheritance = 3 << 16 , LLVMDIFlagIntroducedVirtual = 1 << 18 , LLVMDIFlagBitField = 1 << 19 , LLVMDIFlagNoReturn = 1 << 20 , LLVMDIFlagTypePassByValue = 1 << 22 , LLVMDIFlagTypePassByReference = 1 << 23 , LLVMDIFlagEnumClass = 1 << 24 , LLVMDIFlagFixedEnum = LLVMDIFlagEnumClass ,  Deprecated. LLVMDIFlagThunk = 1 << 25 , LLVMDIFlagNonTrivial = 1 << 26 , LLVMDIFlagBigEndian = 1 << 27 , LLVMDIFlagLittleEndian = 1 << 28 , LLVMDIFlagIndirectVirtualBase = ( 1 << 2 ) | ( 1 << 5 ) , LLVMDIFlagAccessibility = LLVMDIFlagPrivate | LLVMDIFlagProtected | LLVMDIFlagPublic , LLVMDIFlagPtrToMemberRep = LLVMDIFlagSingleInheritance | LLVMDIFlagMultipleInheritance | LLVMDIFlagVirtualInheritance } LLVMDIFlags ;
+## Error: expected ';'!!!
 
 ## *
 ##  Source languages known by DWARF.
@@ -110,16 +89,19 @@ const
   DIMacroMetadataKind* = 29
   DIMacroFileMetadataKind* = 30
   DICommonBlockMetadataKind* = 31
+  DIStringTypeMetadataKind* = 32
+  DIGenericSubrangeMetadataKind* = 33
+  DIArgListMetadataKind* = 34
 
-type
-  MetadataKind* = cuint
+## !!!Ignored construct:  typedef unsigned LLVMMetadataKind ;
+## Error: identifier expected, but got: ;!!!
 
 ## *
 ##  An LLVM DWARF type encoding.
 ##
 
-type
-  DWARFTypeEncoding* = cuint
+## !!!Ignored construct:  typedef unsigned LLVMDWARFTypeEncoding ;
+## Error: identifier expected, but got: ;!!!
 
 ## *
 ##  Describes the kind of macro declaration used for LLVMDIBuilderCreateMacro.
@@ -129,11 +111,9 @@ type
 
 type
   DWARFMacinfoRecordType* {.size: sizeof(cint).} = enum
-    DWARFMacinfoRecordTypeDefine = 0x00000001,
-    DWARFMacinfoRecordTypeMacro = 0x00000002,
-    DWARFMacinfoRecordTypeStartFile = 0x00000003,
-    DWARFMacinfoRecordTypeEndFile = 0x00000004,
-    DWARFMacinfoRecordTypeVendorExt = 0x000000FF
+    DWARFMacinfoRecordTypeDefine = 0x01, DWARFMacinfoRecordTypeMacro = 0x02,
+    DWARFMacinfoRecordTypeStartFile = 0x03, DWARFMacinfoRecordTypeEndFile = 0x04,
+    DWARFMacinfoRecordTypeVendorExt = 0xff
 
 
 ## *
@@ -221,10 +201,10 @@ proc dIBuilderFinalize*(builder: DIBuilderRef) {.importc: "LLVMDIBuilderFinalize
 proc dIBuilderCreateCompileUnit*(builder: DIBuilderRef; lang: DWARFSourceLanguage;
                                 fileRef: MetadataRef; producer: cstring;
                                 producerLen: csize_t; isOptimized: Bool;
-                                flags: cstring; flagsLen: csize_t; runtimeVer: cuint;
-                                splitName: cstring; splitNameLen: csize_t;
-                                kind: DWARFEmissionKind; dWOId: cuint;
-                                splitDebugInlining: Bool;
+                                flags: cstring; flagsLen: csize_t;
+                                runtimeVer: cuint; splitName: cstring;
+                                splitNameLen: csize_t; kind: DWARFEmissionKind;
+                                dWOId: cuint; splitDebugInlining: Bool;
                                 debugInfoForProfiling: Bool; sysRoot: cstring;
                                 sysRootLen: csize_t; sdk: cstring; sDKLen: csize_t): MetadataRef {.
     importc: "LLVMDIBuilderCreateCompileUnit", dynlib: LLVMLib.}
@@ -238,7 +218,8 @@ proc dIBuilderCreateCompileUnit*(builder: DIBuilderRef; lang: DWARFSourceLanguag
 ##
 
 proc dIBuilderCreateFile*(builder: DIBuilderRef; filename: cstring;
-                         filenameLen: csize_t; directory: cstring; directoryLen: csize_t): MetadataRef {.
+                         filenameLen: csize_t; directory: cstring;
+                         directoryLen: csize_t): MetadataRef {.
     importc: "LLVMDIBuilderCreateFile", dynlib: LLVMLib.}
 ## *
 ##  Creates a new descriptor for a module with the specified parent scope.
@@ -531,8 +512,8 @@ proc dIBuilderCreateTempMacroFile*(builder: DIBuilderRef;
 ##  @param IsUnsigned     True if the value is unsigned.
 ##
 
-proc dIBuilderCreateEnumerator*(builder: DIBuilderRef; name: cstring; nameLen: csize_t;
-                               value: int64T; isUnsigned: Bool): MetadataRef {.
+proc dIBuilderCreateEnumerator*(builder: DIBuilderRef; name: cstring;
+                               nameLen: csize_t; value: int64T; isUnsigned: Bool): MetadataRef {.
     importc: "LLVMDIBuilderCreateEnumerator", dynlib: LLVMLib.}
 ## *
 ##  Create debugging information entry for an enumeration.
@@ -631,9 +612,9 @@ proc dIBuilderCreateUnspecifiedType*(builder: DIBuilderRef; name: cstring;
 ##  \param Flags       Flags to encode optional attribute like endianity
 ##
 
-proc dIBuilderCreateBasicType*(builder: DIBuilderRef; name: cstring; nameLen: csize_t;
-                              sizeInBits: uint64; encoding: DWARFTypeEncoding;
-                              flags: DIFlags): MetadataRef {.
+proc dIBuilderCreateBasicType*(builder: DIBuilderRef; name: cstring;
+                              nameLen: csize_t; sizeInBits: uint64;
+                              encoding: DWARFTypeEncoding; flags: DIFlags): MetadataRef {.
     importc: "LLVMDIBuilderCreateBasicType", dynlib: LLVMLib.}
 ## *
 ##  Create debugging information entry for a pointer.
@@ -1071,9 +1052,9 @@ proc dIBuilderCreateConstantValueExpression*(builder: DIBuilderRef; value: int64
 ##
 
 proc dIBuilderCreateGlobalVariableExpression*(builder: DIBuilderRef;
-    scope: MetadataRef; name: cstring; nameLen: csize_t; linkage: cstring; linkLen: csize_t;
-    file: MetadataRef; lineNo: cuint; ty: MetadataRef; localToUnit: Bool;
-    expr: MetadataRef; decl: MetadataRef; alignInBits: uint32): MetadataRef {.
+    scope: MetadataRef; name: cstring; nameLen: csize_t; linkage: cstring;
+    linkLen: csize_t; file: MetadataRef; lineNo: cuint; ty: MetadataRef;
+    localToUnit: Bool; expr: MetadataRef; decl: MetadataRef; alignInBits: uint32): MetadataRef {.
     importc: "LLVMDIBuilderCreateGlobalVariableExpression", dynlib: LLVMLib.}
 ## *
 ##  Retrieves the \c DIVariable associated with this global variable expression.
@@ -1169,9 +1150,9 @@ proc metadataReplaceAllUsesWith*(tempTargetMetadata: MetadataRef;
 ##
 
 proc dIBuilderCreateTempGlobalVariableFwdDecl*(builder: DIBuilderRef;
-    scope: MetadataRef; name: cstring; nameLen: csize_t; linkage: cstring; lnkLen: csize_t;
-    file: MetadataRef; lineNo: cuint; ty: MetadataRef; localToUnit: Bool;
-    decl: MetadataRef; alignInBits: uint32): MetadataRef {.
+    scope: MetadataRef; name: cstring; nameLen: csize_t; linkage: cstring;
+    lnkLen: csize_t; file: MetadataRef; lineNo: cuint; ty: MetadataRef;
+    localToUnit: Bool; decl: MetadataRef; alignInBits: uint32): MetadataRef {.
     importc: "LLVMDIBuilderCreateTempGlobalVariableFwdDecl", dynlib: LLVMLib.}
 ## *
 ##  Insert a new llvm.dbg.declare intrinsic call before the given instruction.
@@ -1324,4 +1305,5 @@ proc instructionSetDebugLoc*(inst: ValueRef; loc: MetadataRef) {.
 
 proc getMetadataKind*(metadata: MetadataRef): MetadataKind {.
     importc: "LLVMGetMetadataKind", dynlib: LLVMLib.}
-## LLVM_C_EXTERN_C_END
+## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
+## Error: expected ';'!!!

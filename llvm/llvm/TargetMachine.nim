@@ -16,10 +16,10 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## LLVM_C_EXTERN_C_BEGIN
+## !!!Ignored construct:  # LLVM_C_TARGETMACHINE_H [NewLine] # LLVM_C_TARGETMACHINE_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Target.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN typedef struct LLVMOpaqueTargetMachine * LLVMTargetMachineRef ;
+## Error: token expected: ; but got: [identifier]!!!
 
 type
-  TargetMachineRef* = ptr OpaqueTargetMachine
   TargetRef* = ptr target
   CodeGenOptLevel* {.size: sizeof(cint).} = enum
     CodeGenLevelNone, CodeGenLevelLess, CodeGenLevelDefault, CodeGenLevelAggressive
@@ -155,4 +155,5 @@ proc getHostCPUFeatures*(): cstring {.importc: "LLVMGetHostCPUFeatures",
 
 proc addAnalysisPasses*(t: TargetMachineRef; pm: PassManagerRef) {.
     importc: "LLVMAddAnalysisPasses", dynlib: LLVMLib.}
-## LLVM_C_EXTERN_C_END
+## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
+## Error: expected ';'!!!

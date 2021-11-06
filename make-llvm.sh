@@ -41,6 +41,15 @@ LLD_ROOT=lld-$VER2.src
   ln -sfr $LLD_ROOT $LLVM_ROOT/projects/lld
 }
 
+[ -f libunwind-$VER2.src.tar.xz ] || {
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/libunwind-$VER2.src.tar.xz
+}
+
+[ -f libunwind-$VER2/CMakeLists.txt ] || {
+  tar xf libunwind-$VER2.src.tar.xz
+  cp -ar libunwind-$VER2.src/include/mach-o $LLD_ROOT/include
+}
+
 cd $LLVM_ROOT
 
 mkdir -p $TGT

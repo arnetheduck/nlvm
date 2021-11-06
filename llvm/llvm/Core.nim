@@ -12,18 +12,15 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## LLVM_C_EXTERN_C_BEGIN
-## *
+## !!!Ignored construct:  # LLVM_C_CORE_H [NewLine] # LLVM_C_CORE_H [NewLine] # llvm-c/ErrorHandling.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
 ##  @defgroup LLVMC LLVM-C: C interface to LLVM
 ##
 ##  This module exposes parts of the LLVM library as a C API.
 ##
 ##  @{
-##
-## *
+##  *
 ##  @defgroup LLVMCTransforms Transforms
-##
-## *
+##  *
 ##  @defgroup LLVMCCore Core
 ##
 ##  This modules provide an interface to libLLVMCore, which implements
@@ -35,37 +32,20 @@
 ##  tools written in such languages.
 ##
 ##  @{
-##
-## *
+##  *
 ##  @defgroup LLVMCCoreTypes Types and Enumerations
 ##
 ##  @{
-##
-## / External users depend on the following values being stable. It is not safe
-## / to reorder them.
+##  / External users depend on the following values being stable. It is not safe
+## / to reorder them. typedef enum {  Terminator Instructions LLVMRet = 1 , LLVMBr = 2 , LLVMSwitch = 3 , LLVMIndirectBr = 4 , LLVMInvoke = 5 ,  removed 6 due to API changes LLVMUnreachable = 7 , LLVMCallBr = 67 ,  Standard Unary Operators LLVMFNeg = 66 ,  Standard Binary Operators LLVMAdd = 8 , LLVMFAdd = 9 , LLVMSub = 10 , LLVMFSub = 11 , LLVMMul = 12 , LLVMFMul = 13 , LLVMUDiv = 14 , LLVMSDiv = 15 , LLVMFDiv = 16 , LLVMURem = 17 , LLVMSRem = 18 , LLVMFRem = 19 ,  Logical Operators LLVMShl = 20 , LLVMLShr = 21 , LLVMAShr = 22 , LLVMAnd = 23 , LLVMOr = 24 , LLVMXor = 25 ,  Memory Operators LLVMAlloca = 26 , LLVMLoad = 27 , LLVMStore = 28 , LLVMGetElementPtr = 29 ,  Cast Operators LLVMTrunc = 30 , LLVMZExt = 31 , LLVMSExt = 32 , LLVMFPToUI = 33 , LLVMFPToSI = 34 , LLVMUIToFP = 35 , LLVMSIToFP = 36 , LLVMFPTrunc = 37 , LLVMFPExt = 38 , LLVMPtrToInt = 39 , LLVMIntToPtr = 40 , LLVMBitCast = 41 , LLVMAddrSpaceCast = 60 ,  Other Operators LLVMICmp = 42 , LLVMFCmp = 43 , LLVMPHI = 44 , LLVMCall = 45 , LLVMSelect = 46 , LLVMUserOp1 = 47 , LLVMUserOp2 = 48 , LLVMVAArg = 49 , LLVMExtractElement = 50 , LLVMInsertElement = 51 , LLVMShuffleVector = 52 , LLVMExtractValue = 53 , LLVMInsertValue = 54 , LLVMFreeze = 68 ,  Atomic operators LLVMFence = 55 , LLVMAtomicCmpXchg = 56 , LLVMAtomicRMW = 57 ,  Exception Handling Operators LLVMResume = 58 , LLVMLandingPad = 59 , LLVMCleanupRet = 61 , LLVMCatchRet = 62 , LLVMCatchPad = 63 , LLVMCleanupPad = 64 , LLVMCatchSwitch = 65 } LLVMOpcode ;
+## Error: expected ';'!!!
 
-type ##  Terminator Instructions
-    ## *
+type ## *
     ##  Emits an error if two values disagree, otherwise the resulting value is
     ##  that of the operands.
     ##
     ##  @see Module::ModFlagBehavior::Error
     ##
-  Opcode* {.size: sizeof(cint).} = enum
-    Ret = 1, Br = 2, Switch = 3, IndirectBr = 4, Invoke = 5, ##  removed 6 due to API changes
-    Unreachable = 7, Add = 8, FAdd = 9, Sub = 10, FSub = 11, Mul = 12, FMul = 13, UDiv = 14, SDiv = 15,
-    FDiv = 16, URem = 17, SRem = 18, FRem = 19, ##  Logical Operators
-    Shl = 20, LShr = 21, AShr = 22, And = 23, Or = 24, Xor = 25, ##  Memory Operators
-    Alloca = 26, Load = 27, Store = 28, GetElementPtr = 29, ##  Cast Operators
-    Trunc = 30, ZExt = 31, SExt = 32, FPToUI = 33, FPToSI = 34, UIToFP = 35, SIToFP = 36,
-    FPTrunc = 37, FPExt = 38, PtrToInt = 39, IntToPtr = 40, BitCast = 41, ICmp = 42, FCmp = 43,
-    PHI = 44, Call = 45, Select = 46, UserOp1 = 47, UserOp2 = 48, VAArg = 49, ExtractElement = 50,
-    InsertElement = 51, ShuffleVector = 52, ExtractValue = 53, InsertValue = 54, Fence = 55,
-    AtomicCmpXchg = 56, AtomicRMW = 57, ##  Exception Handling Operators
-    Resume = 58, LandingPad = 59, AddrSpaceCast = 60, ##  Other Operators
-    CleanupRet = 61, CatchRet = 62, CatchPad = 63, CleanupPad = 64, CatchSwitch = 65, FNeg = 66, ##  Standard Binary Operators
-    CallBr = 67,                ##  Standard Unary Operators
-    Freeze = 68                 ##  Atomic operators
   TypeKind* {.size: sizeof(cint).} = enum
     VoidTypeKind,             ## *< type with no size
     HalfTypeKind,             ## *< 16 bit floating point type
@@ -85,7 +65,8 @@ type ##  Terminator Instructions
     X86MMXTypeKind,           ## *< X86 MMX
     TokenTypeKind,            ## *< Tokens
     ScalableVectorTypeKind,   ## *< Scalable SIMD vector type
-    BFloatTypeKind            ## *< 16 bit brain floating point type
+    BFloatTypeKind,           ## *< 16 bit brain floating point type
+    X86AMXTypeKind            ## *< X86 AMX
   Linkage* {.size: sizeof(cint).} = enum
     ExternalLinkage,          ## *< Externally visible function
     AvailableExternallyLinkage, LinkOnceAnyLinkage, ## *< Keep one copy of function when linking (inline)
@@ -139,7 +120,8 @@ type ##  Terminator Instructions
     ConstantVectorValueKind, UndefValueValueKind, ConstantAggregateZeroValueKind,
     ConstantDataArrayValueKind, ConstantDataVectorValueKind, ConstantIntValueKind,
     ConstantFPValueKind, ConstantPointerNullValueKind, ConstantTokenNoneValueKind,
-    MetadataAsValueValueKind, InlineAsmValueKind, InstructionValueKind
+    MetadataAsValueValueKind, InlineAsmValueKind, InstructionValueKind,
+    PoisonValueValueKind
   IntPredicate* {.size: sizeof(cint).} = enum
     IntEQ = 32,                 ## *< equal
     IntNE,                    ## *< not equal
@@ -275,20 +257,19 @@ type ##  Terminator Instructions
 
 
 
-
 ## *
 ##  Attribute index are either LLVMAttributeReturnIndex,
 ##  LLVMAttributeFunctionIndex or a parameter number from 1 to N.
 ##
 
 const
-  AttributeReturnIndex* = 0 ##  ISO C restricts enumerator values to range of 'int'
-                         ##  (4294967295 is too large)
-                         ##  LLVMAttributeFunctionIndex = ~0U,
+  AttributeReturnIndex* = 0'u ##  ISO C restricts enumerator values to range of 'int'
+                           ##  (4294967295 is too large)
+                           ##  LLVMAttributeFunctionIndex = ~0U,
   AttributeFunctionIndex* = -1
 
-type
-  AttributeIndex* = cuint
+## !!!Ignored construct:  typedef unsigned LLVMAttributeIndex ;
+## Error: identifier expected, but got: ;!!!
 
 ## *
 ##  @}
@@ -449,6 +430,18 @@ proc getEnumAttributeKind*(a: AttributeRef): cuint {.
 proc getEnumAttributeValue*(a: AttributeRef): uint64 {.
     importc: "LLVMGetEnumAttributeValue", dynlib: LLVMLib.}
 ## *
+##  Create a type attribute
+##
+
+proc createTypeAttribute*(c: ContextRef; kindID: cuint; typeRef: TypeRef): AttributeRef {.
+    importc: "LLVMCreateTypeAttribute", dynlib: LLVMLib.}
+## *
+##  Get the type attribute's value.
+##
+
+proc getTypeAttributeValue*(a: AttributeRef): TypeRef {.
+    importc: "LLVMGetTypeAttributeValue", dynlib: LLVMLib.}
+## *
 ##  Create a string attribute.
 ##
 
@@ -475,6 +468,14 @@ proc isEnumAttribute*(a: AttributeRef): Bool {.importc: "LLVMIsEnumAttribute",
     dynlib: LLVMLib.}
 proc isStringAttribute*(a: AttributeRef): Bool {.importc: "LLVMIsStringAttribute",
     dynlib: LLVMLib.}
+proc isTypeAttribute*(a: AttributeRef): Bool {.importc: "LLVMIsTypeAttribute",
+    dynlib: LLVMLib.}
+## *
+##  Obtain a Type from a context by its registered name.
+##
+
+proc getTypeByName2*(c: ContextRef; name: cstring): TypeRef {.
+    importc: "LLVMGetTypeByName2", dynlib: LLVMLib.}
 ## *
 ##  @}
 ##
@@ -662,8 +663,8 @@ proc getModuleFlag*(m: ModuleRef; key: cstring; keyLen: csize_t): MetadataRef {.
 ##
 
 proc addModuleFlag*(m: ModuleRef; behavior: ModuleFlagBehavior; key: cstring;
-                   keyLen: csize_t; val: MetadataRef) {.importc: "LLVMAddModuleFlag",
-    dynlib: LLVMLib.}
+                   keyLen: csize_t; val: MetadataRef) {.
+    importc: "LLVMAddModuleFlag", dynlib: LLVMLib.}
 ## *
 ##  Dump a representation of a module to stderr.
 ##
@@ -722,7 +723,7 @@ proc appendModuleInlineAsm*(m: ModuleRef; `asm`: cstring; len: csize_t) {.
 proc getInlineAsm*(ty: TypeRef; asmString: cstring; asmStringSize: csize_t;
                   constraints: cstring; constraintsSize: csize_t;
                   hasSideEffects: Bool; isAlignStack: Bool;
-                  dialect: InlineAsmDialect): ValueRef {.
+                  dialect: InlineAsmDialect; canThrow: Bool): ValueRef {.
     importc: "LLVMGetInlineAsm", dynlib: LLVMLib.}
 ## *
 ##  Obtain the context to which this module is associated.
@@ -732,9 +733,7 @@ proc getInlineAsm*(ty: TypeRef; asmString: cstring; asmStringSize: csize_t;
 
 proc getModuleContext*(m: ModuleRef): ContextRef {.importc: "LLVMGetModuleContext",
     dynlib: LLVMLib.}
-## *
-##  Obtain a Type from a module by its registered name.
-##
+## * Deprecated: Use LLVMGetTypeByName2 instead.
 
 proc getTypeByName*(m: ModuleRef; name: cstring): TypeRef {.
     importc: "LLVMGetTypeByName", dynlib: LLVMLib.}
@@ -1352,9 +1351,21 @@ proc getPointerAddressSpace*(pointerTy: TypeRef): cuint {.
 proc vectorType*(elementType: TypeRef; elementCount: cuint): TypeRef {.
     importc: "LLVMVectorType", dynlib: LLVMLib.}
 ## *
-##  Obtain the number of elements in a vector type.
+##  Create a vector type that contains a defined type and has a scalable
+##  number of elements.
 ##
-##  This only works on types that represent vectors.
+##  The created type will exist in the context thats its element type
+##  exists in.
+##
+##  @see llvm::ScalableVectorType::get()
+##
+
+proc scalableVectorType*(elementType: TypeRef; elementCount: cuint): TypeRef {.
+    importc: "LLVMScalableVectorType", dynlib: LLVMLib.}
+## *
+##  Obtain the (possibly scalable) number of elements in a vector type.
+##
+##  This only works on types that represent vectors (fixed or scalable).
 ##
 ##  @see llvm::VectorType::getNumElements()
 ##
@@ -1388,6 +1399,12 @@ proc labelTypeInContext*(c: ContextRef): TypeRef {.
 proc x86MMXTypeInContext*(c: ContextRef): TypeRef {.
     importc: "LLVMX86MMXTypeInContext", dynlib: LLVMLib.}
 ## *
+##  Create a X86 AMX type in a context.
+##
+
+proc x86AMXTypeInContext*(c: ContextRef): TypeRef {.
+    importc: "LLVMX86AMXTypeInContext", dynlib: LLVMLib.}
+## *
 ##  Create a token type in a context.
 ##
 
@@ -1407,6 +1424,7 @@ proc metadataTypeInContext*(c: ContextRef): TypeRef {.
 proc voidType*(): TypeRef {.importc: "LLVMVoidType", dynlib: LLVMLib.}
 proc labelType*(): TypeRef {.importc: "LLVMLabelType", dynlib: LLVMLib.}
 proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
+proc x86AMXType*(): TypeRef {.importc: "LLVMX86AMXType", dynlib: LLVMLib.}
 ## *
 ##  @}
 ##
@@ -1433,97 +1451,11 @@ proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 ##
 ##  @{
 ##
-##
-## #define LLVM_FOR_EACH_VALUE_SUBCLASS(macro) \
-##   macro(Argument)                           \
-##   macro(BasicBlock)                         \
-##   macro(InlineAsm)                          \
-##   macro(User)                               \
-##     macro(Constant)                         \
-##       macro(BlockAddress)                   \
-##       macro(ConstantAggregateZero)          \
-##       macro(ConstantArray)                  \
-##       macro(ConstantDataSequential)         \
-##         macro(ConstantDataArray)            \
-##         macro(ConstantDataVector)           \
-##       macro(ConstantExpr)                   \
-##       macro(ConstantFP)                     \
-##       macro(ConstantInt)                    \
-##       macro(ConstantPointerNull)            \
-##       macro(ConstantStruct)                 \
-##       macro(ConstantTokenNone)              \
-##       macro(ConstantVector)                 \
-##       macro(GlobalValue)                    \
-##         macro(GlobalAlias)                  \
-##         macro(GlobalIFunc)                  \
-##         macro(GlobalObject)                 \
-##           macro(Function)                   \
-##           macro(GlobalVariable)             \
-##       macro(UndefValue)                     \
-##     macro(Instruction)                      \
-##       macro(UnaryOperator)                  \
-##       macro(BinaryOperator)                 \
-##       macro(CallInst)                       \
-##         macro(IntrinsicInst)                \
-##           macro(DbgInfoIntrinsic)           \
-##             macro(DbgVariableIntrinsic)     \
-##               macro(DbgDeclareInst)         \
-##             macro(DbgLabelInst)             \
-##           macro(MemIntrinsic)               \
-##             macro(MemCpyInst)               \
-##             macro(MemMoveInst)              \
-##             macro(MemSetInst)               \
-##       macro(CmpInst)                        \
-##         macro(FCmpInst)                     \
-##         macro(ICmpInst)                     \
-##       macro(ExtractElementInst)             \
-##       macro(GetElementPtrInst)              \
-##       macro(InsertElementInst)              \
-##       macro(InsertValueInst)                \
-##       macro(LandingPadInst)                 \
-##       macro(PHINode)                        \
-##       macro(SelectInst)                     \
-##       macro(ShuffleVectorInst)              \
-##       macro(StoreInst)                      \
-##       macro(BranchInst)                     \
-##       macro(IndirectBrInst)                 \
-##       macro(InvokeInst)                     \
-##       macro(ReturnInst)                     \
-##       macro(SwitchInst)                     \
-##       macro(UnreachableInst)                \
-##       macro(ResumeInst)                     \
-##       macro(CleanupReturnInst)              \
-##       macro(CatchReturnInst)                \
-##       macro(CatchSwitchInst)                \
-##       macro(CallBrInst)                     \
-##       macro(FuncletPadInst)                 \
-##         macro(CatchPadInst)                 \
-##         macro(CleanupPadInst)               \
-##       macro(UnaryInstruction)               \
-##         macro(AllocaInst)                   \
-##         macro(CastInst)                     \
-##           macro(AddrSpaceCastInst)          \
-##           macro(BitCastInst)                \
-##           macro(FPExtInst)                  \
-##           macro(FPToSIInst)                 \
-##           macro(FPToUIInst)                 \
-##           macro(FPTruncInst)                \
-##           macro(IntToPtrInst)               \
-##           macro(PtrToIntInst)               \
-##           macro(SExtInst)                   \
-##           macro(SIToFPInst)                 \
-##           macro(TruncInst)                  \
-##           macro(UIToFPInst)                 \
-##           macro(ZExtInst)                   \
-##         macro(ExtractValueInst)             \
-##         macro(LoadInst)                     \
-##         macro(VAArgInst)                    \
-##         macro(FreezeInst)                   \
-##       macro(AtomicCmpXchgInst)              \
-##       macro(AtomicRMWInst)                  \
-##       macro(FenceInst)
-##
-## *
+
+template for_Each_Value_Subclass*(`macro`: untyped): untyped =
+  `macro`(argument)
+
+## !!!Ignored construct:  macro ( BasicBlock ) macro ( InlineAsm ) macro ( User ) macro ( Constant ) macro ( BlockAddress ) macro ( ConstantAggregateZero ) macro ( ConstantArray ) macro ( ConstantDataSequential ) macro ( ConstantDataArray ) macro ( ConstantDataVector ) macro ( ConstantExpr ) macro ( ConstantFP ) macro ( ConstantInt ) macro ( ConstantPointerNull ) macro ( ConstantStruct ) macro ( ConstantTokenNone ) macro ( ConstantVector ) macro ( GlobalValue ) macro ( GlobalAlias ) macro ( GlobalIFunc ) macro ( GlobalObject ) macro ( Function ) macro ( GlobalVariable ) macro ( UndefValue ) macro ( PoisonValue ) macro ( Instruction ) macro ( UnaryOperator ) macro ( BinaryOperator ) macro ( CallInst ) macro ( IntrinsicInst ) macro ( DbgInfoIntrinsic ) macro ( DbgVariableIntrinsic ) macro ( DbgDeclareInst ) macro ( DbgLabelInst ) macro ( MemIntrinsic ) macro ( MemCpyInst ) macro ( MemMoveInst ) macro ( MemSetInst ) macro ( CmpInst ) macro ( FCmpInst ) macro ( ICmpInst ) macro ( ExtractElementInst ) macro ( GetElementPtrInst ) macro ( InsertElementInst ) macro ( InsertValueInst ) macro ( LandingPadInst ) macro ( PHINode ) macro ( SelectInst ) macro ( ShuffleVectorInst ) macro ( StoreInst ) macro ( BranchInst ) macro ( IndirectBrInst ) macro ( InvokeInst ) macro ( ReturnInst ) macro ( SwitchInst ) macro ( UnreachableInst ) macro ( ResumeInst ) macro ( CleanupReturnInst ) macro ( CatchReturnInst ) macro ( CatchSwitchInst ) macro ( CallBrInst ) macro ( FuncletPadInst ) macro ( CatchPadInst ) macro ( CleanupPadInst ) macro ( UnaryInstruction ) macro ( AllocaInst ) macro ( CastInst ) macro ( AddrSpaceCastInst ) macro ( BitCastInst ) macro ( FPExtInst ) macro ( FPToSIInst ) macro ( FPToUIInst ) macro ( FPTruncInst ) macro ( IntToPtrInst ) macro ( PtrToIntInst ) macro ( SExtInst ) macro ( SIToFPInst ) macro ( TruncInst ) macro ( UIToFPInst ) macro ( ZExtInst ) macro ( ExtractValueInst ) macro ( LoadInst ) macro ( VAArgInst ) macro ( FreezeInst ) macro ( AtomicCmpXchgInst ) macro ( AtomicRMWInst ) macro ( FenceInst ) [NewLine] *
 ##  @defgroup LLVMCCoreValueGeneral General APIs
 ##
 ##  Functions in this section work on all LLVMValueRef instances,
@@ -1531,14 +1463,13 @@ proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 ##  on llvm::Value.
 ##
 ##  @{
-##
-## *
+##  *
 ##  Obtain the type of a value.
 ##
 ##  @see llvm::Value::getType()
-##
+##  LLVMTypeRef LLVMTypeOf ( LLVMValueRef Val ) ;
+## Error: expected ';'!!!
 
-proc typeOfX*(val: ValueRef): TypeRef {.importc: "LLVMTypeOf", dynlib: LLVMLib.}
 ## *
 ##  Obtain the enumerated type of a Value instance.
 ##
@@ -1598,6 +1529,11 @@ proc isConstant*(val: ValueRef): Bool {.importc: "LLVMIsConstant", dynlib: LLVML
 
 proc isUndef*(val: ValueRef): Bool {.importc: "LLVMIsUndef", dynlib: LLVMLib.}
 ## *
+##  Determine whether a value instance is poisonous.
+##
+
+proc isPoison*(val: ValueRef): Bool {.importc: "LLVMIsPoison", dynlib: LLVMLib.}
+## *
 ##  Convert value instances between types.
 ##
 ##  Internally, an LLVMValueRef is "pinned" to a specific type. This
@@ -1608,13 +1544,16 @@ proc isUndef*(val: ValueRef): Bool {.importc: "LLVMIsUndef", dynlib: LLVMLib.}
 ##
 ##  @see llvm::dyn_cast_or_null<>
 ##
-##
-## #define LLVM_DECLARE_VALUE_CAST(name) \
-##   LLVMValueRef LLVMIsA##name(LLVMValueRef Val);
-## LLVM_FOR_EACH_VALUE_SUBCLASS(LLVM_DECLARE_VALUE_CAST)
-##
 
-proc isAMDNode*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDNode", dynlib: LLVMLib.}
+template declare_Value_Cast*(name: untyped): untyped =
+  valueRef
+
+## !!!Ignored construct:  LLVMIsA ## name ( LLVMValueRef Val ) ;
+## Error: expected ';'!!!
+
+## !!!Ignored construct:  [NewLine] LLVM_FOR_EACH_VALUE_SUBCLASS ( LLVM_DECLARE_VALUE_CAST ) LLVMValueRef LLVMIsAMDNode ( LLVMValueRef Val ) ;
+## Error: did not expect [NewLine]!!!
+
 proc isAMDString*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDString",
     dynlib: LLVMLib.}
 ## * Deprecated: Use LLVMGetValueName2 instead.
@@ -1760,6 +1699,13 @@ proc constAllOnes*(ty: TypeRef): ValueRef {.importc: "LLVMConstAllOnes",
 ##
 
 proc getUndef*(ty: TypeRef): ValueRef {.importc: "LLVMGetUndef", dynlib: LLVMLib.}
+## *
+##  Obtain a constant value referring to a poison value of a type.
+##
+##  @see llvm::PoisonValue::get()
+##
+
+proc getPoison*(ty: TypeRef): ValueRef {.importc: "LLVMGetPoison", dynlib: LLVMLib.}
 ## *
 ##  Determine whether a value instance is null.
 ##
@@ -2200,6 +2146,8 @@ proc setUnnamedAddr*(global: ValueRef; hasUnnamedAddr: Bool) {.
 ##  @see llvm::AllocaInst::getAlignment()
 ##  @see llvm::LoadInst::getAlignment()
 ##  @see llvm::StoreInst::getAlignment()
+##  @see llvm::AtomicRMWInst::setAlignment()
+##  @see llvm::AtomicCmpXchgInst::setAlignment()
 ##  @see llvm::GlobalValue::getAlignment()
 ##
 
@@ -2209,6 +2157,8 @@ proc getAlignment*(v: ValueRef): cuint {.importc: "LLVMGetAlignment", dynlib: LL
 ##  @see llvm::AllocaInst::setAlignment()
 ##  @see llvm::LoadInst::setAlignment()
 ##  @see llvm::StoreInst::setAlignment()
+##  @see llvm::AtomicRMWInst::setAlignment()
+##  @see llvm::AtomicCmpXchgInst::setAlignment()
 ##  @see llvm::GlobalValue::setAlignment()
 ##
 
@@ -2477,6 +2427,11 @@ proc intrinsicGetType*(ctx: ContextRef; id: cuint; paramTypes: ptr TypeRef;
 
 proc intrinsicGetName*(id: cuint; nameLength: ptr csize_t): cstring {.
     importc: "LLVMIntrinsicGetName", dynlib: LLVMLib.}
+## * Deprecated: Use LLVMIntrinsicCopyOverloadedName2 instead.
+
+proc intrinsicCopyOverloadedName*(id: cuint; paramTypes: ptr TypeRef;
+                                 paramCount: csize_t; nameLength: ptr csize_t): cstring {.
+    importc: "LLVMIntrinsicCopyOverloadedName", dynlib: LLVMLib.}
 ## *
 ##  Copies the name of an overloaded intrinsic identified by a given list of
 ##  parameter types.
@@ -2484,12 +2439,15 @@ proc intrinsicGetName*(id: cuint; nameLength: ptr csize_t): cstring {.
 ##  Unlike LLVMIntrinsicGetName, the caller is responsible for freeing the
 ##  returned string.
 ##
+##  This version also supports unnamed types.
+##
 ##  @see llvm::Intrinsic::getName()
 ##
 
-proc intrinsicCopyOverloadedName*(id: cuint; paramTypes: ptr TypeRef;
-                                 paramCount: csize_t; nameLength: ptr csize_t): cstring {.
-    importc: "LLVMIntrinsicCopyOverloadedName", dynlib: LLVMLib.}
+proc intrinsicCopyOverloadedName2*(`mod`: ModuleRef; id: cuint;
+                                  paramTypes: ptr TypeRef; paramCount: csize_t;
+                                  nameLength: ptr csize_t): cstring {.
+    importc: "LLVMIntrinsicCopyOverloadedName2", dynlib: LLVMLib.}
 ## *
 ##  Obtain if the intrinsic identified by the given ID is overloaded.
 ##
@@ -4122,7 +4080,8 @@ proc createMemoryBufferWithContentsOfFile*(path: cstring;
 proc createMemoryBufferWithSTDIN*(outMemBuf: ptr MemoryBufferRef;
                                  outMessage: cstringArray): Bool {.
     importc: "LLVMCreateMemoryBufferWithSTDIN", dynlib: LLVMLib.}
-proc createMemoryBufferWithMemoryRange*(inputData: cstring; inputDataLength: csize_t;
+proc createMemoryBufferWithMemoryRange*(inputData: cstring;
+                                       inputDataLength: csize_t;
                                        bufferName: cstring;
                                        requiresNullTerminator: Bool): MemoryBufferRef {.
     importc: "LLVMCreateMemoryBufferWithMemoryRange", dynlib: LLVMLib.}
@@ -4131,8 +4090,8 @@ proc createMemoryBufferWithMemoryRangeCopy*(inputData: cstring;
     importc: "LLVMCreateMemoryBufferWithMemoryRangeCopy", dynlib: LLVMLib.}
 proc getBufferStart*(memBuf: MemoryBufferRef): cstring {.
     importc: "LLVMGetBufferStart", dynlib: LLVMLib.}
-proc getBufferSize*(memBuf: MemoryBufferRef): csize_t {.importc: "LLVMGetBufferSize",
-    dynlib: LLVMLib.}
+proc getBufferSize*(memBuf: MemoryBufferRef): csize_t {.
+    importc: "LLVMGetBufferSize", dynlib: LLVMLib.}
 proc disposeMemoryBuffer*(memBuf: MemoryBufferRef) {.
     importc: "LLVMDisposeMemoryBuffer", dynlib: LLVMLib.}
 ## *
@@ -4237,4 +4196,6 @@ proc isMultithreaded*(): Bool {.importc: "LLVMIsMultithreaded", dynlib: LLVMLib.
 ## *
 ##  @}
 ##
-## LLVM_C_EXTERN_C_END
+
+## !!!Ignored construct:  LLVM_C_EXTERN_C_END #  LLVM_C_CORE_H [NewLine]
+## Error: expected ';'!!!
