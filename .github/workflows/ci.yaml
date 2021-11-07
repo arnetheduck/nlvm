@@ -26,8 +26,10 @@ jobs:
       - name: Create distribution
         run: bash make-dist.sh
       - name: Update release
+        if: github.ref == 'refs/heads/master'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          wget -c https://github.com/probonopd/uploadtool/raw/master/upload.sh
+          # Local copy of the following script:
+          # wget -c https://github.com/probonopd/uploadtool/raw/master/upload.sh
           bash upload.sh dist/*
