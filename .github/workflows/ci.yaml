@@ -1,0 +1,14 @@
+name: Continuous
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo apt-get install -y libcurl4-openssl-dev libsdl1.2-dev libgc-dev libncurses5-dev jq cmake ninja-build
+      - name: Check out repository code
+        uses: actions/checkout@v2
+      - run: git submodule update --init
+      - run: mkdir -p ext
+      - run: make STATIC_LLVM=1 test
+      - run: make STATIC_LLVM=1 compare
+      - run: bash make-dist.sh
