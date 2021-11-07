@@ -24,4 +24,10 @@ jobs:
       - name: Run self-compare
         run: make STATIC_LLVM=1 compare
       - name: Create distribution
-        run: make-dist.sh
+        run: bash make-dist.sh
+      - name: Update release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          wget -c https://github.com/probonopd/uploadtool/raw/master/upload.sh
+          bash upload.sh dist/*
