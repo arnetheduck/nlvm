@@ -4,11 +4,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - run: sudo apt-get install -y libcurl4-openssl-dev libsdl1.2-dev libgc-dev libncurses5-dev jq cmake ninja-build
+      - name: Install deps
+        run: sudo apt-get install -y libcurl4-openssl-dev libsdl1.2-dev libgc-dev libncurses5-dev jq cmake ninja-build clang
       - name: Check out repository code
         uses: actions/checkout@v2
-      - run: git submodule update --init
-      - run: mkdir -p ext
-      - run: make STATIC_LLVM=1 test
-      - run: make STATIC_LLVM=1 compare
-      - run: bash make-dist.sh
+        with:
+          submodules: recursive
+      - name: Set up environment
+        run: |
+          export CC=clang
+          export CXX=clang++
+          export LD=clang++
+      - name: Set up llvm
+        run: make STATIC_LLVM=1 prepare-llvm
+      - name: Compile nim
+        run: make STATIC_LLVM=1 prepare-nim
+      - name: Run tests
+        run: make STATIC_LLVM=1 test
+      - name: Run self-compare
+        run: make STATIC_LLVM=1 compare
+      - name: Create distribution
+        run: make-dist.sh
