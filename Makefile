@@ -114,7 +114,7 @@ ext/$(LLVM_DIR)/sta/bin/llvm-config:
 prepare-llvm: $(LLVM_DEP)
 
 .PHONY: prepare-nim
-prepare-nim: NIMC
+prepare-nim: $(NIMC)
 
 .PHONY: docker
 docker:
