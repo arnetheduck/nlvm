@@ -85,10 +85,10 @@ We will need a few development libraries installed, mainly due to how `nlvm`
 processes library dependencies (see dynlib section below):
 
     # Fedora
-    sudo dnf install pcre-devel openssl-devel sqlite-devel ninja-build
+    sudo dnf install pcre-devel openssl-devel sqlite-devel ninja-build cmake
 
     # Debian, ubuntu etc
-    sudo apt-get install libpcre3-dev libssl-dev libsqlite3-dev ninja-build
+    sudo apt-get install libpcre3-dev libssl-dev libsqlite3-dev ninja-build cmake
 
 Compile `nlvm` (if needed, this will also build `nim` and `llvm`):
 
