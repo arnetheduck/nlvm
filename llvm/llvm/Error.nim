@@ -11,10 +11,20 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_ERROR_H [NewLine] # LLVM_C_ERROR_H [NewLine] # llvm-c/ExternC.h [NewLine] LLVM_C_EXTERN_C_BEGIN # LLVMErrorSuccess 0 [NewLine] *
+#import
+#  ExternC
+
+## LLVM_C_EXTERN_C_BEGIN
+
+const
+  ErrorSuccess* = 0
+
+## *
 ##  Opaque reference to an error instance. Null serves as the 'success' value.
-##  typedef struct LLVMOpaqueError * LLVMErrorRef ;
-## Error: expected ';'!!!
+##
+
+type
+  ErrorRef* = ptr OpaqueError
 
 ## *
 ##  Error type identifier.

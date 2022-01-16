@@ -72,6 +72,36 @@ type
   orcOpaqueJITStack{.pure, final.} = object
   OpaqueError{.pure, final.} = object
 
+  ## Orc.nim
+  OrcOpaqueExecutionSession{.pure, final.} = object
+  OrcOpaqueSymbolStringPool{.pure, final.} = object
+  OrcOpaqueJITDylib{.pure, final.} = object
+  OrcOpaqueSymbolStringPoolEntry{.pure, final.} = object
+  OrcOpaqueMaterializationUnit{.pure, final.} = object
+  OrcOpaqueMaterializationResponsibility{.pure, final.} = object
+  OrcOpaqueResourceTracker{.pure, final.} = object
+  OrcOpaqueDefinitionGenerator{.pure, final.} = object
+  OrcOpaqueLookupState{.pure, final.} = object
+  OrcOpaqueThreadSafeContext{.pure, final.} = object
+  OrcOpaqueThreadSafeModule{.pure, final.} = object
+  OrcOpaqueJITTargetMachineBuilder{.pure, final.} = object
+  OrcOpaqueObjectLayer{.pure, final.} = object
+  OrcOpaqueObjectLinkingLayer{.pure, final.} = object
+  OrcOpaqueIRTransformLayer{.pure, final.} = object
+  OrcOpaqueObjectTransformLayer{.pure, final.} = object
+  OrcOpaqueIndirectStubsManager{.pure, final.} = object
+  OrcOpaqueLazyCallThroughManager{.pure, final.} = object
+  OrcOpaqueDumpObjects{.pure, final.} = object
+
+  ## ExecutionEngine.nim
+  OpaqueGenericValue{.pure, final.} = object
+  OpaqueExecutionEngine{.pure, final.} = object
+  OpaqueMCJITMemoryManager{.pure, final.} = object
+
+  ## LLJIT.nim
+  OrcOpaqueLLJITBuilder{.pure, final.} = object
+  OrcOpaqueLLJIT{.pure, final.} = object
+
   # Funny type names that came out of c2nim
   int64T = int64
   uint64T = uint64
@@ -141,7 +171,10 @@ include llvm/Target
 include llvm/TargetMachine
 include llvm/Transforms/PassManagerBuilder
 
-include llvm/OrcBindings
+include llvm/Orc
+include llvm/OrcEE
+include llvm/ExecutionEngine
+include llvm/LLJIT
 
 include preprocessed
 
