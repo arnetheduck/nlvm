@@ -1074,7 +1074,7 @@ proc orcDisposeThreadSafeContext*(TSCtx: OrcThreadSafeContextRef) {.
 ##
 
 proc orcCreateNewThreadSafeModule*(M: ModuleRef;
-                                      TSCtx: OrcThreadSafeContextRef): OrcThreadSafeModuleRef {.
+                                   TSCtx: OrcThreadSafeContextRef): OrcThreadSafeModuleRef {.
     importc: "LLVMOrcCreateNewThreadSafeModule", dynlib: LLVMLib.}
 ## *
 ##  Dispose of a ThreadSafeModule. This should only be called if ownership has
