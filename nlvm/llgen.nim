@@ -7021,6 +7021,8 @@ proc genNode(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
   of nkTypeSection, nkCommentStmt, nkIteratorDef, nkIncludeStmt,
      nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
      nkFromStmt, nkTemplateDef, nkMacroDef: discard
+  # of nkAsmStmt: # inline assembly, see: https://llvm.org/doxygen/classllvm_1_1InlineAsm.html
+  # of nkParForStmt: # openmp `||` operator, see: https://clang.llvm.org/doxygen/classclang_1_1OMPParallelForDirective.html
   else:
     g.config.internalError(n.info, "Unhandled node: " & $n)
 
