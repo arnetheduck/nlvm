@@ -1,4 +1,7 @@
+lib/nimhcr.nim
+lib/nimrtl.nim
 lib/pure/json.nim
+lib/pure/nimtracker.nim
 lib/pure/segfaults.nim
 tests/align/talign.nim
 tests/arc/tamemfiles.nim
@@ -24,8 +27,6 @@ tests/async/tawaitsemantics.nim
 tests/async/tfuturevar.nim
 tests/casestmt/t12785.nim
 tests/casestmt/t7699.nim
-tests/casestmt/tcasestmt.nim
-tests/ccgbugs/t9286.nim
 tests/ccgbugs/tassign_nil_strings.nim
 tests/ccgbugs/tcodegenbug1.nim
 tests/ccgbugs/tcodegendecllambda.nim
@@ -36,6 +37,7 @@ tests/ccgbugs/tmissingvolatile.nim
 tests/ccgbugs/tprogmem.nim
 tests/ccgbugs/tresult_of_array.nim
 tests/ccgbugs/tunsafeaddr.nim
+tests/closure/tboehmdeepcopy.nim
 tests/closure/ttimeinfo.nim
 tests/concepts/tusertypeclasses.nim
 tests/coroutines/tgc.nim
@@ -89,6 +91,7 @@ tests/destructor/twidgets_unown.nim
 tests/dll/client.nim
 tests/dll/nimhcr_integration.nim
 tests/dll/nimhcr_unit.nim
+tests/dll/server.nim
 tests/dll/visibility.nim
 tests/enum/tenum_no_rtti.nim
 tests/errmsgs/tcall_with_default_arg.nim
@@ -97,15 +100,12 @@ tests/errmsgs/tproper_stacktrace3.nim
 tests/errmsgs/tproper_stacktrace.nim
 tests/exception/tcontinuexc.nim
 tests/exception/tdefer1.nim
-tests/exception/tdont_overwrite_typename.nim
 tests/exception/texceptions.nim
 tests/exception/tfinally3.nim
-tests/exception/tfinally4.nim
 tests/exception/tfinally.nim
 tests/exception/tunhandledexc.nim
 tests/fields/tfields.nim
 tests/float/tfloat3.nim
-tests/float/tfloatrange.nim
 tests/gc/closureleak
 tests/gc/cyclecollector
 tests/gc/cycleleak
@@ -144,8 +144,10 @@ tests/misc/tinvalidarrayaccess2.nim
 tests/misc/tinvalidarrayaccess.nim
 tests/misc/tsizeof.nim
 tests/misc/tstrace.nim
-tests/niminaction/Chapter2/various2.nim
 tests/niminaction/Chapter3/various3.nim
+tests/niminaction/Chapter7/Tweeter/src/createDatabase.nim
+tests/niminaction/Chapter7/Tweeter/src/tweeter.nim
+tests/niminaction/Chapter7/Tweeter/tests/database_test.nim
 tests/niminaction/Chapter8/sdl/sdl_test.nim
 tests/osproc/texecps.nim
 tests/overload/tstatic_with_converter.nim
@@ -165,11 +167,13 @@ tests/stdlib/tos.nim
 tests/stdlib/tstackframes.nim
 tests/stdlib/tstdlib_issues.nim
 tests/stdlib/tstdlib_various.nim
+tests/stdlib/tunittestexceptiontype.nim
 tests/stdlib/tunittesttemplate.nim
 tests/system/tdeepcopy.nim
 tests/system/tgogc.nim
 tests/system/tnim_stacktrace_override.nim
 tests/typerel/t4799.nim
+tests/typerel/tnoargopenarray.nim
 tests/types/taliasbugs.nim
 tests/valgrind/tbasic_valgrind.nim
 tests/vm/tconsttable.nim

@@ -855,7 +855,7 @@ proc isInvalidReturnType(g: LLGen, rettype: PType): bool =
         containsGarbageCollectedRef(t) or
           (t.kind == tyObject and not isObjLackingTypeField(t))
     else:
-      g.isLargeType(g.llType(t))
+      g.isLargeType(g.llType(t)) and (tfByCopy notin rettype.flags)
 
 proc debugSize(g: LLGen, typ: llvm.TypeRef):
     tuple[typeBits, storeBits, allocBits, abiBits: uint32] =
@@ -3445,7 +3445,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType, extra: int)
       skipped = true
       q = q.lastSon
 
-    if skipTypes(param.sym.typ, abstractVar).kind in {tyOpenArray, tyVarargs}:
+    if skipTypes(param.sym.typ, abstractVar + {tyStatic}).kind in {tyOpenArray, tyVarargs}:
       var len: llvm.ValueRef
       if q.getMagic() == mSlice:
         if skipped:
@@ -3511,7 +3511,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType, extra: int)
         len = g.b.buildSub(cx, bx, g.nn("slice.sub", n))
         len = g.b.buildAdd(len, constInt(len.typeOfX(), 1, llvm.False), g.nn("slice.add", n))
       else:
-        case pr.typ.skipTypes(abstractVar).kind
+        case pr.typ.skipTypes(abstractVar+{tyStatic}).kind
         of tyString, tySequence:
           v = g.genNode(pr, true).v
           if pr.typ.skipTypes(abstractInst).kind in {tyVar, tyLent}:
@@ -5816,7 +5816,7 @@ proc genNodeBracketExprArray(g: LLGen, n: PNode, load: bool): LLValue =
     let
       len = g.constNimInt(g.config.lastOrd(ty) - first + 1)
       cond = g.b.buildICmp(llvm.IntUGE, b, len, "bes.bounds")
-    if first == 0:
+    if first == 0 and g.config.lastOrd(ty) >= 0:
       g.callRaise(cond, "raiseIndexError2", [bi, len])
     else:
       g.callRaise(cond, "raiseIndexError3", [bi, fi, len])
@@ -7005,6 +7005,8 @@ proc genNode(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
   of nkState: g.genNodeState(n)
   of nkBreakState: result = g.genNodeBreakState(n)
   of nkTupleConstr: result = g.genNodeTupleConstr(n, load)
+
+  of nkMixinStmt, nkBindStmt: discard
 
   of nkTypeSection, nkCommentStmt, nkIteratorDef, nkIncludeStmt,
      nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
