@@ -5,16 +5,16 @@
 import strutils
 
 const
-  LLVMLib = "libLLVM-13.so"
-  LLVMRoot = "../ext/llvm-13.0.0.src/"
-  LLDRoot = "../ext/lld-13.0.0.src/"
-  LLVMVersion* = "13.0.0"
+  LLVMLib = "libLLVM-14.so"
+  LLVMRoot = "../ext/llvm-14.0.0.src/"
+  LLDRoot = "../ext/lld-14.0.0.src/"
+  LLVMVersion* = "14.0.0"
 
-{.passL: "-llldDriver" .}
 {.passL: "-llldELF" .}
 {.passL: "-llldWasm" .}
-{.passL: "-llldCore" .}
+{.passL: "-llldMinGW" .}
 {.passL: "-llldCommon" .}
+{.passL: "-lz" .}
 
 when defined(staticLLVM):
   const
@@ -26,7 +26,7 @@ else:
   const
     LLVMOut = LLVMRoot & "sha/"
 
-  {.passL: "-lLLVM-13".}
+  {.passL: "-lLLVM-14".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
 {.passC: "-I" & LLVMRoot & "include".}

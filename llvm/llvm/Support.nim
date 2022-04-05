@@ -12,6 +12,10 @@
 ## \*===----------------------------------------------------------------------===
 
 ## !!!Ignored construct:  # LLVM_C_SUPPORT_H [NewLine] # LLVM_C_SUPPORT_H [NewLine] # llvm-c/DataTypes.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##  @addtogroup LLVMCCore
+##
+##  @{
+##  *
 ##  This function permanently loads the dynamic library at the given path.
 ##  It is safe to call this function multiple times for the same library.
 ##
@@ -50,5 +54,9 @@ proc searchForAddressOfSymbol*(symbolName: cstring): pointer {.
 
 proc addSymbol*(symbolName: cstring; symbolValue: pointer) {.
     importc: "LLVMAddSymbol", dynlib: LLVMLib.}
+## *
+##  @}
+##
+
 ## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
 ## Error: expected ';'!!!

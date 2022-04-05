@@ -16,8 +16,12 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_TARGETMACHINE_H [NewLine] # LLVM_C_TARGETMACHINE_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Target.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN typedef struct LLVMOpaqueTargetMachine * LLVMTargetMachineRef ;
-## Error: token expected: ; but got: [identifier]!!!
+## !!!Ignored construct:  # LLVM_C_TARGETMACHINE_H [NewLine] # LLVM_C_TARGETMACHINE_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Target.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##  @addtogroup LLVMCTarget
+##
+##  @{
+##  typedef struct LLVMOpaqueTargetMachine * LLVMTargetMachineRef ;
+## Error: expected ';'!!!
 
 type
   TargetRef* = ptr target
@@ -155,5 +159,9 @@ proc getHostCPUFeatures*(): cstring {.importc: "LLVMGetHostCPUFeatures",
 
 proc addAnalysisPasses*(t: TargetMachineRef; pm: PassManagerRef) {.
     importc: "LLVMAddAnalysisPasses", dynlib: LLVMLib.}
+## *
+##  @}
+##
+
 ## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
 ## Error: expected ';'!!!

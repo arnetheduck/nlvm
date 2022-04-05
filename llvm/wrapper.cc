@@ -49,7 +49,7 @@ extern "C" const char* LLVMNimLLDLinkElf(const char **args, size_t arg_count) {
     SmallVector<char, 128> osv, esv;
     raw_svector_ostream os(osv), es(esv);
 
-    if (!lld::elf::link(array_ref_args, false, os, es)) {
+    if (!lld::elf::link(array_ref_args, os, es, false, false)) {
       osv.push_back(0);
       return LLVMCreateMessage(&osv[0]);
     }
@@ -62,7 +62,7 @@ extern "C" const char* LLVMNimLLDLinkWasm(const char **args, size_t arg_count) {
     SmallVector<char, 128> osv, esv;
     raw_svector_ostream os(osv), es(esv);
 
-    if (!lld::wasm::link(array_ref_args, false, os, es)) {
+    if (!lld::wasm::link(array_ref_args, os, es, false, false)) {
       osv.push_back(0);
       return LLVMCreateMessage(&osv[0]);
     }

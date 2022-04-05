@@ -11,7 +11,12 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_ERROR_H [NewLine] # LLVM_C_ERROR_H [NewLine] # llvm-c/ExternC.h [NewLine] LLVM_C_EXTERN_C_BEGIN # LLVMErrorSuccess 0 [NewLine] *
+## !!!Ignored construct:  # LLVM_C_ERROR_H [NewLine] # LLVM_C_ERROR_H [NewLine] # llvm-c/ExternC.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##  @defgroup LLVMCError Error Handling
+##  @ingroup LLVMC
+##
+##  @{
+##  # LLVMErrorSuccess 0 [NewLine] *
 ##  Opaque reference to an error instance. Null serves as the 'success' value.
 ##  typedef struct LLVMOpaqueError * LLVMErrorRef ;
 ## Error: expected ';'!!!
@@ -65,5 +70,9 @@ proc getStringErrorTypeId*(): ErrorTypeId {.importc: "LLVMGetStringErrorTypeId",
 
 proc createStringError*(errMsg: cstring): ErrorRef {.
     importc: "LLVMCreateStringError", dynlib: LLVMLib.}
+## *
+##  @}
+##
+
 ## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
 ## Error: expected ';'!!!

@@ -13,7 +13,12 @@
 ## /
 ## ===----------------------------------------------------------------------===//
 
-## !!!Ignored construct:  # LLVM_C_DEBUGINFO_H [NewLine] # LLVM_C_DEBUGINFO_H [NewLine] # llvm-c/Core.h [NewLine] # llvm-c/ExternC.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+## !!!Ignored construct:  # LLVM_C_DEBUGINFO_H [NewLine] # LLVM_C_DEBUGINFO_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##  @defgroup LLVMCCoreDebugInfo Debug Information
+##  @ingroup LLVMCCore
+##
+##  @{
+##  *
 ##  Debug info flags.
 ##  typedef enum { LLVMDIFlagZero = 0 , LLVMDIFlagPrivate = 1 , LLVMDIFlagProtected = 2 , LLVMDIFlagPublic = 3 , LLVMDIFlagFwdDecl = 1 << 2 , LLVMDIFlagAppleBlock = 1 << 3 , LLVMDIFlagReservedBit4 = 1 << 4 , LLVMDIFlagVirtual = 1 << 5 , LLVMDIFlagArtificial = 1 << 6 , LLVMDIFlagExplicit = 1 << 7 , LLVMDIFlagPrototyped = 1 << 8 , LLVMDIFlagObjcClassComplete = 1 << 9 , LLVMDIFlagObjectPointer = 1 << 10 , LLVMDIFlagVector = 1 << 11 , LLVMDIFlagStaticMember = 1 << 12 , LLVMDIFlagLValueReference = 1 << 13 , LLVMDIFlagRValueReference = 1 << 14 , LLVMDIFlagReserved = 1 << 15 , LLVMDIFlagSingleInheritance = 1 << 16 , LLVMDIFlagMultipleInheritance = 2 << 16 , LLVMDIFlagVirtualInheritance = 3 << 16 , LLVMDIFlagIntroducedVirtual = 1 << 18 , LLVMDIFlagBitField = 1 << 19 , LLVMDIFlagNoReturn = 1 << 20 , LLVMDIFlagTypePassByValue = 1 << 22 , LLVMDIFlagTypePassByReference = 1 << 23 , LLVMDIFlagEnumClass = 1 << 24 , LLVMDIFlagFixedEnum = LLVMDIFlagEnumClass ,  Deprecated. LLVMDIFlagThunk = 1 << 25 , LLVMDIFlagNonTrivial = 1 << 26 , LLVMDIFlagBigEndian = 1 << 27 , LLVMDIFlagLittleEndian = 1 << 28 , LLVMDIFlagIndirectVirtualBase = ( 1 << 2 ) | ( 1 << 5 ) , LLVMDIFlagAccessibility = LLVMDIFlagPrivate | LLVMDIFlagProtected | LLVMDIFlagPublic , LLVMDIFlagPtrToMemberRep = LLVMDIFlagSingleInheritance | LLVMDIFlagMultipleInheritance | LLVMDIFlagVirtualInheritance } LLVMDIFlags ;
 ## Error: expected ';'!!!
@@ -165,6 +170,13 @@ proc disposeDIBuilder*(builder: DIBuilderRef) {.importc: "LLVMDisposeDIBuilder",
 
 proc dIBuilderFinalize*(builder: DIBuilderRef) {.importc: "LLVMDIBuilderFinalize",
     dynlib: LLVMLib.}
+## *
+##  Finalize a specific subprogram.
+##  No new variables may be added to this subprogram afterwards.
+##
+
+proc dIBuilderFinalizeSubprogram*(builder: DIBuilderRef; subprogram: MetadataRef) {.
+    importc: "LLVMDIBuilderFinalizeSubprogram", dynlib: LLVMLib.}
 ## *
 ##  A CompileUnit provides an anchor for all debugging
 ##  information generated during this instance of compilation.
@@ -324,39 +336,51 @@ proc dIBuilderCreateImportedModuleFromNamespace*(builder: DIBuilderRef;
 ##  \param ImportedEntity Previous imported entity to alias.
 ##  \param File           File where the declaration is located.
 ##  \param Line           Line number of the declaration.
+##  \param Elements       Renamed elements.
+##  \param NumElements    Number of renamed elements.
 ##
 
 proc dIBuilderCreateImportedModuleFromAlias*(builder: DIBuilderRef;
-    scope: MetadataRef; importedEntity: MetadataRef; file: MetadataRef; line: cuint): MetadataRef {.
+    scope: MetadataRef; importedEntity: MetadataRef; file: MetadataRef; line: cuint;
+    elements: ptr MetadataRef; numElements: cuint): MetadataRef {.
     importc: "LLVMDIBuilderCreateImportedModuleFromAlias", dynlib: LLVMLib.}
 ## *
 ##  Create a descriptor for an imported module.
-##  \param Builder    The \c DIBuilder.
-##  \param Scope      The scope this module is imported into
-##  \param M          The module being imported here
-##  \param File       File where the declaration is located.
-##  \param Line       Line number of the declaration.
+##  \param Builder        The \c DIBuilder.
+##  \param Scope          The scope this module is imported into
+##  \param M              The module being imported here
+##  \param File           File where the declaration is located.
+##  \param Line           Line number of the declaration.
+##  \param Elements       Renamed elements.
+##  \param NumElements    Number of renamed elements.
 ##
 
 proc dIBuilderCreateImportedModuleFromModule*(builder: DIBuilderRef;
-    scope: MetadataRef; m: MetadataRef; file: MetadataRef; line: cuint): MetadataRef {.
+    scope: MetadataRef; m: MetadataRef; file: MetadataRef; line: cuint;
+    elements: ptr MetadataRef; numElements: cuint): MetadataRef {.
     importc: "LLVMDIBuilderCreateImportedModuleFromModule", dynlib: LLVMLib.}
 ## *
 ##  Create a descriptor for an imported function, type, or variable.  Suitable
 ##  for e.g. FORTRAN-style USE declarations.
-##  \param Builder    The DIBuilder.
-##  \param Scope      The scope this module is imported into.
-##  \param Decl       The declaration (or definition) of a function, type,
-##                      or variable.
-##  \param File       File where the declaration is located.
-##  \param Line       Line number of the declaration.
-##  \param Name       A name that uniquely identifies this imported declaration.
-##  \param NameLen    The length of the C string passed to \c Name.
+##  \param Builder        The DIBuilder.
+##  \param Scope          The scope this module is imported into.
+##  \param Decl           The declaration (or definition) of a function, type,
+##                          or variable.
+##  \param File           File where the declaration is located.
+##  \param Line           Line number of the declaration.
+##  \param Name           A name that uniquely identifies this imported
+##  declaration.
+##  \param NameLen        The length of the C string passed to \c Name.
+##  \param Elements       Renamed elements.
+##  \param NumElements    Number of renamed elements.
 ##
 
 proc dIBuilderCreateImportedDeclaration*(builder: DIBuilderRef; scope: MetadataRef;
                                         decl: MetadataRef; file: MetadataRef;
-                                        line: cuint; name: cstring; nameLen: csize_t): MetadataRef {.
+                                        line: cuint; name: cstring;
+                                        nameLen: csize_t;
+                                        elements: ptr MetadataRef;
+                                        numElements: cuint): MetadataRef {.
     importc: "LLVMDIBuilderCreateImportedDeclaration", dynlib: LLVMLib.}
 ## *
 ##  Creates a new DebugLocation that describes a source location.
@@ -1019,7 +1043,7 @@ proc dIBuilderGetOrCreateArray*(builder: DIBuilderRef; data: ptr MetadataRef;
 ##  \param Length      Length of the address operation array.
 ##
 
-proc dIBuilderCreateExpression*(builder: DIBuilderRef; `addr`: ptr int64T;
+proc dIBuilderCreateExpression*(builder: DIBuilderRef; `addr`: ptr uint64;
                                length: csize_t): MetadataRef {.
     importc: "LLVMDIBuilderCreateExpression", dynlib: LLVMLib.}
 ## *
@@ -1029,7 +1053,7 @@ proc dIBuilderCreateExpression*(builder: DIBuilderRef; `addr`: ptr int64T;
 ##  \param Value       The constant value.
 ##
 
-proc dIBuilderCreateConstantValueExpression*(builder: DIBuilderRef; value: int64T): MetadataRef {.
+proc dIBuilderCreateConstantValueExpression*(builder: DIBuilderRef; value: uint64): MetadataRef {.
     importc: "LLVMDIBuilderCreateConstantValueExpression", dynlib: LLVMLib.}
 ## *
 ##  Create a new descriptor for the specified variable.
@@ -1305,5 +1329,9 @@ proc instructionSetDebugLoc*(inst: ValueRef; loc: MetadataRef) {.
 
 proc getMetadataKind*(metadata: MetadataRef): MetadataKind {.
     importc: "LLVMGetMetadataKind", dynlib: LLVMLib.}
+## *
+##  @}
+##
+
 ## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
 ## Error: expected ';'!!!

@@ -12,7 +12,7 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_CORE_H [NewLine] # LLVM_C_CORE_H [NewLine] # llvm-c/ErrorHandling.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+## !!!Ignored construct:  # LLVM_C_CORE_H [NewLine] # LLVM_C_CORE_H [NewLine] # llvm-c/Deprecated.h [NewLine] # llvm-c/ErrorHandling.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
 ##  @defgroup LLVMC LLVM-C: C interface to LLVM
 ##
 ##  This module exposes parts of the LLVM library as a C API.
@@ -1455,7 +1455,7 @@ proc x86AMXType*(): TypeRef {.importc: "LLVMX86AMXType", dynlib: LLVMLib.}
 template for_Each_Value_Subclass*(`macro`: untyped): untyped =
   `macro`(argument)
 
-## !!!Ignored construct:  macro ( BasicBlock ) macro ( InlineAsm ) macro ( User ) macro ( Constant ) macro ( BlockAddress ) macro ( ConstantAggregateZero ) macro ( ConstantArray ) macro ( ConstantDataSequential ) macro ( ConstantDataArray ) macro ( ConstantDataVector ) macro ( ConstantExpr ) macro ( ConstantFP ) macro ( ConstantInt ) macro ( ConstantPointerNull ) macro ( ConstantStruct ) macro ( ConstantTokenNone ) macro ( ConstantVector ) macro ( GlobalValue ) macro ( GlobalAlias ) macro ( GlobalIFunc ) macro ( GlobalObject ) macro ( Function ) macro ( GlobalVariable ) macro ( UndefValue ) macro ( PoisonValue ) macro ( Instruction ) macro ( UnaryOperator ) macro ( BinaryOperator ) macro ( CallInst ) macro ( IntrinsicInst ) macro ( DbgInfoIntrinsic ) macro ( DbgVariableIntrinsic ) macro ( DbgDeclareInst ) macro ( DbgLabelInst ) macro ( MemIntrinsic ) macro ( MemCpyInst ) macro ( MemMoveInst ) macro ( MemSetInst ) macro ( CmpInst ) macro ( FCmpInst ) macro ( ICmpInst ) macro ( ExtractElementInst ) macro ( GetElementPtrInst ) macro ( InsertElementInst ) macro ( InsertValueInst ) macro ( LandingPadInst ) macro ( PHINode ) macro ( SelectInst ) macro ( ShuffleVectorInst ) macro ( StoreInst ) macro ( BranchInst ) macro ( IndirectBrInst ) macro ( InvokeInst ) macro ( ReturnInst ) macro ( SwitchInst ) macro ( UnreachableInst ) macro ( ResumeInst ) macro ( CleanupReturnInst ) macro ( CatchReturnInst ) macro ( CatchSwitchInst ) macro ( CallBrInst ) macro ( FuncletPadInst ) macro ( CatchPadInst ) macro ( CleanupPadInst ) macro ( UnaryInstruction ) macro ( AllocaInst ) macro ( CastInst ) macro ( AddrSpaceCastInst ) macro ( BitCastInst ) macro ( FPExtInst ) macro ( FPToSIInst ) macro ( FPToUIInst ) macro ( FPTruncInst ) macro ( IntToPtrInst ) macro ( PtrToIntInst ) macro ( SExtInst ) macro ( SIToFPInst ) macro ( TruncInst ) macro ( UIToFPInst ) macro ( ZExtInst ) macro ( ExtractValueInst ) macro ( LoadInst ) macro ( VAArgInst ) macro ( FreezeInst ) macro ( AtomicCmpXchgInst ) macro ( AtomicRMWInst ) macro ( FenceInst ) [NewLine] *
+## !!!Ignored construct:  macro ( BasicBlock ) macro ( InlineAsm ) macro ( User ) macro ( Constant ) macro ( BlockAddress ) macro ( ConstantAggregateZero ) macro ( ConstantArray ) macro ( ConstantDataSequential ) macro ( ConstantDataArray ) macro ( ConstantDataVector ) macro ( ConstantExpr ) macro ( ConstantFP ) macro ( ConstantInt ) macro ( ConstantPointerNull ) macro ( ConstantStruct ) macro ( ConstantTokenNone ) macro ( ConstantVector ) macro ( GlobalValue ) macro ( GlobalAlias ) macro ( GlobalObject ) macro ( Function ) macro ( GlobalVariable ) macro ( GlobalIFunc ) macro ( UndefValue ) macro ( PoisonValue ) macro ( Instruction ) macro ( UnaryOperator ) macro ( BinaryOperator ) macro ( CallInst ) macro ( IntrinsicInst ) macro ( DbgInfoIntrinsic ) macro ( DbgVariableIntrinsic ) macro ( DbgDeclareInst ) macro ( DbgLabelInst ) macro ( MemIntrinsic ) macro ( MemCpyInst ) macro ( MemMoveInst ) macro ( MemSetInst ) macro ( CmpInst ) macro ( FCmpInst ) macro ( ICmpInst ) macro ( ExtractElementInst ) macro ( GetElementPtrInst ) macro ( InsertElementInst ) macro ( InsertValueInst ) macro ( LandingPadInst ) macro ( PHINode ) macro ( SelectInst ) macro ( ShuffleVectorInst ) macro ( StoreInst ) macro ( BranchInst ) macro ( IndirectBrInst ) macro ( InvokeInst ) macro ( ReturnInst ) macro ( SwitchInst ) macro ( UnreachableInst ) macro ( ResumeInst ) macro ( CleanupReturnInst ) macro ( CatchReturnInst ) macro ( CatchSwitchInst ) macro ( CallBrInst ) macro ( FuncletPadInst ) macro ( CatchPadInst ) macro ( CleanupPadInst ) macro ( UnaryInstruction ) macro ( AllocaInst ) macro ( CastInst ) macro ( AddrSpaceCastInst ) macro ( BitCastInst ) macro ( FPExtInst ) macro ( FPToSIInst ) macro ( FPToUIInst ) macro ( FPTruncInst ) macro ( IntToPtrInst ) macro ( PtrToIntInst ) macro ( SExtInst ) macro ( SIToFPInst ) macro ( TruncInst ) macro ( UIToFPInst ) macro ( ZExtInst ) macro ( ExtractValueInst ) macro ( LoadInst ) macro ( VAArgInst ) macro ( FreezeInst ) macro ( AtomicCmpXchgInst ) macro ( AtomicRMWInst ) macro ( FenceInst ) [NewLine] *
 ##  @defgroup LLVMCCoreValueGeneral General APIs
 ##
 ##  Functions in this section work on all LLVMValueRef instances,
@@ -2283,6 +2283,14 @@ proc setExternallyInitialized*(globalVar: ValueRef; isExtInit: Bool) {.
 
 proc addAlias*(m: ModuleRef; ty: TypeRef; aliasee: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMAddAlias", dynlib: LLVMLib.}
+## *
+##  Add a GlobalAlias with the given value type, address space and aliasee.
+##
+##  @see llvm::GlobalAlias::create()
+##
+
+proc addAlias2*(m: ModuleRef; valueTy: TypeRef; addrSpace: cuint; aliasee: ValueRef;
+               name: cstring): ValueRef {.importc: "LLVMAddAlias2", dynlib: LLVMLib.}
 ## *
 ##  Obtain a GlobalAlias value from a Module by its name.
 ##
@@ -3249,7 +3257,7 @@ proc setInstructionCallConv*(instr: ValueRef; cc: cuint) {.
 
 proc getInstructionCallConv*(instr: ValueRef): cuint {.
     importc: "LLVMGetInstructionCallConv", dynlib: LLVMLib.}
-proc setInstrParamAlignment*(instr: ValueRef; index: cuint; align: cuint) {.
+proc setInstrParamAlignment*(instr: ValueRef; idx: AttributeIndex; align: cuint) {.
     importc: "LLVMSetInstrParamAlignment", dynlib: LLVMLib.}
 proc addCallSiteAttribute*(c: ValueRef; idx: AttributeIndex; a: AttributeRef) {.
     importc: "LLVMAddCallSiteAttribute", dynlib: LLVMLib.}
@@ -3457,7 +3465,7 @@ proc getAllocatedType*(alloca: ValueRef): TypeRef {.importc: "LLVMGetAllocatedTy
 ##  @{
 ##
 ## *
-##  Check whether the given GEP instruction is inbounds.
+##  Check whether the given GEP operator is inbounds.
 ##
 
 proc isInBounds*(gep: ValueRef): Bool {.importc: "LLVMIsInBounds", dynlib: LLVMLib.}
@@ -3467,6 +3475,12 @@ proc isInBounds*(gep: ValueRef): Bool {.importc: "LLVMIsInBounds", dynlib: LLVML
 
 proc setIsInBounds*(gep: ValueRef; inBounds: Bool) {.importc: "LLVMSetIsInBounds",
     dynlib: LLVMLib.}
+## *
+##  Get the source element type of the given GEP operator.
+##
+
+proc getGEPSourceElementType*(gep: ValueRef): TypeRef {.
+    importc: "LLVMGetGEPSourceElementType", dynlib: LLVMLib.}
 ## *
 ##  @}
 ##
@@ -3517,7 +3531,7 @@ proc getIncomingBlock*(phiNode: ValueRef; index: cuint): BasicBlockRef {.
 ##
 ## *
 ##  Obtain the number of indices.
-##  NB: This also works on GEP.
+##  NB: This also works on GEP operators.
 ##
 
 proc getNumIndices*(inst: ValueRef): cuint {.importc: "LLVMGetNumIndices",
@@ -3589,11 +3603,22 @@ proc setCurrentDebugLocation2*(builder: BuilderRef; loc: MetadataRef) {.
 ##  current debug location for the given builder.  If the builder has no current
 ##  debug location, this function is a no-op.
 ##
+##  @deprecated LLVMSetInstDebugLocation is deprecated in favor of the more general
+##              LLVMAddMetadataToInst.
+##
 ##  @see llvm::IRBuilder::SetInstDebugLocation()
 ##
 
 proc setInstDebugLocation*(builder: BuilderRef; inst: ValueRef) {.
     importc: "LLVMSetInstDebugLocation", dynlib: LLVMLib.}
+## *
+##  Adds the metadata registered with the given builder to the given instruction.
+##
+##  @see llvm::IRBuilder::AddMetadataToInst()
+##
+
+proc addMetadataToInst*(builder: BuilderRef; inst: ValueRef) {.
+    importc: "LLVMAddMetadataToInst", dynlib: LLVMLib.}
 ## *
 ##  Get the dafult floating-point math metadata for a given builder.
 ##
@@ -3643,9 +3668,6 @@ proc buildSwitch*(a1: BuilderRef; v: ValueRef; `else`: BasicBlockRef; numCases: 
     importc: "LLVMBuildSwitch", dynlib: LLVMLib.}
 proc buildIndirectBr*(b: BuilderRef; `addr`: ValueRef; numDests: cuint): ValueRef {.
     importc: "LLVMBuildIndirectBr", dynlib: LLVMLib.}
-##  LLVMBuildInvoke is deprecated in favor of LLVMBuildInvoke2, in preparation
-##  for opaque pointer types.
-
 proc buildInvoke*(a1: BuilderRef; fn: ValueRef; args: ptr ValueRef; numArgs: cuint;
                  then: BasicBlockRef; catch: BasicBlockRef; name: cstring): ValueRef {.
     importc: "LLVMBuildInvoke", dynlib: LLVMLib.}
@@ -3860,18 +3882,12 @@ proc buildArrayAlloca*(a1: BuilderRef; ty: TypeRef; val: ValueRef; name: cstring
     importc: "LLVMBuildArrayAlloca", dynlib: LLVMLib.}
 proc buildFree*(a1: BuilderRef; pointerVal: ValueRef): ValueRef {.
     importc: "LLVMBuildFree", dynlib: LLVMLib.}
-##  LLVMBuildLoad is deprecated in favor of LLVMBuildLoad2, in preparation for
-##  opaque pointer types.
-
 proc buildLoad*(a1: BuilderRef; pointerVal: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildLoad", dynlib: LLVMLib.}
 proc buildLoad2*(a1: BuilderRef; ty: TypeRef; pointerVal: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildLoad2", dynlib: LLVMLib.}
 proc buildStore*(a1: BuilderRef; val: ValueRef; `ptr`: ValueRef): ValueRef {.
     importc: "LLVMBuildStore", dynlib: LLVMLib.}
-##  LLVMBuildGEP, LLVMBuildInBoundsGEP, and LLVMBuildStructGEP are deprecated in
-##  favor of LLVMBuild*GEP2, in preparation for opaque pointer types.
-
 proc buildGEP*(b: BuilderRef; pointer: ValueRef; indices: ptr ValueRef;
               numIndices: cuint; name: cstring): ValueRef {.importc: "LLVMBuildGEP",
     dynlib: LLVMLib.}
@@ -3966,9 +3982,6 @@ proc buildFCmp*(a1: BuilderRef; op: RealPredicate; lhs: ValueRef; rhs: ValueRef;
 
 proc buildPhi*(a1: BuilderRef; ty: TypeRef; name: cstring): ValueRef {.
     importc: "LLVMBuildPhi", dynlib: LLVMLib.}
-##  LLVMBuildCall is deprecated in favor of LLVMBuildCall2, in preparation for
-##  opaque pointer types.
-
 proc buildCall*(a1: BuilderRef; fn: ValueRef; args: ptr ValueRef; numArgs: cuint;
                name: cstring): ValueRef {.importc: "LLVMBuildCall", dynlib: LLVMLib.}
 proc buildCall2*(a1: BuilderRef; a2: TypeRef; fn: ValueRef; args: ptr ValueRef;
@@ -4099,6 +4112,7 @@ proc disposeMemoryBuffer*(memBuf: MemoryBufferRef) {.
 ##
 ## *
 ##  @defgroup LLVMCCorePassRegistry Pass Registry
+##  @ingroup LLVMCCore
 ##
 ##  @{
 ##
@@ -4112,6 +4126,7 @@ proc getGlobalPassRegistry*(): PassRegistryRef {.
 ##
 ## *
 ##  @defgroup LLVMCCorePassManagers Pass Managers
+##  @ingroup LLVMCCore
 ##
 ##  @{
 ##
