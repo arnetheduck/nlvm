@@ -2406,6 +2406,27 @@ proc preCast(
       at.getIntTypeWidth() != lt.getIntTypeWidth():
     return g.buildTruncOrExt(ax, lt, unsigned)
 
+  if ltk in llvm.HalfTypeKind..llvm.PPC_FP128TypeKind and
+      atk in llvm.HalfTypeKind..llvm.PPC_FP128TypeKind:
+    if ltk > atk:
+      return g.b.buildFPExt(ax, lt, g.nn("pre.fpe", ax))
+    elif ltk < atk:
+      return g.b.buildFPTrunc(ax, lt, g.nn("pre.fpt", ax))
+
+  if ltk in llvm.HalfTypeKind..llvm.PPC_FP128TypeKind and
+      atk in [llvm.IntegerTypeKind]:
+    if unsigned:
+      return g.b.buildSIToFP(ax, lt, g.nn("pre.sf", ax))
+    else:
+      return g.b.buildUIToFP(ax, lt, g.nn("pre.uf", ax))
+
+  if ltk in [llvm.IntegerTypeKind] and
+      atk in llvm.HalfTypeKind..llvm.PPC_FP128TypeKind:
+    if unsigned:
+      return g.b.buildFPToUI(ax, lt, g.nn("pre.fu", ax))
+    else:
+      return g.b.buildFPToSI(ax, lt, g.nn("pre.fs", ax))
+
   ax
 
 proc externGlobal(g: LLGen, s: PSym): LLValue =
@@ -3534,8 +3555,11 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType, extra: int)
             len = g.loadNimSeqLen(v)
             len = g.b.buildZExt(len, g.primitives[tyInt], g.nn("call.seq.len.ext", n))
             v = g.getNimSeqDataPtr(v)
+          of tyArray:
+            v = g.genNode(p, true).v
+            len = g.constNimInt(g.config.lengthOrd(pr.typ.lastSon))
           else:
-            g.config.internalError(n.info, "Unhandled ref length: " & $pr.typ)
+            g.config.internalError(n.info, "Unhandled ref length: " & $pr.typ.lastSon())
         else:
           g.config.internalError(n.info, "Unhandled length: " & $pr.typ)
 
@@ -3865,7 +3889,7 @@ proc isSeqLike(n: PNode): bool =
   of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
     n[1].isSeqLike()
   else:
-    n.typ.kind == tySequence
+    n.typ.skipTypes(irrelevantForBackend).kind == tySequence
 
 proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef
 
@@ -6094,8 +6118,8 @@ proc genNodeCast(g: LLGen, n: PNode, load: bool): LLValue =
           llvm.arrayType(g.primitives[tyUInt8], size.cuint), g.nn("cast.tmp", n))
       discard g.b.buildStore(
         v, g.b.buildBitCast(tmp, vt.pointerType(), g.nn("cast.v", n)))
-      g.b.buildLoad(
-        g.b.buildBitCast(tmp, nt.pointerType(), g.nn("cast.n", n)), g.nn("cast", n))
+      g.buildLoadValue(
+        g.b.buildBitCast(tmp, nt.pointerType(), g.nn("cast.n", n)))
   )
 
 proc genNodeAddr(g: LLGen, n: PNode): LLValue =
@@ -6171,9 +6195,13 @@ proc genNodeChckRangeF(g: LLGen, n: PNode): LLValue =
     let
       bx = g.genNode(n[1], true).v
       cx = g.genNode(n[2], true).v
+    let axf =
+      if ax.v.typeOfX.getTypeKind() == llvm.IntegerTypeKind:
+        g.b.buildSIToFP(ax.v, g.primitives[tyFloat], g.nn("rng.sf"))
+      else: ax.v
 
     let args = [
-      g.b.buildFPExt(ax.v, g.primitives[tyFloat], g.nn("fpext", ax.v)),
+      g.b.buildFPExt(axf, g.primitives[tyFloat], g.nn("fpext", ax.v)),
       g.b.buildFPExt(bx, g.primitives[tyFloat], g.nn("fpext", bx)),
       g.b.buildFPExt(cx, g.primitives[tyFloat], g.nn("fpext", cx))
     ]

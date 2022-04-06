@@ -35,7 +35,6 @@ tests/ccgbugs/tforward_decl_only.nim
 tests/ccgbugs/tmangle_field.nim
 tests/ccgbugs/tmissingvolatile.nim
 tests/ccgbugs/tprogmem.nim
-tests/ccgbugs/tresult_of_array.nim
 tests/ccgbugs/tunsafeaddr.nim
 tests/closure/tboehmdeepcopy.nim
 tests/closure/ttimeinfo.nim
@@ -125,13 +124,10 @@ tests/gc/trace_globals
 tests/gc/weakrefs
 tests/generics/tarc_misc.nim
 tests/generics/tforwardgeneric.nim
-tests/generics/tparser_generator.nim
 tests/generics/trtree.nim
 tests/import_in_config/tmain.nim
 tests/iter/tshallowcopy_closures.nim
 tests/iter/tyieldintry.nim
-tests/let/t7936.nim
-tests/macros/tincremental.nim
 tests/macros/tmemit.nim
 tests/magics/trunnableexamples.nim
 tests/manyloc/keineschweine/keineschweine.nim
@@ -162,7 +158,6 @@ tests/range/tsubrange2.nim
 tests/range/tsubrange3.nim
 tests/stdlib/thttpclient_ssl.nim
 tests/stdlib/tjsonmacro.nim
-tests/stdlib/tnre.nim
 tests/stdlib/tos.nim
 tests/stdlib/tstackframes.nim
 tests/stdlib/tstdlib_issues.nim
@@ -176,5 +171,4 @@ tests/typerel/t4799.nim
 tests/typerel/tnoargopenarray.nim
 tests/types/taliasbugs.nim
 tests/valgrind/tbasic_valgrind.nim
-tests/vm/tconsttable.nim
 tests/vm/tvmops.nim
