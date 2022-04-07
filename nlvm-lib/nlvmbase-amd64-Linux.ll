@@ -128,67 +128,150 @@ target triple = "x86_64-unknown-linux-gnu"
 
 
 ; unistd.h
-define linkonce_odr i1 @S_ISDIR(i32 %m) {
+define linkonce_odr i8 @S_ISDIR(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 16384
-  ret i1 %2
+  %3 = zext i1 %2 to i8
+  ret i8 %3
 }
-define linkonce_odr i1 @S_ISCHR(i32 %m) {
+define linkonce_odr i8 @S_ISCHR(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 8192
-  ret i1 %2
+  %3 = zext i1 %2 to i8
+  ret i8 %3
 }
-define linkonce_odr i1 @S_ISBLK(i32 %m) {
+define linkonce_odr i8 @S_ISBLK(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 24576
-  ret i1 %2
+  %3 = zext i1 %2 to i8
+  ret i8 %3
 }
-define linkonce_odr i1 @S_ISREG(i32 %m) {
+define linkonce_odr i8 @S_ISREG(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 32768
-  ret i1 %2
+  %3 = zext i1 %2 to i8
+  ret i8 %3
 }
-define linkonce_odr i1 @S_ISFIFO(i32 %m) {
+define linkonce_odr i8 @S_ISFIFO(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 4096
-  ret i1 %2
+  %3 = zext i1 %2 to i8
+  ret i8 %3
 }
-define linkonce_odr i1 @S_ISLNK(i32 %m) {
+define linkonce_odr i8 @S_ISLNK(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 40960
-  ret i1 %2
+  %3 = zext i1 %2 to i8
+  ret i8 %3
 }
-define linkonce_odr i1 @S_ISSOCK(i32 %m) {
+define linkonce_odr i8 @S_ISSOCK(i32 %m) {
   %1 = and i32 %m, 61440
   %2 = icmp eq i32 %1, 49152
-  ret i1 %2
+  %3 = zext i1 %2 to i8
+  ret i8 %3
 }
 ; sys/select.h
-%fd_set = type opaque
+%fd_set = type { [16 x i64] }
 
-define linkonce_odr void @FD_ZERO(%fd_set*) {
+define linkonce_odr void @FD_ZERO(%fd_set* %0) {
+  %2 = alloca %fd_set*, align 8
+  %3 = alloca i32, align 4
+  %4 = alloca %fd_set*, align 8
+  store %fd_set* %0, %fd_set** %2, align 8
+  br label %5
+
+5:                                                ; preds = %1
+  %6 = load %fd_set*, %fd_set** %2, align 8
+  store %fd_set* %6, %fd_set** %4, align 8
+  store i32 0, i32* %3, align 4
+  br label %7
+
+7:                                                ; preds = %17, %5
+  %8 = load i32, i32* %3, align 4
+  %9 = zext i32 %8 to i64
+  %10 = icmp ult i64 %9, 16
+  br i1 %10, label %11, label %20
+
+11:                                               ; preds = %7
+  %12 = load %fd_set*, %fd_set** %4, align 8
+  %13 = getelementptr inbounds %fd_set, %fd_set* %12, i32 0, i32 0
+  %14 = load i32, i32* %3, align 4
+  %15 = zext i32 %14 to i64
+  %16 = getelementptr inbounds [16 x i64], [16 x i64]* %13, i64 0, i64 %15
+  store i64 0, i64* %16, align 8
+  br label %17
+
+17:                                               ; preds = %11
+  %18 = load i32, i32* %3, align 4
+  %19 = add i32 %18, 1
+  store i32 %19, i32* %3, align 4
+  br label %7
+
+20:                                               ; preds = %7
+  br label %21
+
+21:                                               ; preds = %20
   ret void
 }
-define linkonce_odr void @FD_SET(i32, %fd_set*) {
+
+define linkonce_odr void @FD_SET(i32 %0, %fd_set* %1) {
+  %3 = alloca i32, align 4
+  %4 = alloca %fd_set*, align 8
+  store i32 %0, i32* %3, align 4
+  store %fd_set* %1, %fd_set** %4, align 8
+  %5 = load i32, i32* %3, align 4
+  %6 = srem i32 %5, 64
+  %7 = zext i32 %6 to i64
+  %8 = shl i64 1, %7
+  %9 = load %fd_set*, %fd_set** %4, align 8
+  %10 = getelementptr inbounds %fd_set, %fd_set* %9, i32 0, i32 0
+  %11 = load i32, i32* %3, align 4
+  %12 = sdiv i32 %11, 64
+  %13 = sext i32 %12 to i64
+  %14 = getelementptr inbounds [16 x i64], [16 x i64]* %10, i64 0, i64 %13
+  %15 = load i64, i64* %14, align 8
+  %16 = or i64 %15, %8
+  store i64 %16, i64* %14, align 8
   ret void
 }
-define linkonce_odr i32 @FD_ISSET(i32, %fd_set*) {
-  ret i32 0
+
+define linkonce_odr i32 @FD_ISSET(i32 %0, %fd_set* %1) {
+  %3 = alloca i32, align 4
+  %4 = alloca %fd_set*, align 8
+  store i32 %0, i32* %3, align 4
+  store %fd_set* %1, %fd_set** %4, align 8
+  %5 = load %fd_set*, %fd_set** %4, align 8
+  %6 = getelementptr inbounds %fd_set, %fd_set* %5, i32 0, i32 0
+  %7 = load i32, i32* %3, align 4
+  %8 = sdiv i32 %7, 64
+  %9 = sext i32 %8 to i64
+  %10 = getelementptr inbounds [16 x i64], [16 x i64]* %6, i64 0, i64 %9
+  %11 = load i64, i64* %10, align 8
+  %12 = load i32, i32* %3, align 4
+  %13 = srem i32 %12, 64
+  %14 = zext i32 %13 to i64
+  %15 = shl i64 1, %14
+  %16 = and i64 %11, %15
+  %17 = icmp ne i64 %16, 0
+  %18 = zext i1 %17 to i32
+  ret i32 %18
 }
 
-define linkonce_odr i1 @WIFEXITED(i32 %m) {
+define linkonce_odr i8 @WIFEXITED(i32 %m) {
   %1 = and i32 %m, 127
   %2 = icmp eq i32 %1, 0
-  ret i1 %2
+  %3 = zext i1 %2 to i8
+  ret i8 %3
 }
 
-define linkonce_odr i1 @WIFSIGNALED(i32 %m) {
+define linkonce_odr i8 @WIFSIGNALED(i32 %m) {
   %1 = shl i32 %m, 24
   %2 = and i32 %1, 2130706432
   %3 = add nuw i32 %2, 16777216
   %4 = ashr i32 %3, 25
   %5 = icmp sgt i32 %4, 0
-  ret i1 %5
+  %6 = zext i1 %5 to i8
+  ret i8 %6
 }
 ; nimbase.h
 
@@ -201,10 +284,11 @@ define linkonce_odr void @zeroMem(i8* %p, i64 %s) {
 
 declare i32 @memcmp(i8*, i8*, i64)
 
-define linkonce_odr i1 @equalMem(i8* %a, i8* %b, i64 %l) {
+define linkonce_odr i8 @equalMem(i8* %a, i8* %b, i64 %l) {
   %1 = call i32 @memcmp(i8* %a, i8* %b, i64 %l)
   %2 = icmp eq i32 %1, 0
-  ret i1 %2
+  %3 = zext i1 %2 to i8
+  ret i8 %3
 }
 
 define linkonce_odr i1 @likely(i1 %a) {
@@ -217,7 +301,7 @@ define linkonce_odr i1 @unlikely(i1 %a) {
 
 declare i32 @llvm.bswap.i32(i32)
 
-define linkonce_odr zeroext i1 @IN6_IS_ADDR_UNSPECIFIED(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i8 @IN6_IS_ADDR_UNSPECIFIED(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = icmp eq i32 %3, 0
@@ -246,11 +330,12 @@ define linkonce_odr zeroext i1 @IN6_IS_ADDR_UNSPECIFIED(i8* nocapture readonly) 
 
 ; <label>:20:                                     ; preds = %15, %10, %5, %1
   %21 = phi i1 [ false, %10 ], [ false, %5 ], [ false, %1 ], [ %19, %15 ]
-  ret i1 %21
+  %22 = zext i1 %21 to i8
+  ret i8 %22
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define linkonce_odr zeroext i1 @IN6_IS_ADDR_LOOPBACK(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i8 @IN6_IS_ADDR_LOOPBACK(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = icmp eq i32 %3, 0
@@ -280,33 +365,36 @@ define linkonce_odr zeroext i1 @IN6_IS_ADDR_LOOPBACK(i8* nocapture readonly) loc
 
 ; <label>:21:                                     ; preds = %15, %10, %5, %1
   %22 = phi i1 [ false, %10 ], [ false, %5 ], [ false, %1 ], [ %20, %15 ]
-  ret i1 %22
+  %23 = zext i1 %22 to i8
+  ret i8 %23
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define linkonce_odr zeroext i1 @IN6_IS_ADDR_LINKLOCAL(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i8 @IN6_IS_ADDR_LINKLOCAL(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = tail call i32 @llvm.bswap.i32(i32 -4194304)
   %5 = and i32 %4, %3
   %6 = tail call i32 @llvm.bswap.i32(i32 -25165824)
   %7 = icmp eq i32 %5, %6
-  ret i1 %7
+  %8 = zext i1 %7 to i8
+  ret i8 %8
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define linkonce_odr zeroext i1 @IN6_IS_ADDR_SITELOCAL(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i8 @IN6_IS_ADDR_SITELOCAL(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = tail call i32 @llvm.bswap.i32(i32 -4194304)
   %5 = and i32 %4, %3
   %6 = tail call i32 @llvm.bswap.i32(i32 -20971520)
   %7 = icmp eq i32 %5, %6
-  ret i1 %7
+  %8 = zext i1 %7 to i8
+  ret i8 %8
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define linkonce_odr zeroext i1 @IN6_IS_ADDR_V4MAPPED(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i8 @IN6_IS_ADDR_V4MAPPED(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = icmp eq i32 %3, 0
@@ -329,11 +417,12 @@ define linkonce_odr zeroext i1 @IN6_IS_ADDR_V4MAPPED(i8* nocapture readonly) loc
 
 ; <label>:16:                                     ; preds = %10, %5, %1
   %17 = phi i1 [ false, %5 ], [ false, %1 ], [ %15, %10 ]
-  ret i1 %17
+  %18 = zext i1 %17 to i8
+  ret i8 %18
 }
 
 ; Function Attrs: nounwind optsize readonly uwtable
-define linkonce_odr zeroext i1 @IN6_IS_ADDR_V4COMPAT(i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i8 @IN6_IS_ADDR_V4COMPAT(i8* nocapture readonly) local_unnamed_addr {
   %2 = bitcast i8* %0 to i32*
   %3 = load i32, i32* %2, align 4
   %4 = icmp eq i32 %3, 0
@@ -363,11 +452,12 @@ define linkonce_odr zeroext i1 @IN6_IS_ADDR_V4COMPAT(i8* nocapture readonly) loc
 
 ; <label>:21:                                     ; preds = %15, %10, %5, %1
   %22 = phi i1 [ false, %10 ], [ false, %5 ], [ false, %1 ], [ %20, %15 ]
-  ret i1 %22
+  %23 = zext i1 %22 to i8
+  ret i8 %23
 }
 
 ; Function Attrs: norecurse nounwind optsize readonly uwtable
-define linkonce_odr zeroext i1 @IN6_ARE_ADDR_EQUAL(i8* nocapture readonly, i8* nocapture readonly) local_unnamed_addr {
+define linkonce_odr zeroext i8 @IN6_ARE_ADDR_EQUAL(i8* nocapture readonly, i8* nocapture readonly) local_unnamed_addr {
   %3 = bitcast i8* %0 to i32*
   %4 = load i32, i32* %3, align 4
   %5 = bitcast i8* %1 to i32*
@@ -407,6 +497,7 @@ define linkonce_odr zeroext i1 @IN6_ARE_ADDR_EQUAL(i8* nocapture readonly, i8* n
 
 ; <label>:32:                                     ; preds = %24, %16, %8, %2
   %33 = phi i1 [ false, %16 ], [ false, %8 ], [ false, %2 ], [ %31, %24 ]
-  ret i1 %33
+  %34 = zext i1 %33 to i8
+  ret i8 %34
 }
 

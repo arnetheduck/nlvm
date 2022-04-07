@@ -315,31 +315,35 @@ template withNotNil(g: LLGen, v: llvm.ValueRef, body: untyped) =
   g.b.positionBuilderAtEnd(done)
 
 template withNotNilOrNull(
-    g: LLGen, v: llvm.ValueRef, body: untyped): llvm.ValueRef =
-  let
-    pre = g.b.getInsertBlock()
-    lload = g.b.appendBasicBlockInContext(g.lc, g.nn("nilcheck.notnil", v))
-    ldone = g.b.appendBasicBlockInContext(g.lc, g.nn("nilcheck.done", v))
+    g: LLGen, v: llvm.ValueRef, nullTyp: llvm.TypeRef, body: untyped): llvm.ValueRef =
+  # Fast path for trivial cases
+  if v.isNull() > 0:
+    constNull(nullTyp)
+  else:
+    let
+      pre = g.b.getInsertBlock()
+      lload = g.b.appendBasicBlockInContext(g.lc, g.nn("nilcheck.notnil", v))
+      ldone = g.b.appendBasicBlockInContext(g.lc, g.nn("nilcheck.done", v))
 
-  # nil check
-  let cond = g.b.buildICmp(
-    llvm.IntEQ, v, llvm.constNull(v.typeOfX()), g.nn("nilcheck.isnil", v))
+    # nil check
+    let cond = g.b.buildICmp(
+      llvm.IntEQ, v, llvm.constNull(v.typeOfX()), g.nn("nilcheck.isnil", v))
 
-  discard g.b.buildCondBr(cond, ldone, lload)
+    discard g.b.buildCondBr(cond, ldone, lload)
 
-  # run body if v is not nil
-  g.b.positionBuilderAtEnd(lload)
-  # Careful - the PHI instruction below assumes v1 comes from lload block...
-  let v1 = body
-  discard g.b.buildBr(ldone)
+    # run body if v is not nil
+    g.b.positionBuilderAtEnd(lload)
+    # Careful - the PHI instruction below assumes v1 comes from lload block...
+    let v1 = body
+    discard g.b.buildBr(ldone)
 
-  g.b.positionBuilderAtEnd(ldone)
+    g.b.positionBuilderAtEnd(ldone)
 
-  # body or default
-  let phi = g.b.buildPHI(v1.typeOfX(), g.nn("nilcheck.phi", v))
+    # body or default
+    let phi = g.b.buildPHI(v1.typeOfX(), g.nn("nilcheck.phi", v))
 
-  phi.addIncoming([constNull(v1.typeOfX()), v1], [pre, lload])
-  phi
+    phi.addIncoming([constNull(v1.typeOfX()), v1], [pre, lload])
+    phi
 
 proc localAlloca(g: LLGen, typ: llvm.TypeRef, name: string): llvm.ValueRef =
   # alloca will allocate memory on the stack that will be released at function
@@ -821,12 +825,12 @@ proc buildCallOrInvokeBr(
     res
 
 proc loadNimSeqLen(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
-  g.withNotNilOrNull(v):
+  g.withNotNilOrNull(v, g.primitives[tyInt]):
     let gep = g.buildNimSeqLenGEP(v)
     g.b.buildLoad(gep, g.nn("nilcheck.load", v))
 
 proc getNimSeqDataPtr(g: LLGen, v: llvm.ValueRef, idx: llvm.ValueRef = nil): llvm.ValueRef =
-  g.withNotNilOrNull(v):
+  g.withNotNilOrNull(v, v.typeOfX().getElementType().structGetTypeAtIndex(1).pointerType()):
     g.buildNimSeqDataGEP(v, idx)
 
 proc isObjLackingTypeField(typ: PType): bool =
@@ -3215,7 +3219,10 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
       if ret != nil:
         discard g.b.buildRet(g.b.buildLoad(ret, g.nn("load.result")))
       else:
-        discard g.b.buildRetVoid()
+        if sfNoReturn in s.flags:
+          discard g.b.buildUnreachable()
+        else:
+          discard g.b.buildRetVoid()
 
     g.finalize()
 
