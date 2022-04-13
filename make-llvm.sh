@@ -38,7 +38,9 @@ LLD_ROOT=lld-$VER2.src
 
 [ -d $LLVM_ROOT/projects/lld ] || {
   rm -rf $LLVM_ROOT/projects/lld
-  ln -sfr $LLD_ROOT $LLVM_ROOT/projects/lld
+  cd $LLVM_ROOT/projects
+  ln -sfr ../../$LLD_ROOT lld
+  cd ../..
 }
 
 [ -f libunwind-$VER2.src.tar.xz ] || {

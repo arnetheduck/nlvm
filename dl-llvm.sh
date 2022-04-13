@@ -28,5 +28,7 @@ LLVM_ROOT=llvm-$VER2.src
 
 mkdir -p $LLVM_ROOT/
 rm -rf $LLVM_ROOT/$TGT
-ln -sr clang+llvm-$VER2-$SUFFIX $LLVM_ROOT/$TGT
+cd $LLVM_ROOT
+ln -s ../clang+llvm-$VER2-$SUFFIX $TGT
+cd ..
 
