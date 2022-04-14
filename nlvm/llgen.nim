@@ -3086,7 +3086,7 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
       "sysFatal", "raiseOverflow", "raiseDivByZero", "raiseFloatInvalidOp",
       "raiseFloatOverflow", "raiseAssert", "raiseRangeError",
       "raiseIndexError", "raiseIndexError2", "raiseIndexError3",
-      "raiseFieldError"]:
+      "raiseFieldError", "nlvmRaise", "nlvmReraise"]:
     f.addFuncAttribute(g.attrCold)
 
   if g.genFakeImpl(s, f):
