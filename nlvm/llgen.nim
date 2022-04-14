@@ -497,7 +497,7 @@ proc `$`(n: PSym): string =
   if n == nil: return "PSym(nil)"
   let name = if n.loc.r == nil: n.name.s else: $n.loc.r
   name & " " & $n.id & " " & $n.kind & " " & $n.magic & " " & $n.flags & " " &
-    $n.loc.flags & " " & $n.info.line & " " & $n.typ
+    $n.loc.flags & " " & $n.info.line & " " & $n.typ & " " & $n.loc.flags
 
 proc `$`(t: PType): string =
   if t == nil: return "PType(nil)"
@@ -4047,7 +4047,6 @@ proc genConst(g: LLGen, n: PNode): LLValue =
 
 proc genCallOrNode(g: LLGen, le, ri: PNode, ax: LLValue): LLValue =
   let lx = g.loadAssignment(le.typ)
-
   if ri.kind in nkCallKinds and
       (ri[0].kind != nkSym or ri[0].sym.magic == mNone):
     g.genCall(le, ri, lx, ax)
@@ -4076,12 +4075,16 @@ proc genAsgn(g: LLGen, n: PNode, fast: bool) =
     let
       le = n[0]
       ri = n[1]
-
     let
       ax = g.genNode(le, false)
       bx = g.genCallOrNode(le, ri, ax)
 
-    g.genAssignment(ax, bx, le.typ, if fast: {} else: {needToCopy})
+    # TODO the cgen uses a fast assignment when assigning the return value
+    #      of a call - this code emulates that but we should really mark
+    #      the LLValue instead so as to proparely propagate this fact from
+    #      calls nested in no-ops etc
+    g.genAssignment(
+      ax, bx, le.typ, if fast or ri.kind in nkCallKinds: {} else: {needToCopy})
 
 proc genCallMagic(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
   # Some magics have implementations in the std lib that we can use - make sure
