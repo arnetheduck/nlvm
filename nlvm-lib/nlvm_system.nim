@@ -184,7 +184,7 @@ proc readEncodedPointer(
 func getThrownObjectPtr(e: ptr UnwindException): pointer =
   cast[pointer](e).offset(sizeof(UnwindException))
 
-func toUnwindException(e: ptr NlvmException): ptr UnwindException =
+proc toUnwindException(e: ptr NlvmException): ptr UnwindException =
   addr e.unwindException
 
 func toNlvmException(e: ptr UnwindException): ptr NlvmException =

@@ -9,11 +9,25 @@
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
 
+; ioctls.h
+@FIONCLEX = linkonce_odr constant i32 21584
+@FIOCLEX = linkonce_odr constant i32 21585
+
+; pthreads.h
+@PTHREAD_MUTEX_RECURSIVE = linkonce_odr constant i32 1
+
+; signal.h
+@SIG_IGN = global void (i32)* inttoptr (i64 1 to void (i32)*), align 8
+@SEGV_MAPERR = linkonce_odr constant i32 1
+
 ; stdio.h
 @_IOFBF = linkonce_odr constant i32 0
 @_IOLBF = linkonce_odr constant i32 1
 @_IONBF = linkonce_odr constant i32 2
 @L_ctermid = linkonce_odr constant i32 9
+
+; syscall.h
+@SYS_getrandom = linkonce_odr constant i32 318
 
 ; sys/ioctl.h
 @TIOCGWINSZ = linkonce_odr constant i32 21523
@@ -500,4 +514,3 @@ define linkonce_odr zeroext i8 @IN6_ARE_ADDR_EQUAL(i8* nocapture readonly, i8* n
   %34 = zext i1 %33 to i8
   ret i8 %34
 }
-

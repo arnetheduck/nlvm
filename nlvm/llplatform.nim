@@ -57,6 +57,7 @@ const
       @["freebsd"],
       @["openbsd"],
       @["dragonfly"],
+      @["crossos"], # ?
       @["aix"],
       @["palmos"], # ?
       @["qnx"], # ?
@@ -75,6 +76,7 @@ const
       @["unknown"], # ?
       @["nintendoswitch"], # ?,
       @["freertos"], # ?,
+      @["zephyr"], # ?
       @["any"]
     ]
 
