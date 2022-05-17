@@ -34,7 +34,7 @@ Nim/koch:
 	[ -d csources_v1 ] || git clone -q --depth 1 -b master https://github.com/nim-lang/csources_v1.git ;\
 	cd csources_v1 ;\
 	git pull ;\
-	sh build.sh
+	make -f makefile -j4
 	cd Nim ; bin/nim c koch
 
 $(NIMC): Nim/koch Nim/compiler/*.nim
