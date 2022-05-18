@@ -5,7 +5,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install deps
-        run: sudo apt-get install -y libcurl4-openssl-dev libsdl1.2-dev libgc-dev libncurses5-dev jq cmake ninja-build clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libsdl1.2-dev libgc-dev libncurses5-dev jq cmake ninja-build clang
       - name: Check out repository code
         uses: actions/checkout@v2
         with:

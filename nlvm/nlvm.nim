@@ -3,6 +3,7 @@
 # See the LICENSE file for license info (doh!)
 
 import
+  browsers,
   sequtils,
   strutils,
   times,
@@ -17,7 +18,6 @@ import
     condsyms,
     extccomp,
     idents,
-    idgen,
     lexer,
     lineinfos,
     llstream,
@@ -189,8 +189,8 @@ proc commandScan(conf: ConfigRef) =
   var stream = llStreamOpen(f.AbsoluteFile, fmRead)
   if stream != nil:
     var
-      L: TLexer
-      tok: TToken
+      L: Lexer
+      tok: Token
     initToken(tok)
     openLexer(L, f.AbsoluteFile, stream, newIdentCache(), conf)
     while true:
@@ -216,7 +216,7 @@ proc mainCommand*(graph: ModuleGraph) =
   # No support! but it might work anyway :)
   conf.globalOptions.excl optTlsEmulation
 
-  setId(100)
+  # TODO setId(100)
 
   # lib/pure/bitops.num
   defineSymbol(conf.symbols, "noIntrinsicsBitOpts")
@@ -235,10 +235,10 @@ proc mainCommand*(graph: ModuleGraph) =
 
     for it in conf.searchPaths: conf.msgWriteln(it.string)
 
-  of "scan":
-    conf.cmd = cmdScan
-    conf.wantMainModule()
-    commandScan(conf)
+  # of "scan":
+  #   conf.cmd = cmdScan
+  #   conf.wantMainModule()
+  #   commandScan(conf)
 
   of "check":
     conf.cmd = cmdCheck
@@ -246,27 +246,17 @@ proc mainCommand*(graph: ModuleGraph) =
 
   else: conf.rawMessage(errGenerated, conf.command)
 
-  if conf.errorCounter == 0 and
-     conf.cmd notin {cmdInterpret, cmdRun, cmdDump}:
-    let mem =
-      when declared(system.getMaxMem): formatSize(getMaxMem()) & " peakmem"
-      else: formatSize(getTotalMem()) & " totmem"
-    let loc = $conf.linesCompiled
-    let build = if isDefined(conf, "danger"): "Dangerous Release"
-                elif isDefined(conf, "release"): "Release"
-                else: "Debug"
-    let sec = formatFloat(epochTime() - conf.lastCmdTime, ffDecimal, 3)
-    let project = if optListFullPaths in conf.globalOptions: $conf.projectFull else: $conf.projectName
-    var output = $conf.absOutFile
-    if optListFullPaths notin conf.globalOptions: output = output.AbsoluteFile.extractFilename
-    rawMessage(conf, hintSuccessX, [
-      "loc", loc,
-      "sec", sec,
-      "mem", mem,
-      "build", build,
-      "project", project,
-      "output", output,
-      ])
+  if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
+    # if optProfileVM in conf.globalOptions:
+    #   echo conf.dump(conf.vmProfileData)
+    genSuccessX(conf)
+
+proc getNimRunExe(conf: ConfigRef): string =
+  # xxx consider defining `conf.getConfigVar("nimrun.exe")` to allow users to
+  # customize the binary to run the command with, e.g. for custom `nodejs` or `wine`.
+  if conf.isDefined("mingw"):
+    if conf.isDefined("i386"): result = "wine"
+    elif conf.isDefined("amd64"): result = "wine64"
 
 proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   # For now, we reuse the nim command line options parser, mainly because
@@ -275,25 +265,45 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   # Most of this is taken from the main nim command
   let self = NimProg(
     supportsStdinFile: true,
-    processCmdLine: processCmdLine,
-    mainCommand: mainCommand
-  )
+    processCmdLine: processCmdLine  )
   self.initDefinesProg(conf, "nlvm")
 
   if paramCount() == 0:
-    writeHelp(conf, passCmd1)
+    writeCommandLineUsage(conf)
     return
 
   self.processCmdLineAndProjectPath(conf)
+  var graph = newModuleGraph(cache, conf)
+  if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
+    return
+  mainCommand(graph)
 
-  if not self.loadConfigsAndRunMainCommand(cache, conf):
-    return
-  if conf.errorCounter != 0:
-    return
+  if conf.hasHint(hintGCStats): echo(GC_getStatistics())
+  #echo(GC_getStatistics())
+  if conf.errorCounter != 0: return
 
   if optRun in conf.globalOptions:
-    let ex = quoteShell conf.absOutFile
-    execExternalProgram(conf, ex & ' ' & conf.arguments)
+    let output = conf.absOutFile
+    case conf.cmd
+    of cmdBackends, cmdTcc:
+      let nimRunExe = getNimRunExe(conf)
+      var cmdPrefix: string
+      if nimRunExe.len > 0: cmdPrefix.add nimRunExe.quoteShell
+      case conf.backend
+      of backendC, backendCpp, backendObjc: discard
+      else: doAssert false, $conf.backend
+      if cmdPrefix.len > 0: cmdPrefix.add " "
+        # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:
+        # `The parameter is incorrect`
+      execExternalProgram(conf, cmdPrefix & output.quoteShell & ' ' & conf.arguments)
+    of cmdDocLike, cmdRst2html, cmdRst2tex: # bugfix(cmdRst2tex was missing)
+      if conf.arguments.len > 0:
+        # reserved for future use
+        rawMessage(conf, errGenerated, "'$1 cannot handle arguments" % [$conf.cmd])
+      openDefaultBrowser($output)
+    else:
+      # support as needed
+      rawMessage(conf, errGenerated, "'$1 cannot handle --run" % [$conf.cmd])
 
 # Beautiful...
 var tmp = getAppDir()
