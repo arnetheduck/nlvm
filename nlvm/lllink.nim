@@ -2,6 +2,7 @@ import
   os,
   osproc,
   strutils,
+  system/platforms,
 
   compiler/[
     extccomp,
@@ -12,6 +13,9 @@ import
     pathutils,
   ],
   llvm/llvm
+
+const 
+  ToStrip = Whitespace + Newlines
 
 proc stripLinkOption(s: string): string =
   # TODO the gcc driver has multiple ways of passing stuff, and then there's the
@@ -143,14 +147,135 @@ proc linkWasm32(conf: ConfigRef) =
     rawMessage(conf, errGenerated, "linking failed: '$1'" % (result))
     quit(1)
 
+proc linkMacOSXAmd64(conf: ConfigRef) =
+  # Ugly hack to reuse nim compiling of C files
+  conf.globalOptions.incl optNoLinking
+  callCCompiler(conf)
+  conf.globalOptions.excl optNoLinking
+
+  var args: seq[string]
+
+  args.add "ld64-lld"
+  args.add ["-arch", "x86_64"]
+
+  let currentPlatformVersion = execProcess("defaults read loginwindow SystemVersionStampAsString").strip(chars = ToStrip)
+  args.add ["-platform_version", "macos", currentPlatformVersion, "11.0"]
+  
+  # Add the macOS SDK linker search part so we can link libc
+  let sdkLibPath = execProcess("xcrun --sdk macosx --show-sdk-path")
+    .strip(chars = ToStrip ) & "/usr/lib"
+  args.add ["-L", sdkLibPath]
+  args.add "-lSystem"
+  args.add "-lc++"
+
+  let exeFile = conf.getOutFile(conf.outFile, platform.OS[conf.target.targetOS].exeExt)
+  args.add ["-o", exefile.string]
+
+  # We're going to load all standard library locations that clang uses, if possible
+  let libs =
+    try:
+      findLibraries(execProcess("clang -print-search-dirs"))
+    except:
+      @[]
+
+  for lib in libs:
+    args.add "-L" & lib
+
+  # Then the project object files...
+  for it in conf.externalToLink:
+    args.add addFileExt(it, CC[conf.cCompiler].objExt)
+
+  for x in conf.toCompile:
+    args.add x.obj.string
+
+  args.add stripLinkOption(parseCmdLine(conf.linkOptions))
+  args.add stripLinkOption(parseCmdLine(conf.linkOptionsCmd))
+
+  for linkedLib in items(conf.cLinkedLibs):
+    args.add CC[conf.cCompiler].linkLibCmd % linkedLib.quoteShell
+  for libDir in items(conf.cLibs):
+    args.add join([CC[conf.cCompiler].linkDirCmd, libDir.quoteShell])
+
+  rawMessage(conf, hintLinking, $args)
+
+  echo nimLLDLinkMachO(args)
+
+proc linkMacOSXArm64(conf: ConfigRef) =
+  # Ugly hack to reuse nim compiling of C files
+  conf.globalOptions.incl optNoLinking
+  callCCompiler(conf)
+  conf.globalOptions.excl optNoLinking
+
+  var args: seq[string]
+
+  args.add "ld64-lld"
+  args.add ["-arch", "arm64"]
+
+  let currentPlatformVersion = execProcess("defaults read loginwindow SystemVersionStampAsString").strip(chars = ToStrip)
+  args.add ["-platform_version", "macos", currentPlatformVersion, "11.0"]
+  
+  # Add the macOS SDK linker search part so we can link libc
+  let sdkLibPath = execProcess("xcrun --sdk macosx --show-sdk-path")
+    .strip(chars = ToStrip ) & "/usr/lib"
+  args.add ["-L", sdkLibPath]
+  args.add "-lSystem"
+
+  let exeFile = conf.getOutFile(conf.outFile, platform.OS[conf.target.targetOS].exeExt)
+  args.add ["-o", exefile.string]
+
+  # We're going to load all standard library locations that clang uses, if possible
+  let libs =
+    try:
+      findLibraries(execProcess("clang -print-search-dirs"))
+    except:
+      @[]
+
+  for lib in libs:
+    args.add "-L" & lib
+
+  # Then the project object files...
+  for it in conf.externalToLink:
+    args.add addFileExt(it, CC[conf.cCompiler].objExt)
+
+  for x in conf.toCompile:
+    args.add x.obj.string
+
+  args.add stripLinkOption(parseCmdLine(conf.linkOptions))
+  args.add stripLinkOption(parseCmdLine(conf.linkOptionsCmd))
+
+  for linkedLib in items(conf.cLinkedLibs):
+    args.add CC[conf.cCompiler].linkLibCmd % linkedLib.quoteShell
+  for libDir in items(conf.cLibs):
+    args.add join([CC[conf.cCompiler].linkDirCmd, libDir.quoteShell])
+
+  rawMessage(conf, hintLinking, $args)
+
+  echo nimLLDLinkMachO(args)
+
 proc lllink*(conf: ConfigRef) =
+  proc fallbackLink(conf: ConfigRef) =
+    # TODO configure this elsewhere? also, -Wl vs raw linker options..:/
+
+    if conf.target.targetOS == osMacosx:
+      discard
+      # conf.addLinkOptionCmd("--ld-path=" & LLDBinary)
+    else: 
+      conf.addLinkOptionCmd("-Wl,--as-needed")
+
+    callCCompiler(conf)
+
   if false and conf.target.targetOS == osLinux and conf.target.targetCPU == cpuAmd64:
     # TODO this stuff is not ready for prime time..
     linkLinuxAmd64(conf)
+
+  elif false and conf.target.targetOS == osMacosx:
+    if conf.target.targetCPU == cpuArm64:
+      linkMacOSXArm64(conf)
+    else:
+      linkMacOSXAmd64(conf)
+
   elif conf.target.targetCPU == cpuWasm32:
     linkWasm32(conf)
-  else:
-    # TODO configure this elsewhere? also, -Wl vs raw linker options..:/
-    conf.addLinkOptionCmd("-Wl,--as-needed")
 
-    callCCompiler(conf)
+  else:
+    fallbackLink(conf)    

@@ -1254,7 +1254,7 @@ proc llMagicType(g: LLGen, name: string): llvm.TypeRef =
 
 proc llStringType(g: LLGen): llvm.TypeRef =
   if g.primitives[tyString] == nil:
-    g.primitives[tyString] = g.llMagicType("NimStringDesc").pointerType
+      g.primitives[tyString] = g.llMagicType("NimStringDesc").pointerType
   g.primitives[tyString]
 
 proc llGenericSeqType(g: LLGen): llvm.TypeRef =
@@ -2642,10 +2642,14 @@ proc callCtpop(g: LLGen, v: llvm.ValueRef, size: BiggestInt): llvm.ValueRef =
 
 proc callErrno(g: LLGen, prefix: string): llvm.ValueRef =
   # on linux errno is a function, so we call it here. not at all portable.
-
+  
   let
-    errnoType = llvm.functionType(g.cintType.pointerType(), [])
-    f = g.m.getOrInsertFunction("__" & prefix & "errno_location", errnoType)
+      errnoType = llvm.functionType(g.cintType.pointerType(), [])
+
+  when defined macosx:
+    let f = g.m.getOrInsertFunction("__" & prefix & "error", errnoType)
+  else:
+    let f = g.m.getOrInsertFunction("__" & prefix & "errno_location", errnoType)
 
   g.b.buildCall(f, [], g.nn(prefix & "errno"))
 
@@ -3147,6 +3151,9 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
     # they need to be exported to C - this might change if we start supporting
     # dll:s
     result.v.setLinkage(llvm.InternalLinkage)
+
+  if s.name.s in ["nlvmEHPersonality"]:
+    result.v.setLinkage(llvm.ExternalLinkage) 
 
   let
     typ = s.typ.skipTypes(abstractInst)
@@ -7457,7 +7464,7 @@ proc genForwardedProcs(g: LLGen) =
 
 proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   if graph.config.skipCodegen(n): return n
-
+  
   let pc = LLModule(b)
   let g = pc.g
   p("Close", n, 0)

@@ -1,5 +1,26 @@
 #!/bin/bash
 
+OS="`uname`"
+ARCH="`uname -m`"
+
+if [ $ARCH == "arm64" ]; then
+  echo "LLVM doesn't provide precompiled binaries for arm64 yet :(. Remove STATIC_LLVM=1 and try again. Exiting..."
+  exit 1
+fi
+
+case $OS in
+  'Linux')
+    SUFFIX="$ARCH-linux-gnu-ubuntu-18.04"
+    ;;
+  'Darwin') 
+    SUFFIX="$ARCH-apple-darwin"
+    ;;
+  *) 
+    echo "Unsupported OS: $OS" 
+    exit 1
+  ;;
+esac
+
 [ $# -ge 4 ] || {
  echo "$0 major minor patch output_dir"
  exit 1
@@ -13,7 +34,6 @@ cd ext
 VER="$1.$2"
 VER2="$VER.$3"
 TGT="$4"
-SUFFIX="x86_64-linux-gnu-ubuntu-18.04"
 
 LLVM_ROOT=llvm-$VER2.src
 
