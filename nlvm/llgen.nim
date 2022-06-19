@@ -5342,11 +5342,23 @@ proc genMagicSwap(g: LLGen, n: PNode) =
   g.genAssignment(ax, g.maybeLoadValue(bx, lx), n[1].typ, {})
   g.genAssignment(bx, g.maybeLoadValue(tmpx, lx), n[1].typ, {})
 
-proc genMagicMove(g: LLGen, n: PNode, load: bool): LLValue =
-  g.genNode(n[1], load)
-
 proc skipAddr(n: PNode): PNode =
   if n.kind in {nkAddr, nkHiddenAddr}: n[0] else: n
+
+proc genMagicMove(g: LLGen, n: PNode, load: bool): LLValue =
+  let
+    ax = g.genNode(n[1], false)
+    lx = g.loadAssignment(n[1].typ)
+    t = g.llType(n[1].typ)
+    tmpx = LLValue(v: g.localAlloca(t, g.nn("move.tmp", n[1])), storage: OnStack)
+  if n.len == 4:
+      g.config.localError(n.info, "TODO: liftdestructor move")
+
+  g.buildStoreNull(tmpx.v)
+  g.genObjectInit(n[1].typ, tmpx.v)
+  g.genAssignment(tmpx, g.maybeLoadValue(ax, lx), n[1].typ, {})
+  g.resetLoc(n[1].skipAddr.typ, ax)
+  g.maybeLoadValue(tmpx, load)
 
 proc genMagicWasMoved(g: LLGen, n: PNode) =
   g.resetLoc(n[1].skipAddr.typ, g.genNode(n[1], false))
@@ -7456,11 +7468,20 @@ proc genForwardedProcs(g: LLGen) =
       discard g.genFunctionWithBody(prc)
 
 proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
+  if b == nil: return n
+
+  if {optGenStaticLib, optGenDynLib, optNoMain} * graph.config.globalOptions == {}:
+    for i in countdown(high(graph.globalDestructors), 0):
+      n.add graph.globalDestructors[i]
+
   if graph.config.skipCodegen(n): return n
 
-  let pc = LLModule(b)
-  let g = pc.g
+  let
+    pc = LLModule(b)
+    g = pc.g
+
   p("Close", n, 0)
+
   g.closedModules.add(pc)
 
   g.withModule(pc): g.withFunc(pc.getInitFunc()):
