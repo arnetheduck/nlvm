@@ -1,5 +1,6 @@
 nlvm/nlvm
 nlvm/nlvmr
+nlvm/*.dSYM
 nimcache
 *.s
 /nlvm/nlvm.self
@@ -22,3 +23,4 @@ tools
 dist/
 /megatest.nim
 .vscode
+.DS_Store

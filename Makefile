@@ -17,12 +17,21 @@ LLVM_PAT=0
 
 LLVM_DIR=llvm-$(LLVM_MAJ).$(LLVM_MIN).$(LLVM_PAT).src
 
+OS := $(shell uname)
+ifeq ($(OS),Darwin)
+    SHALIB_EXT := dylib
+else ifeq ($(OS),Linux) 
+    SHALIB_EXT := so
+else
+    $(error "Unsupported OS. Exiting.")
+endif
+
 ifdef STATIC_LLVM
 	NLVMCFLAGS=-d:staticLLVM --dynliboverrideall
 	LLVM_DEP=ext/$(LLVM_DIR)/sta/bin/llvm-config
 	export PATH := $(PWD)/ext/$(LLVM_DIR)/sta/bin:$(PATH)
 else
-	LLVM_DEP=ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so
+	LLVM_DEP=ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).$(SHALIB_EXT)
 	NLVMCFLAGS?=
 endif
 
@@ -98,7 +107,7 @@ self: nlvm/nlvm.self
 clean:
 	rm -rf $(NLVMC) $(NLVMR) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self Nim/testresults/
 
-ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
+ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).$(SHALIB_EXT):
 	sh ./make-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sha \
 		-DLLVM_BUILD_LLVM_DYLIB=1 \
 		-DLLVM_LINK_LLVM_DYLIB=1 \

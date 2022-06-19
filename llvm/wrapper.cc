@@ -8,6 +8,8 @@
 #include "llvm-c/Types.h"
 #include "llvm-c/Core.h"
 
+#include <iostream>
+
 using namespace llvm;
 
 typedef DIBuilder *LLVMNimDIBuilderRef;
@@ -49,12 +51,27 @@ extern "C" const char* LLVMNimLLDLinkElf(const char **args, size_t arg_count) {
     SmallVector<char, 128> osv, esv;
     raw_svector_ostream os(osv), es(esv);
 
-    if (!lld::elf::link(array_ref_args, os, es, false, false)) {
+    if (lld::elf::link(array_ref_args, os, es, false, false)) {
       osv.push_back(0);
       return LLVMCreateMessage(&osv[0]);
+    } else {
+      esv.push_back(0);
+      return LLVMCreateMessage(&esv[0]);
     }
+}
 
-    return nullptr;
+extern "C" const char* LLVMNimLLDLinkMachO(const char **args, size_t arg_count) {
+    ArrayRef<const char *> array_ref_args(args, arg_count);
+    SmallVector<char, 128> osv, esv;
+    raw_svector_ostream os(osv), es(esv);
+
+    if (lld::macho::link(array_ref_args, os, es, false, false)) {
+      osv.push_back(0);
+      return LLVMCreateMessage(&osv[0]);
+    } else {
+      esv.push_back(0);
+      return LLVMCreateMessage(&esv[0]);
+    }
 }
 
 extern "C" const char* LLVMNimLLDLinkWasm(const char **args, size_t arg_count) {
@@ -62,10 +79,11 @@ extern "C" const char* LLVMNimLLDLinkWasm(const char **args, size_t arg_count) {
     SmallVector<char, 128> osv, esv;
     raw_svector_ostream os(osv), es(esv);
 
-    if (!lld::wasm::link(array_ref_args, os, es, false, false)) {
+    if (lld::wasm::link(array_ref_args, os, es, false, false)) {
       osv.push_back(0);
       return LLVMCreateMessage(&osv[0]);
+    } else {
+      esv.push_back(0);
+      return LLVMCreateMessage(&esv[0]);
     }
-
-    return nullptr;
 }

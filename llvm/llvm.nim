@@ -3,42 +3,75 @@
 # See the LICENSE file for license info (doh!)
 
 import strutils
+import strformat
+import os
+
+static:
+  if not (defined(linux) or defined(macosx)):
+    echo "Unsupported platform. Exiting."
+    quit(-1)
 
 const
-  LLVMLib = "libLLVM-14.so"
-  LLVMRoot = "../ext/llvm-14.0.0.src/"
-  LLDRoot = "../ext/lld-14.0.0.src/"
+  Root = currentSourcePath.parentDir().parentDir()
   LLVMVersion* = "14.0.0"
+  LLVMRoot = fmt"{Root}/ext/llvm-{LLVMVersion}.src"
+  LLDRoot = fmt"{Root}/ext/lld-{LLVMVersion}.src"
 
 {.passL: "-llldELF" .}
 {.passL: "-llldWasm" .}
 {.passL: "-llldMinGW" .}
 {.passL: "-llldCommon" .}
+{.passL: "-llldMachO" .}
 {.passL: "-lz" .}
+when defined(macosx): 
+  {.passL: "-lxar" .}
 
 when defined(staticLLVM):
   const
-    LLVMOut = LLVMRoot & "sta/"
+    LLVMOut = fmt"{LLVMRoot}/sta"
 
-  {.passL: gorge(LLVMRoot & "sta/bin/llvm-config --libs all").}
+  {.passL: gorge(fmt"{LLVMRoot}/sta/bin/llvm-config --libs all").}
+
+  when defined(macosx):
+    const SDKRoot = gorge("xcrun --sdk macosx --show-sdk-path")
+    {.passC: fmt"-isysroot{SDKRoot}".}
+    {.passL: fmt"-Wl,-syslibroot,{SDKRoot}".}
 
 else:
   const
-    LLVMOut = LLVMRoot & "sha/"
+    LLVMOut = fmt"{LLVMRoot}/sha"
 
-  {.passL: "-lLLVM-14".}
-  {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
+  when defined(macosx):
+    {.passL: "-lLLVM".}
+    {.passL: fmt"-Wl,-rpath,@loader_path/../ext/llvm-{LLVMVersion}.src/sha/lib".}
 
-{.passC: "-I" & LLVMRoot & "include".}
-{.passC: "-I" & LLVMOut & "include".}
+  elif defined(linux):
+    {.passL: "-lLLVM-14".}
+    {.passL: fmt"-Wl,'-rpath=$ORIGIN/../ext/llvm-{LLVMVersion}.src/sha/lib'".}
+    
 
-{.passC: "-I" & LLDRoot & "include".}
+{.passC: fmt"-I{LLVMRoot}/include".}
+{.passC: fmt"-I{LLVMOut}/include".}
 
-{.passL: "-Wl,--as-needed".}
-{.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
-{.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
+{.passC: fmt"-I{LLDRoot}/include".}
 
-{.compile: "wrapper.cc".}
+when defined(linux):
+  {.passL: "-Wl,--as-needed".}
+else:
+  {.passL: "-Wl".}
+
+{.passL: gorge(fmt"{LLVMOut}/bin/llvm-config --ldflags").}
+{.passL: gorge(fmt"{LLVMOut}/bin/llvm-config --system-libs").}
+
+{.compile("wrapper.cc", "-std=c++14").}
+
+when defined(linux):
+  const
+    LLVMLib = "libLLVM-14.so"
+elif defined(macosx):
+  const 
+    LLVMLib = "libLLVM.dylib"
+    LLDBinary* = fmt"{LLVMOut}/bin/ld64.lld"
 
 # Includes and helpers for generated code
 type
@@ -260,6 +293,18 @@ proc nimLLDLinkElf*(args: openArray[string]): string =
   defer: deallocCStringArray(argv)
 
   let tmp = nimLLDLinkElf(argv, args.len.cint)
+  if not tmp.isNil:
+    result = strip($tmp)
+    disposeMessage(tmp)
+
+proc nimLLDLinkMachO*(
+  argv: cstringArray, argc: cint): cstring {.importc: "LLVMNimLLDLinkMachO".}
+
+proc nimLLDLinkMachO*(args: openArray[string]): string =
+  let argv = allocCStringArray(args)
+  defer: deallocCStringArray(argv)
+
+  let tmp = nimLLDLinkMachO(argv, args.len.cint)
   if not tmp.isNil:
     result = strip($tmp)
     disposeMessage(tmp)

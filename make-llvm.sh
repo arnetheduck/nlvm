@@ -3,6 +3,20 @@
 # Build llvm, as used in the Makefile
 # A bit broken because it doesn't track cmake options and deps correctly
 
+OS="`uname`"
+case $OS in
+  'Linux')
+    ADDITIONAL_CMAKE_ARGS="-DLLVM_USE_LINKER=gold"
+    ;;
+  'Darwin') 
+    ADDITIONAL_CMAKE_ARGS=""
+    ;;
+  *) 
+    echo "Unsupported OS: $OS" 
+    exit 1
+  ;;
+esac
+
 [ $# -gt 4 ] || {
  echo "$0 major minor patch output_dir cmake_options*"
  exit 1
@@ -39,7 +53,7 @@ LLD_ROOT=lld-$VER2.src
 [ -d $LLVM_ROOT/projects/lld ] || {
   rm -rf $LLVM_ROOT/projects/lld
   cd $LLVM_ROOT/projects
-  ln -sfr ../../$LLD_ROOT lld
+  ln -sf ../../$LLD_ROOT lld
   cd ../..
 }
 
@@ -49,7 +63,7 @@ LLD_ROOT=lld-$VER2.src
 
 [ -f libunwind-$VER2/CMakeLists.txt ] || {
   tar xf libunwind-$VER2.src.tar.xz
-  cp -ar libunwind-$VER2.src/include/mach-o $LLD_ROOT/include
+  cp -a libunwind-$VER2.src/include/mach-o $LLD_ROOT/include
 }
 
 cd $LLVM_ROOT
@@ -58,6 +72,6 @@ mkdir -p $TGT
 cd $TGT
 
 shift 4
-cmake -GNinja -DLLVM_USE_LINKER=gold LLVM_INCLUDE_BENCHMARKS=OFF "$@" ..
+cmake -GNinja "$@" ..
 
 ninja
