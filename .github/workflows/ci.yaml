@@ -14,9 +14,9 @@ jobs:
           submodules: recursive
       - name: Set up environment
         run: |
-          export CC=clang
-          export CXX=clang++
-          export LD=clang++
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+          echo "LD=clang++" >> $GITHUB_ENV
       - name: Set up llvm
         run: make STATIC_LLVM=1 prepare-llvm
       - name: Compile nim
