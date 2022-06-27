@@ -22,7 +22,9 @@ jobs:
       - name: Compile nim
         run: make STATIC_LLVM=1 prepare-nim
       - name: Run tests
-        run: make STATIC_LLVM=1 test
+        run: |
+        cat ci-skipped-tests.txt >>skipped-tests.txt
+        make STATIC_LLVM=1 test
       - name: Run self-compare
         run: make STATIC_LLVM=1 compare
       - name: Create distribution

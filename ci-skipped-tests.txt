@@ -1,0 +1,4 @@
+# urandom doesn't work in github actions
+tests/stdlib/trandom.nim c
+tests/stdlib/ttempfiles.nim c
+tests/stdlib/tsysrand.nim c --experimental:vmopsDanger
