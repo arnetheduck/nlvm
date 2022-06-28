@@ -235,13 +235,13 @@ tests/gc/weakrefs c  --gc:orc
 tests/gc/weakrefs c  --gc:orc -d:release
 tests/generics/tarc_misc.nim c
 tests/generics/tforwardgeneric.nim c
-tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks 
-tests/ic/tconverter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks 
-tests/ic/tgenerics_temp.nim c  --incremental:on -d:nimIcIntegrityChecks 
-tests/ic/thallo_temp.nim c  --incremental:on -d:nimIcIntegrityChecks 
-tests/ic/timports_temp.nim c  --incremental:on -d:nimIcIntegrityChecks 
-tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks 
-tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks 
+tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
+tests/ic/tconverter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
+tests/ic/tgenerics_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
+tests/ic/thallo_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
+tests/ic/timports_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
+tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
+tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/import_in_config/tmain.nim c
 tests/iter/tshallowcopy_closures.nim c
 tests/iter/tyieldintry.nim c
@@ -271,8 +271,8 @@ tests/misc/trunner.nim c
 tests/misc/tsizeof.nim c
 tests/misc/tstrace.nim c
 tests/misc/ttlsemulation.nim c -d:nimTtlsemulationCase1 --threads --tlsEmulation:on
-tests/navigator/tincludefile_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off 
-tests/navigator/tnav1_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off 
+tests/navigator/tincludefile_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off
+tests/navigator/tnav1_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off
 tests/nimdoc/t15916.nim c
 tests/nimdoc/t17615.nim c
 tests/nimdoc/trunnableexamples2.nim c
