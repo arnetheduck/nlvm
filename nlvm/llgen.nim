@@ -201,7 +201,7 @@ proc genRefAssign(g: LLGen, dest: LLValue, src: llvm.ValueRef)
 proc genMagicLength(g: LLGen, n: PNode): LLValue
 
 # Node handling
-proc genNode(g: LLGen, n: PNode, load: bool = false, tgt = LLValue()): LLValue {.discardable.}
+proc genNode(g: LLGen, n: PNode, load: bool = false, dest = LLValue()): LLValue {.discardable.}
 
 proc deepTyp(n: PNode): PType =
   if n.typ != nil:
@@ -3005,7 +3005,7 @@ proc genResetT(g: LLGen, typ: PType, v: LLValue) =
       g.buildStoreNull(v.v)
 
   of tyChar, tyBool, tyEnum, tyInt..tyUInt64, tyCString, tyPointer, tyPtr,
-      tyVar, tyLent:
+      tyVar, tyLent, tySet:
     g.buildStoreNull(v.v)
   else:
      g.config.internalError("Unexpected kind in genResetT: " & $typ.kind)
@@ -3185,7 +3185,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
         else:
           let arg = result.v.getParam(i.cuint)
           arg.setValueName("Result")
-          g.symbols[res.id] = LLValue(v: arg)
+          g.symbols[res.id] = LLValue(v: arg, lode: resNode)
           g.initLocalVar(res, res.typ, arg, false)
           i += 1
 
@@ -3656,7 +3656,7 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType, extra: int)
 
   args
 
-proc preventNrvo(g: LLGen, le, ri: PNode): bool =
+proc preventNrvo(g: LLGen, dest, le, ri: PNode): bool =
   # from cgen, this detects when it is safe to use an existing memory location
   # to collect results from a call
   proc locationEscapes(g: LLGen; le: PNode; inTryStmt: bool): bool =
@@ -3691,11 +3691,16 @@ proc preventNrvo(g: LLGen, le, ri: PNode): bool =
     if canRaise(ri[0]) and
         locationEscapes(g, le, g.f.nestedTryStmts.len > 0):
       message(g.config, le.info, warnObservableStores, $le)
+  # bug #19613 prevent dangerous aliasing too:
+  if dest != nil and dest != le:
+    for i in 1..<ri.len:
+      let r = ri[i]
+      if isPartOf(dest, r) != arNo: return true
 
-proc genCall(g: LLGen, le, n: PNode, load: bool, tgt: LLValue): LLValue =
-  # The `tgt` variable contains information about the placement of the result of
+proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
+  # The `dest` variable contains information about the placement of the result of
   # the call - in certain cases, the return value of the function can be
-  # placed directly in `tgt` in which case the ordinary `LLValue` returned will
+  # placed directly in `dest` in which case the ordinary `LLValue` returned will
   # be `nil`.
   if g.genFakeCall(n, result):
     return
@@ -3712,9 +3717,12 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, tgt: LLValue): LLValue =
       else: g.llType(typ[0])
     retArgs =
       if g.isInvalidReturnType(typ[0]):
-        if tgt.v != nil and tgt.v.typeOfX() == retArgType.pointerType() and
-            not g.preventNrvo(le, n):
-          @[tgt.v]
+        if dest.v != nil and
+            dest.lode != nil and
+            dest.v.typeOfX() == retArgType.pointerType() and
+            not (isPartOf(dest.lode, n) != arNo) and
+            not g.preventNrvo(dest.lode, le, n) :
+          @[dest.v]
         else:
           let tmp = g.localAlloca(retArgType, g.nn("call.res.stack", n))
           g.callMemset(
@@ -3792,21 +3800,21 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, tgt: LLValue): LLValue =
     discard g.b.buildStore(callres, v)
     g.maybeLoadValue(LLValue(v: v), load)
   elif retArgs.len > 0:
-    if retArgs[0] == tgt.v: # Consumed by RVO
+    if retArgs[0] == dest.v: # Consumed by RVO
       LLValue()
     else:
       g.maybeLoadValue(LLValue(v: retArgs[0]), load)
   else:
     LLValue(v: callres)
 
-proc genMagicCall(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
+proc genMagicCall(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   let s = n[namePos].sym
   if lfNoDecl notin s.loc.flags:
     let m = g.graph.getCompilerProc($s.loc.r)
     if m == nil: g.config.internalError(n.info, "Missing magic: " & $s.loc.r)
     discard g.genFunctionWithBody(m)
 
-  g.genCall(nil, n, load, tgt)
+  g.genCall(nil, n, load, dest)
 
 proc genRefAssign(g: LLGen, dest: LLValue, src: llvm.ValueRef) =
   if (dest.storage == OnStack and g.config.selectedGC != gcGo) or
@@ -4249,12 +4257,12 @@ proc genAsgn(g: LLGen, n: PNode, fast: bool) =
     g.genAssignment(
       ax, bx, le.typ, if fast or ri.kind in nkCallKinds: {} else: {needToCopy})
 
-proc genCallMagic(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
+proc genCallMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   # Some magics have implementations in the std lib that we can use - make sure
   # it's been processed!
   discard g.genFunctionWithBody(n[namePos].sym).v
 
-  g.genCall(nil, n, load, tgt)
+  g.genCall(nil, n, load, dest)
 
 proc genMagicHigh(g: LLGen, n: PNode): LLValue =
   let len = g.genMagicLength(n).v
@@ -4705,8 +4713,8 @@ proc genMagicCmpF(g: LLGen, n: PNode, op: RealPredicate): LLValue =
 
   LLValue(v: g.buildI8(g.b.buildFCmp(op, ax, bx, g.nn($op, n))))
 
-proc genMagicEqCString(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
-  g.genCallMagic(n, load, tgt) # Implemented in std lib
+proc genMagicEqCString(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
+  g.genCallMagic(n, load, dest) # Implemented in std lib
 
 proc genMagicEqProc(g: LLGen, n: PNode): LLValue =
   let v =
@@ -5097,8 +5105,8 @@ proc genMagicConStrStr(g: LLGen, n: PNode): LLValue =
 
   LLValue(v: tgt, storage: OnHeap)
 
-proc genMagicDotDot(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
-  g.genCallMagic(n, load, tgt) # Implemented in std lib
+proc genMagicDotDot(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
+  g.genCallMagic(n, load, dest) # Implemented in std lib
 
 proc genMagicAppendStrCh(g: LLGen, n: PNode) =
   let
@@ -5463,7 +5471,7 @@ proc genMagicGetTypeInfo(g: LLGen, n: PNode): LLValue =
   let typ = n[1].typ.skipTypes(abstractVarRange)
   LLValue(v: g.genTypeInfo(typ))
 
-proc genMagic(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
+proc genMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   var op = n[0].sym.magic
   p("genMagic " & $op, n[0], g.depth + 1)
   case op
@@ -5533,7 +5541,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
   of mLePtr: result = g.genMagicCmpI(n, llvm.IntULE)
   of mLtPtr: result = g.genMagicCmpI(n, llvm.IntULT)
   of mXor: result = g.genMagicCmpI(n, llvm.IntNE)
-  of mEqCString: result = g.genMagicEqCString(n, load, tgt)
+  of mEqCString: result = g.genMagicEqCString(n, load, dest)
   of mEqProc: result = g.genMagicEqProc(n)
   of mUnaryMinusI, mUnaryMinusI64: result = g.genMagicUnaryMinus(n)
   of mAbsI: result = g.genMagicAbsI(n)
@@ -5559,7 +5567,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
   of mPlusSet: result = g.genMagicSetBinOp(llvm.Or, false, n)
   of mMinusSet: result = g.genMagicSetBinOp(llvm.And, true, n)
   of mConStrStr: result = g.genMagicConStrStr(n)
-  of mDotDot: result = g.genMagicDotDot(n, load, tgt)
+  of mDotDot: result = g.genMagicDotDot(n, load, dest)
   of mAppendStrCh: g.genMagicAppendStrCh(n)
   of mAppendStrStr: g.genMagicAppendStrStr(n)
   of mAppendSeqElem: g.genMagicAppendSeqElem(n)
@@ -5577,13 +5585,13 @@ proc genMagic(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
   of mIsNil: result = g.genMagicIsNil(n)
   of mArrToSeq: result = g.genMagicArrToSeq(n)
   of mNewString, mNewStringOfCap, mParseBiggestFloat:
-    result = g.genMagicCall(n, load, tgt)
+    result = g.genMagicCall(n, load, dest)
   of mSpawn: result = g.genMagicSpawn(n)
   of mDeepCopy: g.genMagicDeepCopy(n)
   of mGetTypeInfo: result = g.genMagicGetTypeInfo(n)
   of mIsolate, mFinished:
     # TODO these are magics, but for some reason they don't have the loc.r set
-    result = g.genCall(nil, n, load, tgt)
+    result = g.genCall(nil, n, load, dest)
   else: g.config.internalError(n.info, "Unhandled magic: " & $op)
 
 # Nodes
@@ -5702,15 +5710,15 @@ proc genNodeNilLit(g: LLGen, n: PNode, load: bool): LLValue =
       tmp
   LLValue(v: v, lode: n, storage: OnStatic)
 
-proc genNodeCall(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
+proc genNodeCall(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   let nf = n[namePos]
 
   if nf.kind == nkSym:
     let sym = nf.sym
     if sym.magic != mNone:
-      return g.genMagic(n, load, tgt)
+      return g.genMagic(n, load, dest)
 
-  g.genCall(nil, n, load, tgt)
+  g.genCall(nil, n, load, dest)
 
 proc genNodeIdentDefs(g: LLGen, n: PNode) =
   for s in n.sons: p("genIdentDefsStmt", s, g.depth + 1)
@@ -5748,7 +5756,7 @@ proc genNodeVarTuple(g: LLGen, n: PNode) =
 
     g.genAssignment(x, g.maybeLoadValue(tv, lx), vn.typ, v.assignCopy)
 
-proc genNodePar(g: LLGen, n: PNode, load: bool): LLValue =
+proc genNodePar(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   if n.isDeepConstExprLL():
     let init = g.genConstInitializer(n)
     if load: return LLValue(v: init, lode: n, storage: OnStatic)
@@ -5757,9 +5765,20 @@ proc genNodePar(g: LLGen, n: PNode, load: bool): LLValue =
     v.setInitializer(init)
     return LLValue(v: v, lode: n, storage: OnStatic)
 
-  let v = LLValue(
-    v: g.localAlloca(g.llType(n.typ), g.nn("par", n)), storage: OnStack)
-  g.buildStoreNull(v.v)
+  let
+    useTmp =
+      dest.v == nil or dest.lode == nil or
+      (isPartOf(dest.lode, n) != arNo)
+
+    v =
+      if useTmp:
+        let tmp = LLValue(
+          v: g.localAlloca(g.llType(n.typ), g.nn("par", n)),
+          lode: n, storage: OnStack)
+        g.buildStoreNull(tmp.v)
+        tmp
+      else:
+        dest
 
   for i in 0..<n.len:
     var s = n[i]
@@ -5772,27 +5791,40 @@ proc genNodePar(g: LLGen, n: PNode, load: bool): LLValue =
 
     g.genAssignment(tgt, bx, s.typ, {needToCopy})
 
-  g.maybeLoadValue(v, load)
+  if useTmp:
+    g.maybeLoadValue(v, load)
+  else:
+    LLValue()
 
-proc genNodeObjConstr(g: LLGen, n: PNode, load: bool): LLValue =
+proc genNodeObjConstr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   var
-    typ = n.typ.skipTypes(abstractInst)
+    typ = n.typ.skipTypes(abstractInstOwned)
     t = g.llType(typ)
     isRef = typ.kind == tyRef
+    useTmp =
+      dest.v == nil or dest.lode == nil or
+      isRef or
+      (isPartOf(dest.lode, n) != arNo)
 
   let v =
-    if isRef:
-      let tmp = LLValue(v:
-        g.localAlloca(t, g.nn("objconstr", n)), storage: OnStack)
-      g.rawGenNew(tmp, typ)
-      typ = typ.lastSon.skipTypes(abstractInst)
-      LLValue(v: g.b.buildLoad(tmp.v, ""), storage: OnHeap)
+    if useTmp:
+      if isRef:
+        let tmp = LLValue(
+          v: g.localAlloca(t, g.nn("objconstr", n)),
+          storage: OnStack)
+        g.rawGenNew(tmp, typ)
+        typ = typ.lastSon.skipTypes(abstractInstOwned)
+        LLValue(v: g.b.buildLoad(tmp.v, ""), lode: tmp.lode, storage: OnHeap)
+      else:
+        let tmp = LLValue(
+          v: g.localAlloca(t, g.nn("objconstr", n)),
+          storage: OnStack)
+        g.buildStoreNull(tmp.v)
+        g.genObjectInit(typ, tmp.v)
+        tmp
     else:
-      let tmp = LLValue(v:
-        g.localAlloca(t, g.nn("objconstr", n)), storage: OnStack)
-      g.buildStoreNull(tmp.v)
-      g.genObjectInit(typ, tmp.v)
-      tmp
+      g.resetLoc(typ, dest)
+      dest
 
   for i in 1 ..< n.len:
     let
@@ -5803,14 +5835,19 @@ proc genNodeObjConstr(g: LLGen, n: PNode, load: bool): LLValue =
       bx = g.genNode(s[1], lx, gep)
     g.genAssignment(gep, bx, s[0].sym.typ, {needToCopy})
 
-  if load and not isRef:
-    LLValue(v: g.b.buildLoad(v.v, g.nn("objconstr.load", n)), storage: OnStack)
-  elif not load and isRef:
-    let tmp = g.localAlloca(t, g.nn("objconstr", n))
-    discard g.b.buildStore(v.v, tmp)
-    LLValue(v: tmp, storage: OnStack)
+  if useTmp:
+    if load and not isRef:
+      LLValue(
+        v: g.b.buildLoad(v.v, g.nn("objconstr.load", n)), lode: n,
+        storage: OnStack)
+    elif not load and isRef:
+      let tmp = g.localAlloca(t, g.nn("objconstr", n))
+      discard g.b.buildStore(v.v, tmp)
+      LLValue(v: tmp, storage: OnStack)
+    else:
+      v
   else:
-    v
+    LLValue()
 
 proc genNodeCurly(g: LLGen, n: PNode, load: bool): LLValue =
   let
@@ -7048,13 +7085,13 @@ proc genNodeBreakState(g: LLGen, n: PNode): LLValue =
   let s = g.b.buildLoad(a, g.nn("state.break.s", n))
   LLValue(v: g.b.buildICmp(llvm.IntSLT, s, g.ni0, g.nn("state.break.cmp", n)))
 
-proc genNodeTupleConstr(g: LLGen, n: PNode, load: bool): LLValue =
-  genNodePar(g, n, load)
+proc genNodeTupleConstr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
+  genNodePar(g, n, load, dest)
 
 proc genSons(g: LLGen, n: PNode) =
   for s in n: g.genNode(s)
 
-proc genNode(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
+proc genNode(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   p(if load: "l" else: "p", n, g.depth)
 
   g.depth += 1
@@ -7068,12 +7105,12 @@ proc genNode(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
   of nkFloatLit..nkFloat128Lit: result = g.genNodeFloatLit(n)
   of nkStrLit..nkTripleStrLit: result = g.genNodeStrLit(n, load)
   of nkNilLit: result = g.genNodeNilLit(n, load)
-  of nkCallKinds: result = g.genNodeCall(n, load, tgt)
+  of nkCallKinds: result = g.genNodeCall(n, load, dest)
   of nkExprColonExpr: result = g.genNode(n[1], load)
   of nkIdentDefs: g.genNodeIdentDefs(n)
   of nkVarTuple: g.genNodeVarTuple(n)
-  of nkPar: result = g.genNodePar(n, load)
-  of nkObjConstr: result = g.genNodeObjConstr(n, load)
+  of nkPar: result = g.genNodePar(n, load, dest)
+  of nkObjConstr: result = g.genNodeObjConstr(n, load, dest)
   of nkCurly: result = g.genNodeCurly(n, load)
   of nkBracket: result = g.genNodeBracket(n, load)
   of nkBracketExpr: result = g.genNodeBracketExpr(n, load)
@@ -7120,7 +7157,7 @@ proc genNode(g: LLGen, n: PNode, load: bool, tgt: LLValue): LLValue =
   of nkGotoState: g.genNodeGotoState(n)
   of nkState: g.genNodeState(n)
   of nkBreakState: result = g.genNodeBreakState(n)
-  of nkTupleConstr: result = g.genNodeTupleConstr(n, load)
+  of nkTupleConstr: result = g.genNodeTupleConstr(n, load, dest)
 
   of nkMixinStmt, nkBindStmt: discard
 
