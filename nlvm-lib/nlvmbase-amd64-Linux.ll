@@ -15,6 +15,7 @@ target triple = "x86_64-unknown-linux-gnu"
 
 ; pthreads.h
 @PTHREAD_MUTEX_RECURSIVE = linkonce_odr constant i32 1
+@PTHREAD_BARRIER_SERIAL_THREAD = linkonce_odr constant i32 -1
 
 ; signal.h
 @SIG_IGN = global void (i32)* inttoptr (i64 1 to void (i32)*), align 8

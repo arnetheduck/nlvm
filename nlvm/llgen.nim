@@ -3,7 +3,6 @@
 # See the LICENSE file for license info (doh!)
 
 import
-  math,
   os,
   strutils,
   sequtils,
@@ -180,6 +179,8 @@ type
     needToCopy
   TAssignmentFlags = set[TAssignmentFlag]
 
+  FieldPath = tuple[index: int, t: llvm.TypeRef]
+
 template config(g: LLGen): untyped = g.graph.config
 template fileInfos(g: LLGen): untyped = g.config.m.fileInfos
 
@@ -188,7 +189,7 @@ proc llPassAsPtr(g: LLGen, s: PSym, retType: PType): bool
 proc llType(g: LLGen, typ: PType, deep = true): llvm.TypeRef
 proc llStringType(g: LLGen): llvm.TypeRef
 proc llGenericSeqType(g: LLGen): llvm.TypeRef
-proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[int]
+proc fieldIndex(g: LLGen, typ: PType, sym: PSym, t: llvm.TypeRef): seq[FieldPath]
 proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef)
 proc callErrno(g: LLGen, prefix: string): llvm.ValueRef
 proc callCompilerProc(
@@ -597,27 +598,34 @@ proc isArrayPtr(t: llvm.TypeRef): bool =
 proc constGEPIdx(g: LLGen, val: int): llvm.ValueRef =
   g.constInt32(val.int32)
 
-proc toConstGEP(g: LLGen, v: llvm.ValueRef, path: openArray[int]): ValueRef =
+proc toConstGEP(g: LLGen, v: llvm.ValueRef, path: openArray[FieldPath]): ValueRef =
   var ret = v
   for entry in path:
-    ret = constGEP(ret, [g.gep0, g.constGEPIdx(entry)])
+    ret = constGEP(ret, [g.gep0, g.constGEPIdx(entry.index)])
+    if entry.t != nil:
+      ret = constPointerCast(ret, entry.t.pointerType())
   ret
 
-proc toGEP(g: LLGen, v: llvm.ValueRef, path: openArray[int], name: string): ValueRef =
-  let isConst = v.isConstant() == llvm.True
+proc toGEP(g: LLGen, v: llvm.ValueRef, path: openArray[FieldPath], name: string): ValueRef =
+  let isConst = isConstant(v) == llvm.True
   var ret = v
   for entry in path:
-    let idx = [g.gep0, g.constGEPIdx(entry)]
+    let idx = [g.gep0, g.constGEPIdx(entry.index)]
     ret =
       if isConst: constGEP(ret, idx)
-      else: g.b.buildGEP(ret, idx , g.nn(name & ".f" & $entry, ret))
+      else: g.b.buildGEP(ret, idx , g.nn(name & ".f" & $entry.index, ret))
+
+    if entry.t != nil:
+      ret =
+        if isConst: constPointerCast(ret, entry.t.pointerType())
+        else: g.b.buildPointerCast(ret, entry.t.pointerType(), g.nn("case", ret))
   ret
 
 proc constOffsetOf(g: LLGen, typ: PType, sym: PSym): llvm.ValueRef =
   let
     typ = typ.skipTypes(abstractPtrs)
     t = g.llType(typ)
-    gep = g.toConstGEP(constNull(t.pointerType()), g.fieldIndex(typ, sym))
+    gep = g.toConstGEP(constNull(t.pointerType()), g.fieldIndex(typ, sym, t))
   constPtrToInt(gep, g.primitives[tyInt])
 
 proc bitSetToWord(s: TBitSet, size: int): BiggestUInt =
@@ -804,7 +812,7 @@ proc isLargeType(g: LLGen, t: llvm.TypeRef): bool =
   let
     dl = g.m.getModuleDataLayout()
   (t.getTypeKind() in {llvm.ArrayTypeKind, llvm.StructTypeKind}) and
-    (dl.storeSizeOfType(t) > (dl.pointerSize() * 8))
+    (dl.storeSizeOfType(t) > (dl.pointerSize() * 2))
 
 proc buildStoreNull(g: LLGen, tgt: llvm.ValueRef) =
   let t = tgt.typeOfX()
@@ -1007,34 +1015,56 @@ proc debugFieldName(field: PSym, typ: PType): string =
 proc align(address, alignment: cuint): cuint =
   (address + (alignment - 1)) and not (alignment - 1)
 
+func caseTypeName(t: llvm.TypeRef, tag: PSym, index: int): string =
+  $t.getStructName() & "_" & tag.name.s & "_" & $index
+
 proc debugStructFields(
     g: LLGen, elements: var seq[MetadataRef], n: PNode, typ: PType,
-    offset: var uint32) =
+    t: llvm.TypeRef) =
+  let dl = g.m.getModuleDataLayout()
+
   case n.kind
   of nkRecList:
     for child in n:
-      g.debugStructFields(elements, child, typ, offset)
-  of nkRecCase: # TODO Unionize
-    if n[0].kind != nkSym: g.config.internalError(n.info, "debugStructFields")
-    g.debugStructFields(elements, n[0], typ, offset)
+      g.debugStructFields(elements, child, typ, t)
+  of nkRecCase:
+    let
+      tag = n[0].sym
+      baseName = caseTypeName(t, tag, 0)
+      base = g.lc.getTypeByName2(baseName)
 
-    for i in 1..<n.len:
-      case n[i].kind
-      of nkOfBranch, nkElse:
-        g.debugStructFields(elements, n[i].lastSon, typ, offset)
-      else: g.config.internalError(n.info, "debugStructFields")
+      line = if typ.sym != nil: typ.sym.info.line else: 0
+      file = g.debugGetFile(g.config.projectMainIdx)
+      (bits, _, _, _) = g.debugSize(base)
+      baseType = g.d.dIBuilderCreateStructType(g.dcu, baseName,
+        file, line.cuint, bits, 0, 0, nil, [], 0, nil, baseName)
+
+    var
+      baseFields: seq[MetadataRef]
+
+    g.debugStructFields(baseFields, n[0], typ, base)
+
+    g.d.nimDICompositeTypeSetTypeArray(
+      baseType, g.d.dIBuilderGetOrCreateArray(baseFields))
+
+    let member = g.d.dIBuilderCreateMemberType(
+      g.dcu, baseName, g.debugGetFile(g.config.projectMainIdx), line.cuint, bits,
+      0, dl.offsetOfElement(t, cuint elements.len()) * 8, 0, baseType)
+
+    elements.add(member)
+
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
     let
-      (mbits, _, mabibits, _) = g.debugSize(field.typ)
+      (mbits, _, _, _) = g.debugSize(field.typ)
       name = debugFieldName(field, typ)
       line = field.info.line
+      member = g.d.dIBuilderCreateMemberType(
+        g.dcu, name, g.debugGetFile(g.config.projectMainIdx), line.cuint, mbits,
+        0, dl.offsetOfElement(t, cuint elements.len()) * 8, 0,
+        g.debugType(field.typ))
 
-    let member = g.d.dIBuilderCreateMemberType(
-      g.dcu, name, g.debugGetFile(g.config.projectMainIdx), line.cuint, mbits,
-      0, offset, 0, g.debugType(field.typ))
-    offset += mabibits
     elements.add(member)
   else: g.config.internalError(n.info, "debugStructFields")
 
@@ -1051,6 +1081,7 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
 
   let
     name = g.llName(typ, sig)
+    t = g.llType(typ)
     line = if typ.sym != nil: typ.sym.info.line else: 0
     file = g.debugGetFile(g.config.projectMainIdx)
     (bits, _, _, _) = g.debugSize(typ)
@@ -1063,7 +1094,6 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
 
   var
     elements = newSeq[MetadataRef]()
-    offset: uint32
 
   let super = if typ.sons.len == 0: nil else: typ.sons[0]
   if super == nil:
@@ -1076,21 +1106,19 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
         tntp = g.d.dIBuilderCreatePointerType(tnt, ptrBits, ptrBits, "")
         member = g.d.dIBuilderCreateMemberType(
           g.dcu, "m_type", g.debugGetFile(g.config.projectMainIdx), 0, ptrBits,
-          ptrBits, offset, 0, tntp)
-      offset += bits
+          ptrBits, 0, 0, tntp)
 
       elements.add(member)
   else:
     let
-      (bits, _, alloc, _) = g.debugSize(super)
+      (bits, _, _, _) = g.debugSize(super)
       member = g.d.dIBuilderCreateMemberType(
         g.dcu, "Sup", g.debugGetFile(g.config.projectMainIdx), 0, bits,
-        0, offset, 0, g.debugType(super))
-    offset += alloc
+        0, 0, 0, g.debugType(super))
 
     elements.add(member)
 
-  g.debugStructFields(elements, typ.n, typ, offset)
+  g.debugStructFields(elements, typ.n, typ, t)
 
   g.d.nimDICompositeTypeSetTypeArray(
     result, g.d.dIBuilderGetOrCreateArray(elements))
@@ -1110,7 +1138,9 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
   # Create struct before setting body in case it's recursive
   let
     file = g.debugGetFile(g.config.projectMainIdx)
-    (bits, _, _, _) = g.debugSize(typ)
+    t = g.llType(typ)
+    dl = g.m.getModuleDataLayout()
+    (bits, _, _, _) = g.debugSize(t)
 
   result = g.d.dIBuilderCreateStructType(
     g.dcu, name, file, line.cuint, bits, 0, 0, nil, [], 0, nil, name)
@@ -1118,16 +1148,15 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
   g.dstructs[sig] = result
 
   var elements = newSeq[MetadataRef]()
-  var offset: uint32
-  for t in typ.sons:
+  for field in typ.sons:
     let
-      (mbits, _, mabi, _) = g.debugSize(t)
-      mline = if t.sym != nil: t.sym.info.line else: line
+      (mbits, _, _, _) = g.debugSize(field)
+      mline = if field.sym != nil: field.sym.info.line else: line
 
     let member = g.d.dIBuilderCreateMemberType(
-      g.dcu, "tup" & $offset, g.debugGetFile(g.config.projectMainIdx), mline,
-      mbits, 0, offset, 0, g.debugType(t))
-    offset += mabi
+      g.dcu, "tup" & $elements.len(), g.debugGetFile(g.config.projectMainIdx),
+      mline, mbits, 0, dl.offsetOfElement(t, cuint elements.len()), 0,
+      g.debugType(field))
     elements.add(member)
 
   g.d.nimDICompositeTypeSetTypeArray(
@@ -1398,25 +1427,96 @@ proc finalize(g: LLGen) =
           g.b.setCurrentDebugLocation2(dl)
         discard g.b.buildUnreachable()
 
-proc addStructFields(g: LLGen, elements: var seq[TypeRef], n: PNode, typ: PType) =
+proc maxAlignment(dl: TargetDataRef, t: llvm.TypeRef): (culonglong, llvm.TypeRef) =
+  case t.getTypeKind():
+  of StructTypeKind:
+    var
+      biggest: llvm.TypeRef
+      maxAlign: culonglong
+    for i in cuint(0)..<t.countStructElementTypes():
+      let
+        member = t.structGetTypeAtIndex(i)
+        (align, max) = dl.maxAlignment(member)
+      if align > maxAlign:
+        biggest = max
+        maxAlign = align
+    if biggest == nil:
+      # prefer to return non-struct to avoid padding issues when the first
+      # member of a struct is small
+      (culonglong dl.preferredAlignmentOfType(t), t)
+    else:
+      (maxAlign, biggest)
+  of ArrayTypeKind:
+    dl.maxAlignment(t.getElementType())
+  else:
+    (culonglong dl.preferredAlignmentOfType(t), t)
+
+proc addStructFields(
+    g: LLGen, elements: var seq[TypeRef], n: PNode, t: llvm.TypeRef) =
   p("addStructFields", n, g.depth)
   case n.kind
   of nkRecList:
     for child in n:
-      g.addStructFields(elements, child, typ)
-  of nkRecCase: # TODO Unionize
-    if n[0].kind != nkSym: g.config.internalError(n.info, "addStructFields")
-    g.addStructFields(elements, n[0], typ)
+      g.addStructFields(elements, child, t)
+  of nkRecCase:
+    # For each `case`, we generate a separate type that has the type with the
+    # largest alignment as its first member, then a "filler"
+    var
+      biggest, mostAligned: TypeRef
+      maxSize, maxAlign: culonglong
+
+    let
+      dl = g.m.getModuleDataLayout()
+      tag = n[0].sym
 
     for i in 1..<n.len:
       case n[i].kind
       of nkOfBranch, nkElse:
-        g.addStructFields(elements, n[i].lastSon, typ)
+        var fields: seq[TypeRef]
+        let branchName = caseTypeName(t, tag, i)
+        # Add the tag to every variant for proper alignment
+        let branch = g.lc.structCreateNamed(branchName)
+        g.addStructFields(fields, n[0], branch)
+        g.addStructFields(fields, n[i].lastSon, branch)
+        branch.structSetBody(fields, llvm.False)
+
+        # We'll need as many bytes as the largest member of the variant needs
+        let bsize = dl.aBISizeOfType(branch)
+        if bsize > maxSize:
+          maxSize = bsize
+          biggest = branch
+
+        let (align, t) = dl.maxAlignment(branch)
+
+        if align > maxAlign:
+          maxAlign = align
+          mostAligned = t
+
       else: g.config.internalError(n.info, "addStructFields")
+
+    let
+      baseName = caseTypeName(t, tag, 0)
+      base = g.lc.structCreateNamed(baseName)
+      mostAlignedSize = dl.aBISizeOfType(mostAligned)
+
+    # For storage, we'll use a struct starting with most aligned type and topped
+    # up with a byte buffer for the variant contents. We want to ensure
+    # alignment for the struct as a whole, then top up with bytes to ensure that
+    # all bytes are considered "valid data", even if they become padding in
+    # the concrete types.
+    # It would be possible to look for the "minimum" padding between the tag and
+    # the data, but this is left as an excercise for future developers.
+    let baseFields = if mostAlignedSize < maxSize:
+      @[mostAligned, llvm.arrayType(g.primitives[tyUInt8], cuint (maxSize - mostAlignedSize))]
+    else:
+      @[mostAligned]
+    base.structSetBody(baseFields, llvm.False)
+    elements.add(base)
+
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
-    fillLoc(field.loc, locField, n, ~"", OnUnknown)
+    fillLoc(field.loc, locField, n, field.name.s.rope, OnUnknown)
     elements.add(g.llType(field.typ))
   else: g.config.internalError(n.info, "addStructFields")
 
@@ -1424,6 +1524,7 @@ proc headerType(g: LLGen, name: string): llvm.TypeRef =
   # Here are replacements for some of the types in the nim standard library that
   # rely on c header parsing to work. This is a crude workaround that needs to
   # be replaced, but works for now, on linux/x86_64
+
   case name
   of "jmp_buf": g.jmpbufType
   else: nil
@@ -1483,7 +1584,7 @@ proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   else:
     elements.add(g.llStructType(super, deep))
 
-  g.addStructFields(elements, typ.n, typ)
+  g.addStructFields(elements, typ.n, result)
 
   # Ugly workaround on linux..
   let packed = "epoll_event" in name
@@ -1566,18 +1667,21 @@ proc canMove(g: LLGen, n: PNode): bool =
 
 template withRecCase(n: PNode, v: llvm.ValueRef, body: untyped) =
   let
-    kind = n[0].sym
-    gep {.inject.} = g.b.buildGEP(v, [g.gep0, g.constGEPIdx(start)], g.nn("mk.kind", kind))
-    vk = g.b.buildLoad(gep, g.nn("mk.kind.load", kind))
-    caseend = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.kind.end", kind))
+    tags = n[0].sym
+    t = v.typeOfX().getElementType()
+    tagGEP {.inject.} = g.b.buildPointerCast(
+      g.b.buildGEP(v, [g.gep0, g.constGEPIdx(start), g.gep0], g.nn("vari.tag", v)),
+      g.llType(tags.typ).pointerType(), g.nn("vari.tagp", v))
+    tag = g.b.buildLoad(tagGEP, g.nn("load", tagGEP))
+    caseend = g.b.appendBasicBlockInContext(g.lc, g.nn("vari.tag.end", v))
 
-  inc(start)
   var hasElse = false
 
   for i in 1..<n.len:
     let
       branch {.inject.} = n[i]
-      ctrue = g.b.appendBasicBlockInContext(g.lc, g.nn("mk.kind.true", branch))
+      ctrue = g.b.appendBasicBlockInContext(g.lc, g.nn("vari.tag.true", branch))
+      branchTyp = g.lc.getTypeByName2(caseTypeName(t, tags, i))
 
     if branch.kind == nkOfBranch:
       var length = branch.len
@@ -1589,22 +1693,22 @@ template withRecCase(n: PNode, v: llvm.ValueRef, body: untyped) =
           let e = branch[j][1].intVal
 
           let scmp = g.b.buildICmp(
-            llvm.IntSGE, vk, llvm.constInt(vk.typeOfX(), s.culonglong, llvm.True),
-              g.nn("mk.kind.rng.s", branch))
+            llvm.IntSGE, tag, llvm.constInt(tag.typeOfX(), s.culonglong, llvm.True),
+              g.nn("vari.rng.s", branch))
           let ecmp = g.b.buildICmp(
-            llvm.IntSLE, vk, llvm.constInt(vk.typeOfX(), e.culonglong, llvm.True),
-              g.nn("mk.kind.rng.e", branch))
+            llvm.IntSLE, tag, llvm.constInt(tag.typeOfX(), e.culonglong, llvm.True),
+              g.nn("vari.tag.rng.e", branch))
 
-          cmp = g.b.buildAnd(scmp, ecmp, g.nn("mk.kind.rng.cmp", branch))
+          cmp = g.b.buildAnd(scmp, ecmp, g.nn("vari.tag.rng.cmp", branch))
 
         else:
           let k = branch[j].intVal
           cmp = g.b.buildICmp(
-            llvm.IntEQ, vk, llvm.constInt(vk.typeOfX(), k.culonglong, llvm.True),
-            g.nn("mk.kind.cmp", branch))
+            llvm.IntEQ, tag, llvm.constInt(tag.typeOfX(), k.culonglong, llvm.True),
+            g.nn("vari.tag.cmp", branch))
 
         let cfalse = g.b.appendBasicBlockInContext(
-          g.lc, g.nn("mk.kind.false", branch))
+          g.lc, g.nn("vari.tag.false", branch))
         discard g.b.buildCondBr(cmp, ctrue, cfalse)
         g.b.positionBuilderAtEnd(cfalse)
     else:
@@ -1613,7 +1717,11 @@ template withRecCase(n: PNode, v: llvm.ValueRef, body: untyped) =
 
     let x = g.b.getInsertBlock()
     g.b.positionBuilderAtEnd(ctrue)
-
+    let
+      rawFieldGep =
+        g.b.buildGEP(v, [g.gep0, g.constGEPIdx(start)], g.nn("vari.data", v))
+      fieldGep {.inject.} = g.b.buildBitCast(
+      rawFieldGep, branchTyp.pointerType(), g.nn("tagged", rawFieldGep))
     body
 
     discard g.b.buildBr(caseend)
@@ -1626,15 +1734,15 @@ template withRecCase(n: PNode, v: llvm.ValueRef, body: untyped) =
 proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef)
 proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var int) =
   if n == nil: return
-
   case n.kind
   of nkRecList:
     for i in 0..<n.len:
       g.genMarker(typ, n[i], v, op, start)
   of nkRecCase:
     withRecCase(n, v):
-      g.genMarker(typ, branch.lastSon, v, op, start)
-
+      var recStart = 1
+      g.genMarker(typ, branch.lastSon, fieldGep, op, recStart)
+    inc(start)
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
@@ -2006,11 +2114,12 @@ proc genObjectNodeInfoInit(g: LLGen, t: PType, n: PNode, suffix: string): llvm.V
       result = g.constNimNodeList(fields)
 
   of nkRecCase:
-    let field = n[0].sym
-    let l = g.config.lengthOrd(field.typ).toInt # TODO Int128
+    let
+      tag = n[0].sym
+      variants = g.config.lengthOrd(tag.typ).toInt # TODO Int128
 
     var fields: seq[ValueRef]
-    newSeq(fields, l + 1)
+    newSeq(fields, variants + 1)
 
     for i in 1..<n.len:
       let b = n[i]
@@ -2025,16 +2134,16 @@ proc genObjectNodeInfoInit(g: LLGen, t: PType, n: PNode, suffix: string): llvm.V
           else:
             fields[getOrdValue(b[j]).toInt] = bi # TODO Int128
       else:
-        fields[l] = bi
+        fields[variants] = bi
 
     # fill in holes or last element when there's no else
-    for i in 0..l:
+    for i in 0..variants:
       if fields[i].isNil:
         fields[i] = constNull(tnnp)
 
     result = g.constNimNodeCase(
-      g.constOffsetOf(t, field), g.genTypeInfo(field.typ),
-      field.name.s, l, fields)
+      g.constOffsetOf(t, tag), g.genTypeInfo(tag.typ),
+      tag.name.s, variants, fields)
 
   of nkSym:
     let field = n.sym
@@ -2336,47 +2445,50 @@ proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
 
   llvm.functionType(retType, argTypes, tfVarArgs in typ.flags)
 
-proc fieldIndexRecs(g: LLGen, n: PNode, sym: PSym, start: var int): seq[int] =
+proc fieldIndexRecs(g: LLGen, t: llvm.TypeRef, n: PNode, sym: PSym, start: var int): seq[FieldPath] =
   case n.kind
   of nkRecList:
     for s in n:
-      result = g.fieldIndexRecs(s, sym, start)
+      result = g.fieldIndexRecs(t, s, sym, start)
       if result.len > 0: return
 
   of nkRecCase:
-    if n[0].kind != nkSym: g.config.internalError(n.info, "fieldIndex " & $n[0].kind)
+    let
+      tags = n[0].sym
+    if tags.name.s == sym.name.s:
+       return @[FieldPath((start, g.llType(tags.typ)))]
 
-    if n[0].sym.name.s == sym.name.s: return @[start]
-    inc(start)
     for j in 1..<n.len:
-      result = g.fieldIndexRecs(n[j].lastSon, sym, start)
-      if result.len > 0: return
+      var recStart = 1 # don't count tag
+      let
+        variant = g.lc.getTypeByName2(caseTypeName(t, tags, j))
+        inRec = g.fieldIndexRecs(variant, n[j].lastSon, sym, recStart)
+      if inRec.len > 0:
+        return @[FieldPath((start, variant))] & inRec
+    inc start
+
   of nkSym:
-    if n.sym.name.s == sym.name.s: return @[start]
+    if n.sym.name.s == sym.name.s: return @[FieldPath((start, nil))]
     let field = n.sym
     if not field.typ.isEmptyType(): inc(start)
   else:
     g.config.internalError(n.info, "Unhandled field index")
   return @[]
 
-proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[int] =
+proc fieldIndex(g: LLGen, typ: PType, sym: PSym, t: llvm.TypeRef): seq[FieldPath] =
   var typ = typ.skipTypes(abstractInst + tyUserTypeClasses + skipPtrs)
-
-  result = g.headerTypeIndex(typ, sym)
-  if result.len > 0: return
 
   var start = 0
   if typ.kind != tyTuple:
     if typ.sons.len > 0 and typ.sons[0] != nil:
-      let s = g.fieldIndex(typ.sons[0], sym)
+      let s = g.fieldIndex(typ.sons[0], sym, t.structGetTypeAtIndex(0))
       if s.len > 0:
-        return @[0] & s
+        return @[FieldPath((0, nil))] & s
       start = 1 # Skip super type field
     elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
       start = 1 # Skip m_type in inheritable root object
 
-  let n = typ.n
-  return g.fieldIndexRecs(n, sym, start)
+  g.fieldIndexRecs(t, typ.n, sym, start)
 
 proc rootIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
   let zero = g.gep0
@@ -2987,9 +3099,11 @@ proc genResetN(g: LLGen, v: LLValue, n: PNode, typ: PType, start: var int) =
       g.genResetN(v, s, typ, start)
   of nkRecCase:
     withRecCase(n, v.v):
-      g.genResetN(v, lastSon(branch), typ, start)
+      var recStart = 1
+      g.genResetN(LLValue(v: fieldGep), lastSon(branch), typ, recStart)
 
-    g.buildStoreNull(gep)
+    g.buildStoreNull(tagGep)
+    inc(start)
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
@@ -3301,12 +3415,12 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
 proc getOrdering(n: PNode): llvm.AtomicOrdering =
   if n.kind == nkSym:
     case n.sym.name.s
-    of "ATOMIC_RELAXED": llvm.AtomicOrderingMonotonic
-    of "ATOMIC_CONSUME": llvm.AtomicOrderingAcquire # TODO clang uses this for __atomic_add_fetch, but what about other ops?
-    of "ATOMIC_ACQUIRE": llvm.AtomicOrderingAcquire
-    of "ATOMIC_RELEASE": llvm.AtomicOrderingRelease
-    of "ATOMIC_ACQ_REL": llvm.AtomicOrderingAcquireRelease
-    of "ATOMIC_SEQ_CST": llvm.AtomicOrderingSequentiallyConsistent
+    of "ATOMIC_RELAXED", "moRelaxed": llvm.AtomicOrderingMonotonic
+    of "ATOMIC_CONSUME", "moConsume": llvm.AtomicOrderingAcquire # TODO clang uses this for __atomic_add_fetch, but what about other ops?
+    of "ATOMIC_ACQUIRE", "moAcquire": llvm.AtomicOrderingAcquire
+    of "ATOMIC_RELEASE", "moRelease": llvm.AtomicOrderingRelease
+    of "ATOMIC_ACQ_REL", "moAcquireRelease": llvm.AtomicOrderingAcquireRelease
+    of "ATOMIC_SEQ_CST", "moSequentiallyConsistent": llvm.AtomicOrderingSequentiallyConsistent
     else: llvm.AtomicOrderingSequentiallyConsistent
   else:
     llvm.AtomicOrderingSequentiallyConsistent
@@ -3323,7 +3437,6 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       let ord = getOrdering(n[3])
       let ld = g.b.buildLoad(p0, g.nn("a.load"))
       ld.setOrdering(ord)
-      ld.setAlignment(1) # TODO
       discard g.b.buildStore(ld, p1)
       return true
 
@@ -3331,7 +3444,6 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       let p0 = g.genNode(n[1], false).v
       let ord = getOrdering(n[2])
       o = LLValue(v: g.b.buildLoad(p0, g.nn("a.load.n")))
-      o.v.setAlignment(1) # TODO
       o.v.setOrdering(ord)
       return true
 
@@ -3342,7 +3454,6 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       let ld = g.b.buildLoad(p1, g.nn("a.load"))
       let ax = g.b.buildStore(ld, p0)
       ax.setOrdering(ord)
-      ax.setAlignment(1.cuint)  # TODO(j) align all over the place.
       return true
 
     if s.name.s == "atomicStoreN":
@@ -3351,7 +3462,6 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       let ord = getOrdering(n[3])
       let ax = g.b.buildStore(p1, p0)
       ax.setOrdering(ord)
-      ax.setAlignment(1.cuint)  # TODO(j) align all over the place.
       return true
 
     if s.name.s == "atomicAddFetch":
@@ -3388,29 +3498,34 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
         g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
       return true
 
-    if s.name.s == "atomicCompareExchangeN":
-      let p0 = g.genNode(n[1], true).v
-      let p1 = g.genNode(n[2], true).v
-      let p2 = g.genNode(n[3], true).v
-      let ord1 = getOrdering(n[5])
-      let ord2 = getOrdering(n[6])
-      let l1 = g.b.buildLoad(p1, g.nn("ace.1"))
-      let x = g.b.buildAtomicCmpXchg(p0, l1, p2, ord1, ord2, llvm.False)
-      o = LLValue(v: g.buildI8(
-        g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
-      return true
+    if s.name.s in ["atomicCompareExchangeN", "atomicCompareExchange"]:
+      let
+        p0 = g.genNode(n[1], true).v
+        p1 = g.genNode(n[2], true).v
+        p2 = g.genNode(n[3], true).v
+        ord1 = getOrdering(n[5])
+        ord2 = getOrdering(n[6])
+        l1 = g.b.buildLoad(p1, g.nn("ace.1"))
+        l2 =
+          if s.name.s == "atomicCompareExchangeN": p2
+          else: g.b.buildLoad(p2, g.nn("ace.1"))
+        x = g.b.buildAtomicCmpXchg(p0, l1, l2, ord1, ord2, llvm.False)
+        ok = g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))
+        lok = g.b.appendBasicBlockInContext(g.lc, g.nn("cas.ok", n))
+        ldone = g.b.appendBasicBlockInContext(g.lc, g.nn("cas.done", n))
 
-    if s.name.s == "atomicCompareExchange":
-      let p0 = g.genNode(n[1], true).v
-      let p1 = g.genNode(n[2], true).v
-      let p2 = g.genNode(n[3], true).v
-      let ord1 = getOrdering(n[5])
-      let ord2 = getOrdering(n[6])
-      let l1 = g.b.buildLoad(p1, g.nn("ace.1"))
-      let l2 = g.b.buildLoad(p2, g.nn("ace.1"))
-      let x = g.b.buildAtomicCmpXchg(p0, l1, l2, ord1, ord2, llvm.False)
-      o = LLValue(v: g.buildI8(
-        g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))))
+      discard g.b.buildCondBr(ok, lok, ldone)
+
+      g.b.positionBuilderAtEnd(lok)
+
+      let loaded = g.b.buildExtractValue(x, 0.cuint, g.nn("cas.b", n))
+
+      discard g.b.buildStore(loaded, p1)
+      discard g.b.buildBr(ldone)
+
+      g.b.positionBuilderAtEnd(ldone)
+
+      o = LLValue(v: g.buildI8(ok))
       return true
 
     if s.name.s in ["likelyProc", "unlikelyProc"]:
@@ -3489,6 +3604,88 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
         p0 = g.genNode(n[1], true).v
         p1 = g.genNode(n[2], true).v
       o = LLValue(v: g.callCopysign(p0, p1))
+      return true
+
+  elif s.originatingModule.name.s == "atomics":
+    if s.name.s == "atomic_load_explicit":
+      let
+        p0 = g.genNode(n[1], false).v
+        ord = getOrdering(n[2])
+        ld = g.b.buildLoad(p0, g.nn("a.load"))
+      ld.setOrdering(ord)
+      o = LLValue(v: ld)
+      return true
+    elif s.name.s == "atomic_store_explicit":
+      let
+        p0 = g.genNode(n[1], false).v
+        p1 = g.genNode(n[2], true).v
+        ord = getOrdering(n[3])
+        ax = g.b.buildStore(p1, p0)
+      ax.setOrdering(ord)
+      return true
+
+    elif s.name.s == "atomic_exchange_explicit":
+      let
+        p0 = g.genNode(n[1], true).v
+        p1 = g.genNode(n[2], true).v
+        ord = getOrdering(n[3])
+      o = LLValue(
+        v: g.b.buildAtomicRMW(AtomicRMWBinOpXchg, p0, p1, ord, llvm.False))
+
+      return true
+
+    elif s.name.s in [
+        "atomic_compare_exchange_strong_explicit",
+        "atomic_compare_exchange_weak_explicit"]:
+      let
+        p0 = g.genNode(n[1], true).v
+        p1 = g.genNode(n[2], true).v
+        p2 = g.genNode(n[3], true).v
+        ord1 = getOrdering(n[4])
+        ord2 = getOrdering(n[5])
+        l1 = g.b.buildLoad(p1, g.nn("ace.1"))
+        x = g.b.buildAtomicCmpXchg(p0, l1, p2, ord1, ord2, llvm.False)
+        ok = g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))
+        lok = g.b.appendBasicBlockInContext(g.lc, g.nn("cas.ok", n))
+        ldone = g.b.appendBasicBlockInContext(g.lc, g.nn("cas.done", n))
+
+      discard g.b.buildCondBr(ok, lok, ldone)
+
+      g.b.positionBuilderAtEnd(lok)
+
+      let loaded = g.b.buildExtractValue(x, 0.cuint, g.nn("cas.b", n))
+
+      discard g.b.buildStore(loaded, p1)
+      discard g.b.buildBr(ldone)
+
+      g.b.positionBuilderAtEnd(ldone)
+
+      if s.name.s == "atomic_compare_exchange_weak_explicit":
+        x.setWeak(llvm.True)
+      o = LLValue(v: g.buildI8(ok))
+      return true
+
+    elif s.name.s in [
+        "atomic_fetch_add_explicit", "atomic_fetch_sub_explicit",
+        "atomic_fetch_and_explicit", "atomic_fetch_or_explicit",
+        "atomic_fetch_xor_explicit"]:
+      let
+        p0 = g.genNode(n[1], false).v
+        p1 = g.genNode(n[2], true).v
+        ord = getOrdering(n[3])
+        op = case s.name.s
+          of "atomic_fetch_add_explicit": llvm.AtomicRMWBinOpAdd
+          of "atomic_fetch_sub_explicit": llvm.AtomicRMWBinOpSub
+          of "atomic_fetch_and_explicit": llvm.AtomicRMWBinOpAnd
+          of "atomic_fetch_or_explicit": llvm.AtomicRMWBinOpOr
+          else: llvm.AtomicRMWBinOpXor
+
+      o = LLValue(v: g.b.buildAtomicRMW(op, p0, p1, ord, llvm.False))
+      return true
+
+    elif s.name.s == "fence":
+      let ord = getOrdering(n[1])
+      o = LLValue(v: g.b.buildFence(ord, llvm.False, ""))
       return true
 
   else:
@@ -3574,7 +3771,6 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType, extra: int)
       symTyp = param.sym.typ.skipTypes({tyGenericInst})
 
     if symTyp.isCompileTimeOnly(): continue
-
     let pt = parTypes[args.len + extra]
 
     var v: llvm.ValueRef
@@ -3690,7 +3886,6 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType, extra: int)
       args.add(len)
     else:
       v = g.genNode(p, not g.llPassAsPtr(param.sym, ftyp[0])).v
-
       # We need to use the type from the function, because with multimethods,
       # it looks like the type in param.sym.typ changes during compilation!
       # seen with tmultim1.nim
@@ -4061,14 +4256,14 @@ proc genConstObjConstr(g: LLGen, n: PNode): llvm.ValueRef =
   for i in 1 ..< n.len:
     let
       s = n[i]
-      ind = g.fieldIndex(typ, s[0].sym)
-    if ind.len != 1: g.config.internalError(s.info, "unexpected field depth")
+      ind = g.fieldIndex(typ, s[0].sym, t)
+    if ind.len != 1: g.config.internalError(s.info, "const case objects not yet supported")
 
     if s.isSeqLike():
       # Need pointer for string literals
-      vals[ind[0]] = g.genNode(s, true).v
+      vals[ind[0].index] = g.genNode(s, true).v
     else:
-      vals[ind[0]] = g.genConstInitializer(s)
+      vals[ind[0].index] = g.genConstInitializer(s)
 
   for i in 0..<vals.len:
     if isNil(vals[i]):
@@ -5877,7 +6072,9 @@ proc genNodeObjConstr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   for i in 1 ..< n.len:
     let
       s = n[i]
-      gep = LLValue(v: g.toGEP(v.v, g.fieldIndex(typ, s[0].sym), "objconstr"))
+      gep = LLValue(
+        v: g.toGEP(v.v, g.fieldIndex(typ, s[0].sym, t), "objconstr"),
+        lode: s[1])
       lx = g.loadAssignment(s[1].typ)
       bx = g.genNode(s[1], lx, gep)
     g.genAssignment(gep, bx, s[0].sym.typ, {needToCopy})
@@ -6132,7 +6329,7 @@ proc genNodeDot(g: LLGen, n: PNode, load: bool): LLValue =
     v = g.genNode(n[0], false)
     typ = skipTypes(n[0].typ, abstractInst + tyUserTypeClasses)
     t = g.llType(typ) # load fields
-    gep = LLValue(v: g.toGEP(v.v, g.fieldIndex(typ, n[1].sym), "dot"))
+    gep = LLValue(v: g.toGEP(v.v, g.fieldIndex(typ, n[1].sym, t), "dot"))
 
   g.maybeLoadValue(gep, load)
 
@@ -6298,7 +6495,7 @@ proc genNodeCast(g: LLGen, n: PNode, load: bool): LLValue =
     else:
       let
         dl = g.m.getModuleDataLayout()
-        size = max(dl.storeSizeOfType(vt), dl.storeSizeOfType(nt))
+        size = max(dl.aBISizeOfType(vt), dl.aBISizeOfType(nt))
         tmp = g.localAlloca(
           llvm.arrayType(g.primitives[tyUInt8], size.cuint), g.nn("cast.tmp", n))
       discard g.b.buildStore(
