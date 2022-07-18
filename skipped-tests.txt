@@ -341,7 +341,6 @@ tests/system/tnim_stacktrace_override.nim c
 tests/testament/tjoinable.nim c
 tests/testament/tshould_not_work.nim c
 tests/typerel/tnoargopenarray.nim c
-tests/types/taliasbugs.nim c
 tests/valgrind/tbasic_valgrind.nim c
 tests/valgrind/tleak_arc.nim c
 tests/views/tcan_compile_nim.nim c

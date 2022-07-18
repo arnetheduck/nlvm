@@ -209,7 +209,7 @@ proc genNode(g: LLGen, n: PNode, load: bool = false, dest = LLValue()): LLValue 
 proc deepTyp(n: PNode): PType =
   if n.typ != nil:
     n.typ
-  elif n.kind in {nkTryStmt, nkIfStmt, nkCaseStmt}:
+  elif n.kind in {nkTryStmt, nkHiddenTryStmt, nkIfStmt, nkCaseStmt}:
     n[0].deepTyp
   elif n.kind in {nkStmtListExpr}:
     n.lastSon.deepTyp
@@ -1093,35 +1093,48 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
   g.dstructs[sig] = result
 
   var
-    elements = newSeq[MetadataRef]()
+    fields = newSeq[MetadataRef]()
+  if tfUnion in typ.flags and t.countStructElementTypes() > 0:
+    let
+      dl = g.m.getModuleDataLayout()
+      data = t.structGetTypeAtIndex(0)
+      bytes = dl.aBISizeOfType(data)
+      bits = bytes * 8
+      at = g.d.dIBuilderCreateArrayType(bits, 0, g.dtypes[tyUInt8],
+        [g.d.dIBuilderGetOrCreateSubrange(0, int64(bytes))])
+      # TODO make actual union metadata instead
+      member = g.d.dIBuilderCreateMemberType(
+        g.dcu, "union", g.debugGetFile(g.config.projectMainIdx), 0, bits,
+        0, 0, 0, at)
+    fields.add(member)
+  else:
+    let super = if typ.sons.len == 0: nil else: typ.sons[0]
+    if super == nil:
+      if (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags:
+        discard
+      else:
+        let
+          ptrBits = g.m.getModuleDataLayout().pointerSize().uint32 * 8
+          tnt = g.debugMagicType("TNimType")
+          tntp = g.d.dIBuilderCreatePointerType(tnt, ptrBits, ptrBits, "")
+          member = g.d.dIBuilderCreateMemberType(
+            g.dcu, "m_type", g.debugGetFile(g.config.projectMainIdx), 0, ptrBits,
+            ptrBits, 0, 0, tntp)
 
-  let super = if typ.sons.len == 0: nil else: typ.sons[0]
-  if super == nil:
-    if (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags:
-      discard
+        fields.add(member)
     else:
       let
-        ptrBits = g.m.getModuleDataLayout().pointerSize().uint32 * 8
-        tnt = g.debugMagicType("TNimType")
-        tntp = g.d.dIBuilderCreatePointerType(tnt, ptrBits, ptrBits, "")
+        (bits, _, _, _) = g.debugSize(super)
         member = g.d.dIBuilderCreateMemberType(
-          g.dcu, "m_type", g.debugGetFile(g.config.projectMainIdx), 0, ptrBits,
-          ptrBits, 0, 0, tntp)
+          g.dcu, "Sup", g.debugGetFile(g.config.projectMainIdx), 0, bits,
+          0, 0, 0, g.debugType(super))
 
-      elements.add(member)
-  else:
-    let
-      (bits, _, _, _) = g.debugSize(super)
-      member = g.d.dIBuilderCreateMemberType(
-        g.dcu, "Sup", g.debugGetFile(g.config.projectMainIdx), 0, bits,
-        0, 0, 0, g.debugType(super))
+      fields.add(member)
 
-    elements.add(member)
-
-  g.debugStructFields(elements, typ.n, typ, t)
+    g.debugStructFields(fields, typ.n, typ, t)
 
   g.d.nimDICompositeTypeSetTypeArray(
-    result, g.d.dIBuilderGetOrCreateArray(elements))
+    result, g.d.dIBuilderGetOrCreateArray(fields))
 
 proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
   if typ == nil:
@@ -1430,26 +1443,76 @@ proc finalize(g: LLGen) =
 proc maxAlignment(dl: TargetDataRef, t: llvm.TypeRef): (culonglong, llvm.TypeRef) =
   case t.getTypeKind():
   of StructTypeKind:
-    var
-      biggest: llvm.TypeRef
-      maxAlign: culonglong
-    for i in cuint(0)..<t.countStructElementTypes():
-      let
-        member = t.structGetTypeAtIndex(i)
-        (align, max) = dl.maxAlignment(member)
-      if align > maxAlign:
-        biggest = max
-        maxAlign = align
-    if biggest == nil:
-      # prefer to return non-struct to avoid padding issues when the first
-      # member of a struct is small
+    # Instead of returning the struct (whose alignment is based on its members),
+    # we'll base maximum alignment on the members instead, which helps creating
+    # efficient union stores
+    if t.countStructElementTypes() == 0: # empty structs are possible
       (culonglong dl.preferredAlignmentOfType(t), t)
     else:
-      (maxAlign, biggest)
+      var
+        (maxAlign, biggest) = dl.maxAlignment(t.structGetTypeAtIndex(0))
+      for i in cuint(1)..<t.countStructElementTypes():
+        let
+          member = t.structGetTypeAtIndex(i)
+          (align, max) = dl.maxAlignment(member)
+        if align > maxAlign or (align == maxAlign and
+            # Use store size as tie breaker to get a nice "natural" large type
+            dl.storeSizeOfType(max) > dl.storeSizeOfType(biggest)):
+          biggest = max
+          maxAlign = align
+      if biggest == nil:
+        (culonglong dl.preferredAlignmentOfType(t), t)
+      else:
+        (maxAlign, biggest)
   of ArrayTypeKind:
     dl.maxAlignment(t.getElementType())
   else:
     (culonglong dl.preferredAlignmentOfType(t), t)
+
+proc unionStore(
+    g: LLGen, fields: openArray[llvm.TypeRef]): seq[llvm.TypeRef] =
+  ## Return a struct body suitable for storing the union of the given fields
+  ## in a struct.
+  ## The storage is constructed such that:
+  ## * it is at least as large as the largest field, including any ABI padding
+  ##   it might need
+  ## * the first member is the most primitive type with the largest alignment
+  ##   requirements - this ensures that the struct gets the correct "outer"
+  ##   alignment
+  var
+    biggest, mostAligned: TypeRef
+    maxSize, maxAlign: culonglong
+
+  let dl = g.m.getModuleDataLayout()
+  for field in fields:
+    # We'll need as many bytes as the largest member of the variant needs
+    let bsize = dl.aBISizeOfType(field)
+    if bsize > maxSize:
+      maxSize = bsize
+      biggest = field
+
+    let (align, t) = dl.maxAlignment(field)
+
+    if align > maxAlign:
+      maxAlign = align
+      mostAligned = t
+
+  let
+    mostAlignedSize = max(dl.aBISizeOfType(mostAligned), culonglong(1))
+    members = maxSize div mostAlignedSize
+    spill = maxSize - (members * mostAlignedSize)
+    head =
+      if members == 1: mostAligned
+      # Using an array here ensures storage is aligned and amenable to bulk
+      # memory operations - we could also an array of i8, but empirically this
+      # seems to lead to poor codegen as the bytes get copied one-by-one in
+      # some cases - this could be investigated better
+      else: llvm.arrayType(mostAligned, cuint members)
+
+  if spill > 0:
+    @[head, llvm.arrayType(g.primitives[tyUInt8], cuint spill)]
+  else:
+    @[head]
 
 proc addStructFields(
     g: LLGen, elements: var seq[TypeRef], n: PNode, t: llvm.TypeRef) =
@@ -1459,16 +1522,13 @@ proc addStructFields(
     for child in n:
       g.addStructFields(elements, child, t)
   of nkRecCase:
-    # For each `case`, we generate a separate type that has the type with the
-    # largest alignment as its first member, then a "filler"
-    var
-      biggest, mostAligned: TypeRef
-      maxSize, maxAlign: culonglong
-
+    # In case objects ("tagged variants" or "tagged unions"), we'll create a
+    # struct for every variant, then use a "dumb" memory area made up of
+    # primitive storage to account for
     let
-      dl = g.m.getModuleDataLayout()
       tag = n[0].sym
 
+    var branches: seq[llvm.TypeRef]
     for i in 1..<n.len:
       case n[i].kind
       of nkOfBranch, nkElse:
@@ -1479,40 +1539,16 @@ proc addStructFields(
         g.addStructFields(fields, n[0], branch)
         g.addStructFields(fields, n[i].lastSon, branch)
         branch.structSetBody(fields, llvm.False)
-
-        # We'll need as many bytes as the largest member of the variant needs
-        let bsize = dl.aBISizeOfType(branch)
-        if bsize > maxSize:
-          maxSize = bsize
-          biggest = branch
-
-        let (align, t) = dl.maxAlignment(branch)
-
-        if align > maxAlign:
-          maxAlign = align
-          mostAligned = t
-
+        branches.add(branch)
       else: g.config.internalError(n.info, "addStructFields")
 
     let
       baseName = caseTypeName(t, tag, 0)
       base = g.lc.structCreateNamed(baseName)
-      mostAlignedSize = dl.aBISizeOfType(mostAligned)
+      baseFields = g.unionStore(branches)
 
-    # For storage, we'll use a struct starting with most aligned type and topped
-    # up with a byte buffer for the variant contents. We want to ensure
-    # alignment for the struct as a whole, then top up with bytes to ensure that
-    # all bytes are considered "valid data", even if they become padding in
-    # the concrete types.
-    # It would be possible to look for the "minimum" padding between the tag and
-    # the data, but this is left as an excercise for future developers.
-    let baseFields = if mostAlignedSize < maxSize:
-      @[mostAligned, llvm.arrayType(g.primitives[tyUInt8], cuint (maxSize - mostAlignedSize))]
-    else:
-      @[mostAligned]
     base.structSetBody(baseFields, llvm.False)
     elements.add(base)
-
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
@@ -1538,7 +1574,7 @@ proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   if typ == nil:
     return
 
-  var typ = typ.skipTypes(abstractPtrs)
+  let typ = typ.skipTypes(abstractPtrs)
   if typ.kind == tyString:
     return g.llMagicType("NimStringDesc")
 
@@ -1573,23 +1609,30 @@ proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
 
   p("llStructType " & $typ, typ, g.depth)
 
-  var elements = newSeq[TypeRef]()
+  var fields = newSeq[TypeRef]()
 
   let super = if typ.sons.len == 0: nil else: typ.sons[0]
   if super == nil:
     if (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags:
       discard
     else:
-      elements.add(g.llMagicType("TNimType").pointerType())
+      fields.add(g.llMagicType("TNimType").pointerType())
   else:
-    elements.add(g.llStructType(super, deep))
+    fields.add(g.llStructType(super, deep))
 
-  g.addStructFields(elements, typ.n, result)
+  g.addStructFields(fields, typ.n, result)
 
-  # Ugly workaround on linux..
-  let packed = "epoll_event" in name
+  let packed =
+    if tfPacked in typ.flags: llvm.True
+    else: llvm.False
 
-  result.structSetBody(elements, if packed: llvm.True else: llvm.False)
+  doAssert "epoll_event" notin name or packed == llvm.True
+
+  if tfUnion in typ.flags and fields.len > 0:
+    let dl = g.m.getModuleDataLayout()
+    result.structSetBody(g.unionStore(fields), packed)
+  else:
+    result.structSetBody(fields, packed)
 
 proc llTupleType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   if typ == nil:
@@ -1732,16 +1775,17 @@ template withRecCase(n: PNode, v: llvm.ValueRef, body: untyped) =
   g.b.positionAndMoveToEnd(caseend)
 
 proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef)
-proc genMarker(g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var int) =
+proc genMarkerFields(
+    g: LLGen, typ: PType, n: PNode, v, op: llvm.ValueRef, start: var int) =
   if n == nil: return
   case n.kind
   of nkRecList:
     for i in 0..<n.len:
-      g.genMarker(typ, n[i], v, op, start)
+      g.genMarkerFields(typ, n[i], v, op, start)
   of nkRecCase:
     withRecCase(n, v):
       var recStart = 1
-      g.genMarker(typ, branch.lastSon, fieldGep, op, recStart)
+      g.genMarkerFields(typ, branch.lastSon, fieldGep, op, recStart)
     inc(start)
   of nkSym:
     let field = n.sym
@@ -1783,8 +1827,9 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
     elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
       start = 1 # Skip m_type in inheritable root object
 
-    if typ.n != nil:
-      g.genMarker(typ, typ.n, v, op, start)
+    # TODO what if there's a pointer hiding in a union?
+    if typ.n != nil and tfUnion notin typ.flags:
+      g.genMarkerFields(typ, typ.n, v, op, start)
 
   of tyTuple:
     for i in 0..<typ.len:
@@ -2445,14 +2490,17 @@ proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
 
   llvm.functionType(retType, argTypes, tfVarArgs in typ.flags)
 
-proc fieldIndexRecs(g: LLGen, t: llvm.TypeRef, n: PNode, sym: PSym, start: var int): seq[FieldPath] =
+proc fieldIndexRecs(
+    g: LLGen, t: llvm.TypeRef, n: PNode, sym: PSym,
+    start: var int, union: bool): seq[FieldPath] =
   case n.kind
   of nkRecList:
     for s in n:
-      result = g.fieldIndexRecs(t, s, sym, start)
+      result = g.fieldIndexRecs(t, s, sym, start, union)
       if result.len > 0: return
 
   of nkRecCase:
+    doAssert not union, "case + union not supported"
     let
       tags = n[0].sym
     if tags.name.s == sym.name.s:
@@ -2462,13 +2510,17 @@ proc fieldIndexRecs(g: LLGen, t: llvm.TypeRef, n: PNode, sym: PSym, start: var i
       var recStart = 1 # don't count tag
       let
         variant = g.lc.getTypeByName2(caseTypeName(t, tags, j))
-        inRec = g.fieldIndexRecs(variant, n[j].lastSon, sym, recStart)
+        inRec = g.fieldIndexRecs(variant, n[j].lastSon, sym, recStart, false)
       if inRec.len > 0:
         return @[FieldPath((start, variant))] & inRec
     inc start
 
   of nkSym:
-    if n.sym.name.s == sym.name.s: return @[FieldPath((start, nil))]
+    if n.sym.name.s == sym.name.s:
+      if union:
+        return @[FieldPath((0, g.llType(n.sym.typ)))]
+
+      return @[FieldPath((start, nil))]
     let field = n.sym
     if not field.typ.isEmptyType(): inc(start)
   else:
@@ -2476,7 +2528,7 @@ proc fieldIndexRecs(g: LLGen, t: llvm.TypeRef, n: PNode, sym: PSym, start: var i
   return @[]
 
 proc fieldIndex(g: LLGen, typ: PType, sym: PSym, t: llvm.TypeRef): seq[FieldPath] =
-  var typ = typ.skipTypes(abstractInst + tyUserTypeClasses + skipPtrs)
+  let typ = typ.skipTypes(abstractInst + tyUserTypeClasses + skipPtrs)
 
   var start = 0
   if typ.kind != tyTuple:
@@ -2488,7 +2540,7 @@ proc fieldIndex(g: LLGen, typ: PType, sym: PSym, t: llvm.TypeRef): seq[FieldPath
     elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
       start = 1 # Skip m_type in inheritable root object
 
-  g.fieldIndexRecs(t, typ.n, sym, start)
+  g.fieldIndexRecs(t, typ.n, sym, start, tfUnion in typ.flags)
 
 proc rootIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
   let zero = g.gep0
