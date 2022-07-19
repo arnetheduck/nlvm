@@ -6,9 +6,9 @@ import strutils
 
 const
   LLVMLib = "libLLVM-14.so"
-  LLVMRoot = "../ext/llvm-14.0.0.src/"
-  LLDRoot = "../ext/lld-14.0.0.src/"
-  LLVMVersion* = "14.0.0"
+  LLVMRoot = "../ext/llvm-14.0.6.src/"
+  LLDRoot = "../ext/lld-14.0.6.src/"
+  LLVMVersion* = "14.0.6"
 
 {.passL: "-llldELF" .}
 {.passL: "-llldWasm" .}
