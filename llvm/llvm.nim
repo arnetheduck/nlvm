@@ -253,28 +253,22 @@ proc nimSetMetadataGlobal*(
   val: ValueRef; kindID: cuint; node: ValueRef) {.importc: "LLVMNimSetMetadataGlobal".}
 
 proc nimLLDLinkElf*(
-  argv: cstringArray, argc: cint): cstring {.importc: "LLVMNimLLDLinkElf".}
+  argv: cstringArray, argc: csize_t): bool {.importc: "LLVMNimLLDLinkElf".}
 
-proc nimLLDLinkElf*(args: openArray[string]): string =
+proc nimLLDLinkElf*(args: openArray[string]): bool =
   let argv = allocCStringArray(args)
   defer: deallocCStringArray(argv)
 
-  let tmp = nimLLDLinkElf(argv, args.len.cint)
-  if not tmp.isNil:
-    result = strip($tmp)
-    disposeMessage(tmp)
+  nimLLDLinkElf(argv, args.len.csize_t)
 
 proc nimLLDLinkWasm*(
-  argv: cstringArray, argc: cint): cstring {.importc: "LLVMNimLLDLinkWasm".}
+  argv: cstringArray, argc: csize_t): bool {.importc: "LLVMNimLLDLinkWasm".}
 
-proc nimLLDLinkWasm*(args: openArray[string]): string =
+proc nimLLDLinkWasm*(args: openArray[string]): bool =
   let argv = allocCStringArray(args)
   defer: deallocCStringArray(argv)
 
-  let tmp = nimLLDLinkWasm(argv, args.len.cint)
-  if not tmp.isNil:
-    result = strip($tmp)
-    disposeMessage(tmp)
+  nimLLDLinkWasm(argv, args.len.csize_t)
 
 # A few helpers to make things more smooth
 

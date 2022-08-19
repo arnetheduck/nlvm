@@ -109,10 +109,11 @@ proc linkLinuxAmd64(conf: ConfigRef) =
 
   args.add "/usr/lib64/crtn.o" # /usr/bin/../lib/gcc/x86_64-redhat-linux/8/../../../../lib64/crtn.o
 
-  echo args
   rawMessage(conf, hintLinking, $args)
 
-  discard nimLLDLinkElf(args)
+  if not nimLLDLinkWasm(args):
+    rawMessage(conf, errGenerated, "linking failed")
+    quit(1)
 
 proc linkWasm32(conf: ConfigRef) =
   var args: seq[string]
@@ -138,9 +139,9 @@ proc linkWasm32(conf: ConfigRef) =
   #      a better way
   args.add("--export-dynamic")
 
-  let result = nimLLDLinkWasm(args)
-  if result.len > 0:
-    rawMessage(conf, errGenerated, "linking failed: '$1'" % (result))
+  rawMessage(conf, hintLinking, $args)
+  if not nimLLDLinkWasm(args):
+    rawMessage(conf, errGenerated, "linking failed")
     quit(1)
 
 proc lllink*(conf: ConfigRef) =
