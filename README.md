@@ -118,11 +118,11 @@ When you update `nlvm` from `git`, don't forget the submodule:
     git pull && git submodule update
 
 To build a docker image, use:
-  
+
     make docker
 
 To run built `nlvm` docker image use:
-    
+
     docker run -v $(pwd):/code/ nlvm c -r /code/test.nim
 
 # Compiling your code
@@ -255,6 +255,7 @@ To compile wasm files, you will thus need a `panicoverride.nim` - a minimal
 example looks like this and discards any errors:
 
 ```nim
+# panicoverride.nim
 proc rawoutput(s: string) = discard
 proc panic(s: string) {.noreturn.} = discard
 ```
@@ -262,11 +263,16 @@ proc panic(s: string) {.noreturn.} = discard
 After placing the above code in your project folder, you can compile `.nim`
 code to `wasm32`:
 
-    nim c -c --nlvm.target=wasm32-unknown-unkown myfile.nim
-    less myfile.ll
+```nim
+# myfile.nim
+proc adder*(v: int): int {.exportc.} =
+  v + 4
+```
 
-To go from there, follow the steps found
-[here](https://aransentin.github.io/cwasm/).
+```sh
+nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:--no-entry myfile.nim
+wasm2wat -l myfile.wasm
+```
 
 # Random notes
 
