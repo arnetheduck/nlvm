@@ -49,8 +49,13 @@ proc parseBitcodeInContext2*(contextRef: ContextRef; memBuf: MemoryBufferRef;
 proc getBitcodeModuleInContext*(contextRef: ContextRef; memBuf: MemoryBufferRef;
                                outM: ptr ModuleRef; outMessage: cstringArray): Bool {.
     importc: "LLVMGetBitcodeModuleInContext", dynlib: LLVMLib.}
-## * Reads a module from the specified path, returning via the OutMP parameter a
-##  module provider which performs lazy deserialization. Returns 0 on success.
+## * Reads a module from the given memory buffer, returning via the OutMP
+##  parameter a module provider which performs lazy deserialization.
+##
+##  Returns 0 on success.
+##
+##  Takes ownership of \p MemBuf if (and only if) the module was read
+##  successfully.
 
 proc getBitcodeModuleInContext2*(contextRef: ContextRef; memBuf: MemoryBufferRef;
                                 outM: ptr ModuleRef): Bool {.

@@ -7467,6 +7467,8 @@ proc genNode(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
 proc newLLGen(graph: ModuleGraph, idgen: IdGenerator, tgt: string, tm: TargetMachineRef): LLGen =
   let
     lc = llvm.getGlobalContext()
+  lc.contextSetOpaquePointers(0)
+  let
     name = graph.config.m.fileInfos[graph.config.projectMainIdx.int].shortName
     intType = llvm.intTypeInContext(lc, graph.config.target.intSize.cuint * 8)
     charType = llvm.int8TypeInContext(lc)

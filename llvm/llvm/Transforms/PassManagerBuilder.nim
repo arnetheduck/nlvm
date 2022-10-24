@@ -62,11 +62,6 @@ proc passManagerBuilderPopulateFunctionPassManager*(pmb: PassManagerBuilderRef;
 proc passManagerBuilderPopulateModulePassManager*(pmb: PassManagerBuilderRef;
     pm: PassManagerRef) {.importc: "LLVMPassManagerBuilderPopulateModulePassManager",
                         dynlib: LLVMLib.}
-## * See llvm::PassManagerBuilder::populateLTOPassManager.
-
-proc passManagerBuilderPopulateLTOPassManager*(pmb: PassManagerBuilderRef;
-    pm: PassManagerRef; internalize: Bool; runInliner: Bool) {.
-    importc: "LLVMPassManagerBuilderPopulateLTOPassManager", dynlib: LLVMLib.}
 ## *
 ##  @}
 ##

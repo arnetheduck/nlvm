@@ -5,10 +5,10 @@
 import strutils
 
 const
-  LLVMLib = "libLLVM-14.so"
-  LLVMRoot = "../ext/llvm-14.0.0.src/"
-  LLDRoot = "../ext/lld-14.0.0.src/"
-  LLVMVersion* = "14.0.0"
+  LLVMLib = "libLLVM-15.so"
+  LLVMRoot = "../ext/llvm-15.0.2.src/"
+  LLDRoot = "../ext/lld-15.0.2.src/"
+  LLVMVersion* = "15.0.2"
 
 {.passL: "-llldELF" .}
 {.passL: "-llldWasm" .}
@@ -26,7 +26,7 @@ else:
   const
     LLVMOut = LLVMRoot & "sha/"
 
-  {.passL: "-lLLVM-14".}
+  {.passL: "-lLLVM-15".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
 {.passC: "-I" & LLVMRoot & "include".}
