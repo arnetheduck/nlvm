@@ -19,6 +19,7 @@ TGT="$4"
 
 LLVM_ROOT=llvm-$VER2.src
 LLD_ROOT=lld-$VER2.src
+CMAKE_ROOT=cmake-$VER2.src
 
 [ -f $LLVM_ROOT.tar.xz ] || {
   wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$LLVM_ROOT.tar.xz
@@ -41,6 +42,18 @@ LLD_ROOT=lld-$VER2.src
   cd $LLVM_ROOT/projects
   ln -sfr ../../$LLD_ROOT lld
   cd ../..
+}
+
+[ -f $CMAKE_ROOT.tar.xz ] || {
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$CMAKE_ROOT.tar.xz
+}
+
+[ -f $CMAKE_ROOT/README.rst ] || {
+  tar xf $CMAKE_ROOT.tar.xz
+}
+
+[ -f $LLVM_ROOT/cmake/Modules/GNUInstallPackageDir.cmake ] || {
+  cp "$CMAKE_ROOT/Modules"/* "$LLVM_ROOT/cmake/modules"
 }
 
 [ -f libunwind-$VER2.src.tar.xz ] || {

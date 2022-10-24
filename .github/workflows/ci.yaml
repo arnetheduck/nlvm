@@ -2,12 +2,13 @@ name: Continuous
 on: [push, pull_request]
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Install deps
         run: |
+          sudo add-apt-repository universe
           sudo apt-get update
-          sudo apt-get install -y libcurl4-openssl-dev libsdl1.2-dev libgc-dev libncurses5-dev jq cmake ninja-build clang
+          sudo apt-get install -y libcurl4-openssl-dev libsdl1.2-dev libgc-dev libncurses5-dev jq cmake ninja-build clang libfuse2
       - name: Check out repository code
         uses: actions/checkout@v2
         with:
