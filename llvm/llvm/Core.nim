@@ -757,7 +757,7 @@ proc getModuleContext*(m: ModuleRef): ContextRef {.importc: "LLVMGetModuleContex
 ## * Deprecated: Use LLVMGetTypeByName2 instead.
 
 proc getTypeByName*(m: ModuleRef; name: cstring): TypeRef {.
-    importc: "LLVMGetTypeByName", dynlib: LLVMLib.}
+    importc: "LLVMGetTypeByName", dynlib: LLVMLib, deprecated.}
 ## *
 ##  Obtain an iterator to the first NamedMDNode in a Module.
 ##

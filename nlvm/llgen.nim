@@ -380,7 +380,8 @@ template withLoop(g: LLGen, size: llvm.ValueRef, name: string, body: untyped) =
   # check index
   g.b.positionBuilderAtEnd(lcmp)
   let
-    i {.inject.} = g.b.buildLoad(cnt, g.nn(name & ".i"))
+    i {.inject.} = g.b.buildLoad2(
+      cnt.getAllocatedType(), cnt, g.nn(name & ".i"))
     cond = g.b.buildICmp(llvm.IntULT, i, size, g.nn(name & ".cond"))
 
   discard g.b.buildCondBr(cond, lbody, ldone)
@@ -688,6 +689,10 @@ proc buildGEP(b: llvm.BuilderRef, v: LLValue, indices: openarray[ValueRef],
               name: cstring): LLValue =
   LLValue(v: b.buildGEP(v.v, indices, name), lode: v.lode, storage: v.storage)
 
+proc buildStructGEP2(b: llvm.BuilderRef, ty: llvm.TypeRef, v: LLValue,
+    index: cuint, name: cstring): LLValue =
+  LLValue(v: b.buildStructGEP2(ty, v.v, index, name), lode: v.lode, storage: v.storage)
+
 proc buildNimSeqLenGEP(g: LLGen, s: llvm.ValueRef): llvm.ValueRef =
   g.b.buildGEP(s, [g.gep0, g.gep0, g.gep0], g.nn("seq.len", s))
 
@@ -825,32 +830,35 @@ proc buildStoreNull(g: LLGen, tgt: llvm.ValueRef) =
     discard g.b.buildStore(constNull(et), tgt)
 
 proc buildCallOrInvoke(
-    g: LLGen, fx: llvm.ValueRef, args: openArray[llvm.ValueRef], name: cstring = ""): llvm.ValueRef =
-  if g.f.nestedTryStmts.len > 0:
-    let
-      then = g.b.appendBasicBlockInContext(g.lc, g.nn("invoke.then", fx))
-      res = g.b.buildInvoke(fx, args, then, g.f.nestedTryStmts[^1].pad, name)
-    g.b.positionBuilderAtEnd(then)
-    res
-  else:
-    g.b.buildCall(fx, args, name)
-
-proc buildCallOrInvokeBr(
-    g: LLGen, fx: llvm.ValueRef, then: llvm.BasicBlockRef,
+    g: LLGen, fty: llvm.TypeRef, f: llvm.ValueRef,
     args: openArray[llvm.ValueRef], name: cstring = ""): llvm.ValueRef =
   if g.f.nestedTryStmts.len > 0:
-    let res = g.b.buildInvoke(fx, args, then, g.f.nestedTryStmts[^1].pad, name)
+    let
+      then = g.b.appendBasicBlockInContext(g.lc, g.nn("invoke.then", f))
+      res = g.b.buildInvoke2(
+        fty, f, args, then, g.f.nestedTryStmts[^1].pad, name)
     g.b.positionBuilderAtEnd(then)
     res
   else:
-    let res = g.b.buildCall(fx, args, name)
+    g.b.buildCall2(fty, f, args, name)
+
+proc buildCallOrInvokeBr(
+    g: LLGen, fty: llvm.TypeRef, f: llvm.ValueRef, then: llvm.BasicBlockRef,
+    args: openArray[llvm.ValueRef], name: cstring = ""): llvm.ValueRef =
+  if g.f.nestedTryStmts.len > 0:
+    let res = g.b.buildInvoke2(
+      fty, f, args, then, g.f.nestedTryStmts[^1].pad, name)
+    g.b.positionBuilderAtEnd(then)
+    res
+  else:
+    let res = g.b.buildCall2(fty, f, args, name)
     discard g.b.buildBr(then)
     res
 
 proc loadNimSeqLen(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
   g.withNotNilOrNull(v, g.primitives[tyInt]):
     let gep = g.buildNimSeqLenGEP(v)
-    g.b.buildLoad(gep, g.nn("nilcheck.load", v))
+    g.b.buildLoad2(g.primitives[tyInt], gep, g.nn("nilcheck.load", v))
 
 proc getNimSeqDataPtr(g: LLGen, v: llvm.ValueRef, idx: llvm.ValueRef = nil): llvm.ValueRef =
   g.withNotNilOrNull(v, v.typeOfX().getElementType().structGetTypeAtIndex(1).pointerType()):
@@ -2747,7 +2755,9 @@ proc callCompilerProc(
   let sym = g.graph.getCompilerProc(name)
   if sym == nil: g.config.internalError("compiler proc not found: " & name)
 
-  let f = g.genFunctionWithBody(sym).v
+  let
+    f = g.genFunctionWithBody(sym).v
+    fty = f.globalGetValueType()
 
   var i = 0
   var args = @args
@@ -2765,30 +2775,29 @@ proc callCompilerProc(
     i += 1
 
   template callName(): untyped =
-    if f.typeOfX().getElementType().getReturnType().getTypeKind() == llvm.VoidTypeKind: ""
+    if fty.getReturnType().getTypeKind() == llvm.VoidTypeKind: ""
     else: g.nn("call.cp." & name)
 
   if noInvoke:
-    let ret = g.b.buildCall(f, args, callName())
+    let ret = g.b.buildCall2(fty, f, args, callName())
     if noReturn:
       discard g.b.buildUnreachable()
       g.b.positionBuilderAtEnd(g.getDeadBlock())
     ret
   elif noReturn:
-    let ret = g.buildCallOrInvokeBr(f, g.getUnreachableBlock(), args, callName())
+    let ret = g.buildCallOrInvokeBr(fty, f, g.getUnreachableBlock(), args, callName())
     g.b.positionBuilderAtEnd(g.getDeadBlock())
     ret
   else:
-    g.buildCallOrInvoke(f, args, callName())
+    g.buildCallOrInvoke(fty, f, args, callName())
 
 proc callBSwap(g: LLGen, v: llvm.ValueRef, n: cuint): llvm.ValueRef =
-  let it = llvm.intTypeInContext(g.lc, n)
-  let fty = llvm.functionType(it, [it])
-
   let
+    it = llvm.intTypeInContext(g.lc, n)
+    fty = llvm.functionType(it, [it])
     f = g.m.getOrInsertFunction("llvm.bswap.i" & $n, fty)
 
-  g.b.buildCall(f, [v])
+  g.b.buildCall2(fty, f, [v])
 
 proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef) =
   let
@@ -2797,22 +2806,22 @@ proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef) =
     v8 = g.buildTruncOrExt(v, i8t, true)
   if len.typeOfX().getIntTypeWidth() == 64:
     let
-      memsetType = llvm.functionType(llvm.voidTypeInContext(g.lc),
+      fty = llvm.functionType(llvm.voidTypeInContext(g.lc),
         [g.voidPtrType, i8t, llvm.int64TypeInContext(g.lc),
         llvm.int1TypeInContext(g.lc)])
-      f = g.m.getOrInsertFunction("llvm.memset.p0i8.i64", memsetType)
+      f = g.m.getOrInsertFunction("llvm.memset.p0i8.i64", fty)
 
-    discard g.b.buildCall(f, [t, v8, len, g.constInt1(false)])
+    discard g.b.buildCall2(fty, f, [t, v8, len, g.constInt1(false)])
   else:
     let
       i32t = llvm.int32TypeInContext(g.lc)
-      memsetType = llvm.functionType(llvm.voidTypeInContext(g.lc),
+      fty = llvm.functionType(llvm.voidTypeInContext(g.lc),
         [g.voidPtrType, llvm.int8TypeInContext(g.lc), i32t,
         llvm.int1TypeInContext(g.lc)])
-      f = g.m.getOrInsertFunction("llvm.memset.p0i8.i32", memsetType)
+      f = g.m.getOrInsertFunction("llvm.memset.p0i8.i32", fty)
       len32 = g.b.buildZExt(len, i32t, "memset.l32")
 
-    discard g.b.buildCall(f, [t, v8, len32, g.constInt1(false)])
+    discard g.b.buildCall2(fty, f, [t, v8, len32, g.constInt1(false)])
 
 proc callMemcpy(g: LLGen, tgt, src, len: llvm.ValueRef) =
   let
@@ -2821,48 +2830,49 @@ proc callMemcpy(g: LLGen, tgt, src, len: llvm.ValueRef) =
 
   if len.typeOfX().getIntTypeWidth() == 64:
     let
-      memcpyType = llvm.functionType(llvm.voidTypeInContext(g.lc), [
+      fty = llvm.functionType(llvm.voidTypeInContext(g.lc), [
         g.voidPtrType, g.voidPtrType, llvm.int64TypeInContext(g.lc),
         llvm.int1TypeInContext(g.lc)])
-      f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i64", memcpyType)
+      f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i64", fty)
 
-    discard g.b.buildCall(f, [t, s, len, g.constInt1(false)])
+    discard g.b.buildCall2(fty, f, [t, s, len, g.constInt1(false)])
   else:
     let
       i32t = llvm.int32TypeInContext(g.lc)
-      memcpyType = llvm.functionType(llvm.voidTypeInContext(g.lc), [
+      fty = llvm.functionType(llvm.voidTypeInContext(g.lc), [
         g.voidPtrType, g.voidPtrType, i32t, llvm.int1TypeInContext(g.lc)])
-      f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i32", memcpyType)
+      f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i32", fty)
       len32 = g.b.buildZExt(len, i32t, "memcpy.l32")
 
-    discard g.b.buildCall(f, [t, s, len32, g.constInt1(false)])
+    discard g.b.buildCall2(fty, f, [t, s, len32, g.constInt1(false)])
 
 proc callCtpop(g: LLGen, v: llvm.ValueRef, size: BiggestInt): llvm.ValueRef =
   let
     bits = (size * 8).cuint
-    t = llvm.functionType(llvm.intTypeInContext(g.lc, bits), [llvm.intTypeInContext(g.lc, bits)])
-    f = g.m.getOrInsertFunction("llvm.ctpop.i" & $bits, t)
+    fty = llvm.functionType(
+      llvm.intTypeInContext(g.lc, bits), [llvm.intTypeInContext(g.lc, bits)])
+    f = g.m.getOrInsertFunction("llvm.ctpop.i" & $bits, fty)
 
-  g.b.buildCall(f, [v])
+  g.b.buildCall2(fty, f, [v])
 
 proc callErrno(g: LLGen, prefix: string): llvm.ValueRef =
   # on linux errno is a function, so we call it here. not at all portable.
 
   let
-    errnoType = llvm.functionType(g.cintType.pointerType(), [])
-    f = g.m.getOrInsertFunction("__" & prefix & "errno_location", errnoType)
+    fty = llvm.functionType(g.cintType.pointerType(), [])
+    f = g.m.getOrInsertFunction("__" & prefix & "errno_location", fty)
 
-  g.b.buildCall(f, [], g.nn(prefix & "errno"))
+  g.b.buildCall2(fty, f, [], g.nn(prefix & "errno"))
 
 proc callWithOverflow(g: LLGen, op: string, a, b: llvm.ValueRef, name: string): llvm.ValueRef =
   let
     t = a.typeOfX()
-    ft = llvm.functionType(llvm.structTypeInContext(
+    fty = llvm.functionType(llvm.structTypeInContext(
       g.lc, [t, int1TypeInContext(g.lc)]), [t, t])
     f = g.m.getOrInsertFunction(
-      "llvm." & op & ".with.overflow.i" & $t.getIntTypeWidth(), ft)
+      "llvm." & op & ".with.overflow.i" & $t.getIntTypeWidth(), fty)
 
-  g.b.buildCall(f, [a, b], name)
+  g.b.buildCall2(fty, f, [a, b], name)
 
 proc callRaise(g: LLGen, cond: llvm.ValueRef, raiser: string, args: varargs[llvm.ValueRef]) =
   let
@@ -2942,7 +2952,7 @@ proc callBinOpWithOver(
           isover = g.buildI1(g.callCompilerProc(opfn, [ax, bx, res]))
 
         g.callRaise(isover, "raiseOverflow")
-        g.b.buildLoad(res, "rc.div")
+        g.b.buildLoad2(res.getAllocatedType(), res, "rc.div")
       else:
         g.b.buildBinOp(op, ax, bx, "rc.bin")
 
@@ -2955,18 +2965,18 @@ proc callBinOpWithOver(
 
 proc callExpect(g: LLGen, v: llvm.ValueRef, expected: bool): llvm.ValueRef =
   let
-    typ = llvm.functionType(g.primitives[tyBool], [
+    fty = llvm.functionType(g.primitives[tyBool], [
       g.primitives[tyBool], g.primitives[tyBool]])
-    f = g.m.getOrInsertFunction("llvm.expect.i8", typ)
+    f = g.m.getOrInsertFunction("llvm.expect.i8", fty)
 
-  g.b.buildCall(f, [v, g.constInt8(int8(ord expected))])
+  g.b.buildCall2(fty, f, [v, g.constInt8(int8(ord expected))])
 
 proc callEhTypeIdFor(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
   let
-    ft = llvm.functionType(g.primitives[tyInt32], [g.voidPtrType])
-    f = g.m.getOrInsertFunction("llvm.eh.typeid.for", ft)
+    fty = llvm.functionType(g.primitives[tyInt32], [g.voidPtrType])
+    f = g.m.getOrInsertFunction("llvm.eh.typeid.for", fty)
 
-  g.b.buildCall(f, [v.constBitCast(g.voidPtrType)])
+  g.b.buildCall2(fty, f, [v.constBitCast(g.voidPtrType)])
 
 proc typeSuffix(t: llvm.TypeRef): string =
   case t.getTypeKind
@@ -2985,7 +2995,7 @@ proc callFabs(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
     fty = llvm.functionType(t, [t])
     f = g.m.getOrInsertFunction("llvm.fabs." & typeSuffix(t), fty)
 
-  g.b.buildCall(f, [v])
+  g.b.buildCall2(fty, f, [v])
 
 proc callCopysign(g: LLGen, a, b: llvm.ValueRef): llvm.ValueRef =
   let
@@ -2993,7 +3003,7 @@ proc callCopysign(g: LLGen, a, b: llvm.ValueRef): llvm.ValueRef =
     fty = llvm.functionType(t, [t])
     f = g.m.getOrInsertFunction("llvm.copysign." & typeSuffix(t), fty)
 
-  g.b.buildCall(f, [a, b])
+  g.b.buildCall2(fty, f, [a, b])
 
 proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
   case analyseObjectWithTypeField(t)
@@ -3002,14 +3012,16 @@ proc genObjectInit(g: LLGen, t: PType, v: llvm.ValueRef) =
   of frHeader:
     let
       ti = g.genTypeInfo(t)
-      tgt = g.b.buildGEP(v, g.mtypeIndex(t), g.nn("mtype", v))
+      ty = g.llType(t)
+      tgt = g.b.buildGEP2(ty, v, g.mtypeIndex(t), g.nn("mtype", v))
     discard g.b.buildStore(ti, tgt)
   of frEmbedded:
     discard g.callCompilerProc("objectInit", [v, g.genTypeInfo(t)])
 
   if isException(t):
     let
-      tgt = g.b.buildGEP(v, g.excNameIndex(t), g.nn("name", v))
+      ty = g.llType(t)
+      tgt = g.b.buildGEP2(ty, v, g.excNameIndex(t), g.nn("name", v))
       ename = t.skipTypes(abstractInst).sym.name.s
       pname = g.constCStringPtr(ename)
 
@@ -3050,7 +3062,7 @@ template withRangeItems(il: untyped, n: PNode, body: untyped) =
 
   # check idx
   g.b.positionBuilderAtEnd(rcmp)
-  let il = g.b.buildLoad(i, g.nn("rng.il", n))
+  let il = g.b.buildLoad2(i.getAllocatedType(), i, g.nn("rng.il", n))
   let cond = g.b.buildICmp(llvm.IntSLE, il, b, g.nn("rng.sle", n))
   discard g.b.buildCondBr(cond, rloop, rdone)
 
@@ -3272,7 +3284,10 @@ proc callReset(g: LLGen, typ: PType, v: LLValue) =
   elif typ.kind in {tyString, tyRef, tySequence}:
       g.genRefAssign(v, constNull(v.v.typeOfX().getElementType()))
   else:
-    discard g.b.buildCall(g.genResetFunc(typ), [v.v])
+    let
+      f = g.genResetFunc(typ)
+      fty = f.globalGetValueType()
+    discard g.b.buildCall2(fty, g.genResetFunc(typ), [v.v])
 
 proc resetLoc(g: LLGen, typ: PType, v: LLValue) =
   let typ = skipTypes(typ, abstractVarRange)
@@ -4032,10 +4047,10 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
 
     if tfIterator in typ.flags:
       let
-        cft = g.llProcType(typ, true).pointerType()
-        cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.iter.prc", n))
+        cft = g.llProcType(typ, true)
+        cfx = g.b.buildBitCast(prc.v, cft.pointerType, g.nn("call.iter.prc", n))
         clargs = retArgs & args & @[env.v]
-      callres = g.buildCallOrInvoke(cfx, clargs)
+      callres = g.buildCallOrInvoke(cft, cfx, clargs)
     else:
       let
         clonil = g.b.appendBasicBlockInContext(g.lc, g.nn("call.clo.noenv", n))
@@ -4051,15 +4066,15 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
 
       let
         fxc = g.b.buildBitCast(prc.v, nft, g.nn("call.clo.prc.noenv", n))
-        res = g.buildCallOrInvokeBr(fxc, cloend, retArgs & args)
+        res = g.buildCallOrInvokeBr(nfpt, fxc, cloend, retArgs & args)
 
       g.b.positionBuilderAtEnd(cloenv)
 
       let
-        cft = g.llProcType(typ, true).pointerType()
-        cfx = g.b.buildBitCast(prc.v, cft, g.nn("call.clo.prc", n))
+        cft = g.llProcType(typ, true)
+        cfx = g.b.buildBitCast(prc.v, cft.pointerType(), g.nn("call.clo.prc", n))
         clargs = retArgs & args & @[env.v]
-        cres = g.buildCallOrInvokeBr(cfx, cloend, clargs)
+        cres = g.buildCallOrInvokeBr(cft, cfx, cloend, clargs)
 
       g.b.positionBuilderAtEnd(cloend)
 
@@ -4076,7 +4091,7 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
       args = g.genCallArgs(n, fxc.typeOfX().getElementType(), typ, retArgs.len)
       varname =
         if retty.getTypeKind() != llvm.VoidTypeKind: g.nn("call.res", n) else: ""
-    callres = g.buildCallOrInvoke(fxc, retArgs & args, varname)
+    callres = g.buildCallOrInvoke(fxc.typeOfX().getElementType(), fxc, retArgs & args, varname)
 
   if (retty.getTypeKind() != llvm.VoidTypeKind and not load and
       nf.typ.sons[0].kind != tyRef):
@@ -4764,11 +4779,12 @@ proc genMagicLengthStr(g: LLGen, n: PNode): LLValue =
   # load length if v is not nil
   g.b.positionBuilderAtEnd(lload)
   let
-    strlenType = llvm.functionType(g.csizetType, [g.primitives[tyCString]])
-    strlen = g.m.getOrInsertFunction("strlen", strlenType)
+    fty = llvm.functionType(g.csizetType, [g.primitives[tyCString]])
+    f = g.m.getOrInsertFunction("strlen", fty)
 
   let v1 = g.buildTruncOrExt(
-    g.b.buildCall(strlen, [v]), g.primitives[tyInt], false)
+    g.b.buildCall2(fty, f, [v], g.nn("str.len.call", n)),
+    g.primitives[tyInt], false)
   discard g.b.buildBr(ldone)
 
   g.b.positionBuilderAtEnd(ldone)
@@ -5202,7 +5218,7 @@ proc genMagicSetCmp(g: LLGen, strict: bool, n: PNode): LLValue =
 
     # check idx
     g.b.positionBuilderAtEnd(rcmp)
-    let il = g.b.buildLoad(i, g.nn("setcmp.il", n))
+    let il = g.b.buildLoad2(i.getAllocatedType(), i, g.nn("setcmp.il", n))
     let cond = g.b.buildICmp(
       llvm.IntSLT, il, g.constNimInt(size.int), g.nn("setcmp.isdone", n))
     discard g.b.buildCondBr(cond, rloop, rdone)
@@ -5271,7 +5287,7 @@ proc genMagicEqSet(g: LLGen, n: PNode): LLValue =
 
     # check idx
     g.b.positionBuilderAtEnd(rcmp)
-    let il = g.b.buildLoad(i, g.nn("seteq.il", n))
+    let il = g.b.buildLoad2(i.getAllocatedType(), i, g.nn("seteq.il", n))
     let cond = g.b.buildICmp(
       llvm.IntSLT, il, g.constNimInt(size.int), g.nn("seteq.cond", n))
     discard g.b.buildCondBr(cond, rloop, rdone)
@@ -5333,7 +5349,7 @@ proc genMagicSetBinOp(g: LLGen, op: llvm.Opcode, invert: bool, n: PNode): LLValu
 
     # check idx
     g.b.positionBuilderAtEnd(rcmp)
-    let il = g.b.buildLoad(i, g.nn("setbo.il", n))
+    let il = g.b.buildLoad2(i.getAllocatedType(), i, g.nn("setbo.il", n))
     let cond = g.b.buildICmp(llvm.IntSLT, il, g.constNimInt(size.int), g.nn("setbo.cond", n))
     discard g.b.buildCondBr(cond, rloop, rdone)
 
@@ -6108,7 +6124,9 @@ proc genNodeObjConstr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
         typ = typ.lastSon.skipTypes(abstractInstOwned)
         t = g.llType(typ)
         LLValue(
-          v: g.b.buildLoad(tmp.v, g.nn("objconst.ref", tmp.v)), lode: tmp.lode,
+          v: g.b.buildLoad2(
+            tmp.v.getAllocatedType(), tmp.v, g.nn("objconst.ref", tmp.v)),
+          lode: tmp.lode,
           storage: OnHeap)
       else:
         let tmp = LLValue(
@@ -6163,14 +6181,16 @@ proc genNodeCurly(g: LLGen, n: PNode, load: bool): LLValue =
         if s.kind == nkRange:
           withRangeItems(it, s):
             let mask = g.buildSetMask(t, g.setElemIndex(typ, it), size)
-            let v = g.b.buildLoad(tmp, g.nn("curly.v", n))
+            let v = g.b.buildLoad2(
+              tmp.getAllocatedType(), tmp, g.nn("curly.v", n))
             let nv = g.b.buildOr(v, mask, g.nn("curly.nv", n))
             discard g.b.buildStore(nv, tmp)
         else:
           let ax = g.genNode(s, true).v
 
           let mask = g.buildSetMask(t, g.setElemIndex(typ, ax), size)
-          let v = g.b.buildLoad(tmp, g.nn("curly.v"))
+          let v = g.b.buildLoad2(
+            tmp.getAllocatedType(), tmp, g.nn("curly.v", n))
           let nv = g.b.buildOr(v, mask, g.nn("curly.nv", n))
           discard g.b.buildStore(nv, tmp)
     g.maybeLoadValue(LLValue(v: tmp), load)
@@ -6653,8 +6673,8 @@ proc genNodeChckRange(g: LLGen, n: PNode): LLValue =
           a = g.b.buildFPExt(ax.v, g.primitives[tyFloat64], g.nn("rng.ax", ax.v))
           b = g.b.buildFPExt(bx, g.primitives[tyFloat64], g.nn("rng.bx", bx))
           c = g.b.buildFPExt(cx, g.primitives[tyFloat64], g.nn("rng.cx", cx))
-          lt = g.b.buildFCmp(llvm.RealULT, ax.v, bx, g.nn("rng.b"))
-          gt = g.b.buildFCmp(llvm.RealUGT, ax.v, cx, g.nn("rng.c"))
+          lt = g.b.buildFCmp(llvm.RealULT, a, b, g.nn("rng.b"))
+          gt = g.b.buildFCmp(llvm.RealUGT, a, c, g.nn("rng.c"))
           both = g.b.buildOr(lt, gt, g.nn("rng.or"))
         g.callRaise(both, "raiseRangeErrorF", [ax.v, bx, cx])
       else:
@@ -7680,14 +7700,14 @@ proc genMain(g: LLGen) =
         if sfSystemModule notin m.sym.flags: continue
 
         if m.init != nil:
-          discard g.b.buildCall(m.init.f, [])
+          discard g.b.buildCall2(m.init.f.globalGetValueType(), m.init.f, [])
         break
 
       for m in g.closedModules: # then the others
         if sfSystemModule in m.sym.flags: continue
 
         if m.init != nil:
-          discard g.b.buildCall(m.init.f, [])
+          discard g.b.buildCall2(m.init.f.globalGetValueType(), m.init.f, [])
 
     g.withBlock(g.section(f, secReturn)):
       if g.d != nil:

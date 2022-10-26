@@ -2,13 +2,16 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-import strutils
+import strutils, strformat
 
 const
-  LLVMLib = "libLLVM-15.so"
-  LLVMRoot = "../ext/llvm-15.0.2.src/"
-  LLDRoot = "../ext/lld-15.0.2.src/"
-  LLVMVersion* = "15.0.2"
+  LLVMMaj = 15
+  LLVMMin = 0
+  LLVMPat = 2
+  LLVMVersion* = fmt"{LLVMMaj}.{LLVMMin}.{LLVMPat}"
+  LLVMLib = fmt"libLLVM-{LLVMMaj}.so"
+  LLVMRoot = fmt"../ext/llvm-{LLVMVersion}.src/"
+  LLDRoot = fmt"../ext/lld-{LLVMVersion}.src/"
 
 {.passL: "-llldELF" .}
 {.passL: "-llldWasm" .}
@@ -26,7 +29,7 @@ else:
   const
     LLVMOut = LLVMRoot & "sha/"
 
-  {.passL: "-lLLVM-15".}
+  {.passL: fmt"-lLLVM-{LLVMMaj}".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
 {.passC: "-I" & LLVMRoot & "include".}
@@ -359,8 +362,12 @@ proc constNamedStruct*(structTy: TypeRef;
   asRaw(constantVals, constNamedStruct(structTy, p, n))
 
 proc constGEP*(constantVal: ValueRef;
-               constantIndices: openarray[ValueRef]): ValueRef =
+               constantIndices: openarray[ValueRef]): ValueRef {.deprecated.} =
   asRaw(constantIndices, constGEP(constantVal, p, n))
+
+proc constGEP2*(ty: TypeRef, constantVal: ValueRef;
+                constantIndices: openarray[ValueRef]): ValueRef =
+  asRaw(constantIndices, constGEP2(ty, constantVal, p, n))
 
 proc addIncoming*(phiNode: ValueRef; incomingValues: openarray[ValueRef];
                   incomingBlocks: openarray[BasicBlockRef]) =
@@ -372,21 +379,38 @@ proc addIncoming*(phiNode: ValueRef; incomingValues: openarray[ValueRef];
   addIncoming(phiNode, p0, p1, n0)
 
 proc buildGEP*(b: BuilderRef; pointer: ValueRef; indices: openarray[ValueRef];
-               name: cstring = ""): ValueRef =
+               name: cstring = ""): ValueRef {.deprecated.} =
   asRaw(indices, buildGEP(b, pointer, p, n, name))
 
+proc buildGEP2*(b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openarray[ValueRef];
+                name: cstring = ""): ValueRef =
+  asRaw(indices, buildGEP2(b, ty, pointer, p, n, name))
+
 proc buildInBoundsGEP*(b: BuilderRef; pointer: ValueRef; indices: openarray[ValueRef];
-               name: cstring = ""): ValueRef =
+               name: cstring = ""): ValueRef {.deprecated.} =
   asRaw(indices, buildInBoundsGEP(b, pointer, p, n, name))
 
-proc buildCall*(a2: BuilderRef; fn: ValueRef; args: openarray[ValueRef];
-                name: cstring = ""): ValueRef =
-  asRaw(args, buildCall(a2, fn, p, n, name))
+proc buildInBoundsGEP2*(b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openarray[ValueRef];
+               name: cstring = ""): ValueRef =
+  asRaw(indices, buildInBoundsGEP2(b, ty, pointer, p, n, name))
 
-proc buildInvoke*(a1: BuilderRef; fn: ValueRef;
+proc buildCall*(b: BuilderRef; fn: ValueRef; args: openarray[ValueRef];
+                name: cstring = ""): ValueRef {.deprecated.} =
+  asRaw(args, buildCall(b, fn, p, n, name))
+
+proc buildCall2*(b: BuilderRef; ty: TypeRef, fn: ValueRef; args: openarray[ValueRef];
+                name: cstring = ""): ValueRef =
+  asRaw(args, buildCall2(b, ty, fn, p, n, name))
+
+proc buildInvoke*(b: BuilderRef; fn: ValueRef;
+    args: openArray[ValueRef]; then: BasicBlockRef; catch: BasicBlockRef;
+    name: cstring = ""): ValueRef {.deprecated.} =
+  asRaw(args, buildInvoke(b, fn, p, n, then, catch, name))
+
+proc buildInvoke2*(b: BuilderRef; ty: TypeRef, fn: ValueRef;
     args: openArray[ValueRef]; then: BasicBlockRef; catch: BasicBlockRef;
     name: cstring = ""): ValueRef =
-  asRaw(args, buildInvoke(a1, fn, p, n, then, catch, name))
+  asRaw(args, buildInvoke2(b, ty, fn, p, n, then, catch, name))
 
 proc diBuilderCreateFile*(builder: DIBuilderRef, filename: string, directory: string): MetadataRef =
   diBuilderCreateFile(builder, filename.cstring, filename.len.csize_t,
@@ -407,7 +431,6 @@ proc getMDKindIDInContext*(c: ContextRef, name: string): cuint =
 
 proc createStringAttribute*(c: ContextRef, k, v: string): AttributeRef =
   createStringAttribute(c, k.cstring, k.len.cuint, v.cstring, v.len.cuint)
-
 
 proc appendBasicBlockInContext*(
     b: BuilderRef, c: ContextRef, name: cstring): BasicBlockRef =
