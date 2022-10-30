@@ -91,8 +91,6 @@ func isNative(e: UnwindException): bool =
 # TODO upstream: needs noreturn!
 proc c_abort() {.
   importc: "abort", header: "<stdlib.h>", noreturn.}
-proc c_exit(v: cint) {.
-  importc: "exit", header: "<stdlib.h>", noreturn.}
 
 func offset(v: pointer, n: int): pointer =
   cast[pointer](cast[int](v) + n)
@@ -210,13 +208,13 @@ var ehGlobals{.threadvar.}: NlvmEhGlobals
 proc unhandledException() {.noreturn.} =
   c_fprintf(cstderr, "Error: unhandled exception: [foreign]\n")
 
-  c_exit(1) # TODO alternatively, quitOrDebug
+  quit(1) # TODO alternatively, quitOrDebug
 
 proc unhandledException(e: ref Exception) {.noreturn.} =
   c_fprintf(
     cstderr, "Error: unhandled exception: %s [%s]\n", cstring(e.msg), e.name)
 
-  c_exit(1) # TODO alternatively, quitOrDebug
+  quit(1) # TODO alternatively, quitOrDebug
 
 func exceptionType(e: ref Exception): PNimType =
   # return the dynamic type of an exceptoin, which nlvm stores at the beginning

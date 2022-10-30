@@ -1571,6 +1571,23 @@ proc headerType(g: LLGen, name: string): llvm.TypeRef =
 
   case name
   of "jmp_buf": g.jmpbufType
+  of "TFrame":
+    let
+      res = structCreateNamed(g.lc, "TFrame")
+    res.structSetBody([
+      res.pointerType(),
+      g.primitives[tyCString],
+      g.primitives[tyInt],
+      g.primitives[tyCString],
+      g.primitives[tyInt16],
+      g.primitives[tyInt16],
+      g.primitives[tyInt],
+    ], llvm.False)
+
+    res
+  of "TGenericSeq":
+    # typeinfo.nim importc workaround
+    g.lc.getTypeByName2("TGenericSeq")
   else: nil
 
 proc headerTypeIndex(g: LLGen, typ: PType, sym: PSym): seq[int] =
@@ -1633,8 +1650,6 @@ proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   let packed =
     if tfPacked in typ.flags: llvm.True
     else: llvm.False
-
-  doAssert "epoll_event" notin name or packed == llvm.True
 
   if tfUnion in typ.flags and fields.len > 0:
     let dl = g.m.getModuleDataLayout()
@@ -4012,22 +4027,21 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
 
   let
     nf = n[namePos]
-    typ = nf.typ.skipTypes(abstractInstOwned)
-    fx = g.genNode(nf, true)
-    nfpt = g.llProcType(typ)
-    nft = nfpt.pointerType()
-    retty = nfpt.getReturnType()
+    ftyp = nf.typ.skipTypes(abstractInstOwned)
+    fx = g.genNode(nf, true).v
+    fty = g.llProcType(ftyp)
+    retty = fty.getReturnType()
     retArgType =
-      if typ[0] == nil: llvm.voidType()
-      else: g.llType(typ[0])
+      if ftyp[0] == nil: llvm.voidType()
+      else: g.llType(ftyp[0])
     retArgs =
-      if g.isInvalidReturnType(typ[0]):
+      if g.isInvalidReturnType(ftyp[0]):
         if dest.v != nil and
             dest.lode != nil and
             dest.v.typeOfX() == retArgType.pointerType() and
             not (isPartOf(dest.lode, n) != arNo) and
             not g.preventNrvo(dest.lode, le, n):
-          g.resetLoc(typ[0], dest)
+          g.resetLoc(ftyp[0], dest)
           @[dest.v]
         else:
           let tmp = g.localAlloca(retArgType, g.nn("call.res.stack", n))
@@ -4037,64 +4051,59 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
           @[tmp]
       else:
         @[]
+    args = g.genCallArgs(n, fty, ftyp, retArgs.len)
 
-  var callres: llvm.ValueRef
-  if typ.callConv == ccClosure:
+  let callres = if ftyp.callConv == ccClosure:
     let
-      args = g.genCallArgs(n, nfpt, typ, retArgs.len)
       prc = g.b.buildExtractValue(fx, 0, g.nn("call.clo.prc.ptr", n))
       env = g.b.buildExtractValue(fx, 1, g.nn("call.clo.env.ptr", n))
+      cfty = g.llProcType(ftyp, true) # Closure function pointer with environment
 
-    if tfIterator in typ.flags:
+    if tfIterator in ftyp.flags:
       let
-        cft = g.llProcType(typ, true)
-        cfx = g.b.buildBitCast(prc.v, cft.pointerType, g.nn("call.iter.prc", n))
-        clargs = retArgs & args & @[env.v]
-      callres = g.buildCallOrInvoke(cft, cfx, clargs)
+        cfx = g.b.buildBitCast(prc, cfty.pointerType, g.nn("call.iter.prc", n))
+      g.buildCallOrInvoke(cfty, cfx, retArgs & args & @[env])
     else:
+      # If (dynamic) closure environment is `nil`, call function without it
       let
         clonil = g.b.appendBasicBlockInContext(g.lc, g.nn("call.clo.noenv", n))
         cloenv = g.b.appendBasicBlockInContext(g.lc, g.nn("call.clo.env", n))
         cloend = g.b.appendBasicBlockInContext(g.lc, g.nn("call.clo.end", n))
         cmp = g.b.buildICmp(
-         llvm.IntEQ, env.v, llvm.constNull(env.v.typeOfX()),
-         g.nn("call.clo.noenv", n))
+          llvm.IntEQ, env, llvm.constNull(env.typeOfX()),
+          g.nn("call.clo.noenv", n))
 
       discard g.b.buildCondBr(cmp, clonil, cloenv)
 
       g.b.positionBuilderAtEnd(clonil)
 
       let
-        fxc = g.b.buildBitCast(prc.v, nft, g.nn("call.clo.prc.noenv", n))
-        res = g.buildCallOrInvokeBr(nfpt, fxc, cloend, retArgs & args)
+        fxc = g.b.buildBitCast(prc, fty.pointerType(), g.nn("call.clo.prc.noenv", n))
+        res = g.buildCallOrInvokeBr(fty, fxc, cloend, retArgs & args)
 
       g.b.positionBuilderAtEnd(cloenv)
 
       let
-        cft = g.llProcType(typ, true)
-        cfx = g.b.buildBitCast(prc.v, cft.pointerType(), g.nn("call.clo.prc", n))
-        clargs = retArgs & args & @[env.v]
-        cres = g.buildCallOrInvokeBr(cft, cfx, cloend, clargs)
+        cfx = g.b.buildBitCast(prc, cfty.pointerType(), g.nn("call.clo.prc", n))
+        cres = g.buildCallOrInvokeBr(cfty, cfx, cloend, retArgs & args & @[env])
 
       g.b.positionBuilderAtEnd(cloend)
 
       if retty.getTypeKind() != llvm.VoidTypeKind:
-        callres = g.b.buildPHI(res.typeOfX(), g.nn("call.clo.res", n))
-        callres.addIncoming([res, cres], [clonil, cloenv])
-  else:
-    let fxc =
-      if fx.v.typeOfX().getElementType().getTypeKind() != llvm.FunctionTypeKind:
-        g.b.buildBitCast(fx.v, nft, g.nn("call.fx", n))
+        let phi = g.b.buildPHI(res.typeOfX(), g.nn("call.clo.res", n))
+        phi.addIncoming([res, cres], [clonil, cloenv])
+        phi
       else:
-        fx.v
+        nil
+  else:
     let
-      args = g.genCallArgs(n, fxc.typeOfX().getElementType(), typ, retArgs.len)
+      fxc = g.b.buildBitCast(fx, fty.pointerType(), g.nn("call.fx", n))
       varname =
         if retty.getTypeKind() != llvm.VoidTypeKind: g.nn("call.res", n) else: ""
-    callres = g.buildCallOrInvoke(fxc.typeOfX().getElementType(), fxc, retArgs & args, varname)
+    g.buildCallOrInvoke(fty, fxc, retArgs & args, varname)
 
   if (retty.getTypeKind() != llvm.VoidTypeKind and not load and
-      nf.typ.sons[0].kind != tyRef):
+      ftyp[0].kind != tyRef):
     # if the originator of the call wants a pointer, we'll have
     # to create one for them - this is interesting for example
     # when a struct is returned "by value"

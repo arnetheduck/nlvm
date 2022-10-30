@@ -316,7 +316,6 @@ tests/stdlib/tjson.nim c
 tests/stdlib/tlwip.nim c
 tests/stdlib/tnetconnect.nim c -d:ssl
 tests/stdlib/tos.nim c
-tests/stdlib/tosproc.nim c
 tests/stdlib/trepr.nim c --gc:arc
 tests/stdlib/trstgen.nim c
 tests/stdlib/trst.nim c
