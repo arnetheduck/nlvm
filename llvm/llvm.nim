@@ -361,10 +361,6 @@ proc constNamedStruct*(structTy: TypeRef;
                        constantVals: openarray[ValueRef]): ValueRef =
   asRaw(constantVals, constNamedStruct(structTy, p, n))
 
-proc constGEP*(constantVal: ValueRef;
-               constantIndices: openarray[ValueRef]): ValueRef {.deprecated.} =
-  asRaw(constantIndices, constGEP(constantVal, p, n))
-
 proc constGEP2*(ty: TypeRef, constantVal: ValueRef;
                 constantIndices: openarray[ValueRef]): ValueRef =
   asRaw(constantIndices, constGEP2(ty, constantVal, p, n))
@@ -378,34 +374,20 @@ proc addIncoming*(phiNode: ValueRef; incomingValues: openarray[ValueRef];
   let p1 = if s1.len > 0: addr(s1[0]) else: nil
   addIncoming(phiNode, p0, p1, n0)
 
-proc buildGEP*(b: BuilderRef; pointer: ValueRef; indices: openarray[ValueRef];
-               name: cstring = ""): ValueRef {.deprecated.} =
-  asRaw(indices, buildGEP(b, pointer, p, n, name))
-
-proc buildGEP2*(b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openarray[ValueRef];
-                name: cstring = ""): ValueRef =
+proc buildGEP2*(
+    b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openarray[ValueRef];
+    name: cstring): ValueRef =
   asRaw(indices, buildGEP2(b, ty, pointer, p, n, name))
 
-proc buildInBoundsGEP*(b: BuilderRef; pointer: ValueRef; indices: openarray[ValueRef];
-               name: cstring = ""): ValueRef {.deprecated.} =
-  asRaw(indices, buildInBoundsGEP(b, pointer, p, n, name))
-
-proc buildInBoundsGEP2*(b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openarray[ValueRef];
-               name: cstring = ""): ValueRef =
+proc buildInBoundsGEP2*(
+    b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openarray[ValueRef];
+    name: cstring): ValueRef =
   asRaw(indices, buildInBoundsGEP2(b, ty, pointer, p, n, name))
 
-proc buildCall*(b: BuilderRef; fn: ValueRef; args: openarray[ValueRef];
-                name: cstring = ""): ValueRef {.deprecated.} =
-  asRaw(args, buildCall(b, fn, p, n, name))
-
-proc buildCall2*(b: BuilderRef; ty: TypeRef, fn: ValueRef; args: openarray[ValueRef];
-                name: cstring = ""): ValueRef =
+proc buildCall2*(
+    b: BuilderRef; ty: TypeRef, fn: ValueRef; args: openarray[ValueRef];
+    name: cstring): ValueRef =
   asRaw(args, buildCall2(b, ty, fn, p, n, name))
-
-proc buildInvoke*(b: BuilderRef; fn: ValueRef;
-    args: openArray[ValueRef]; then: BasicBlockRef; catch: BasicBlockRef;
-    name: cstring = ""): ValueRef {.deprecated.} =
-  asRaw(args, buildInvoke(b, fn, p, n, then, catch, name))
 
 proc buildInvoke2*(b: BuilderRef; ty: TypeRef, fn: ValueRef;
     args: openArray[ValueRef]; then: BasicBlockRef; catch: BasicBlockRef;
