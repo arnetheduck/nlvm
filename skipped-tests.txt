@@ -103,6 +103,7 @@ tests/ccgbugs/tnoalias.nim c
 tests/ccgbugs/tprogmem.nim c
 tests/ccgbugs/tunsafeaddr.nim c
 tests/closure/ttimeinfo.nim c
+tests/compilerapi/tcompilerapi.nim c
 tests/compiler/t12684.nim c
 tests/compiler/tcppCompileToNamespace.nim c
 tests/concepts/tusertypeclasses.nim c
