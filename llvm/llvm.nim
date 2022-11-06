@@ -323,7 +323,7 @@ template asRaw(arr: untyped, body: untyped): untyped =
   let p {.inject.} = if s.len > 0: addr(s[0]) else: nil
   body
 
-proc functionType*(returnType: TypeRef, paramTypes: openarray[TypeRef],
+proc functionType*(returnType: TypeRef, paramTypes: openArray[TypeRef],
                    isVarArg = false): TypeRef =
   asRaw(paramTypes, functionType(returnType, p, n, if isVarArg: llvm.True else: llvm.False))
 
@@ -332,11 +332,11 @@ proc getParamTypes*(functionTy: TypeRef): seq[TypeRef] =
   if result.len > 0:
     functionTy.getParamTypes(addr(result[0]))
 
-proc structTypeInContext*(c: ContextRef, elementTypes: openarray[TypeRef],
+proc structTypeInContext*(c: ContextRef, elementTypes: openArray[TypeRef],
                           packed = False): TypeRef =
   asRaw(elementTypes, structTypeInContext(c, p, n, packed))
 
-proc structSetBody*(structTy: TypeRef; elementTypes: openarray[TypeRef];
+proc structSetBody*(structTy: TypeRef; elementTypes: openArray[TypeRef];
                     packed = False) =
   asRaw(elementTypes, structSetBody(structTy, p, n, packed))
 
@@ -351,22 +351,22 @@ proc pointerType*(elementType: TypeRef): TypeRef =
 proc constStringInContext*(c: ContextRef, s: string, dontNullTerminate = False): ValueRef =
   constStringInContext(c, s, s.len.cuint, dontNullTerminate)
 
-proc constStructInContext*(c: ContextRef, constantVals: openarray[ValueRef]; packed = False): ValueRef =
+proc constStructInContext*(c: ContextRef, constantVals: openArray[ValueRef]; packed = False): ValueRef =
   asRaw(constantVals, constStructInContext(c, p, n, packed))
 
-proc constArray*(t: TypeRef, constantVals: openarray[ValueRef]): ValueRef =
+proc constArray*(t: TypeRef, constantVals: openArray[ValueRef]): ValueRef =
   asRaw(constantVals, constArray(t, p, n))
 
 proc constNamedStruct*(structTy: TypeRef;
-                       constantVals: openarray[ValueRef]): ValueRef =
+                       constantVals: openArray[ValueRef]): ValueRef =
   asRaw(constantVals, constNamedStruct(structTy, p, n))
 
 proc constGEP2*(ty: TypeRef, constantVal: ValueRef;
-                constantIndices: openarray[ValueRef]): ValueRef =
+                constantIndices: openArray[ValueRef]): ValueRef =
   asRaw(constantIndices, constGEP2(ty, constantVal, p, n))
 
-proc addIncoming*(phiNode: ValueRef; incomingValues: openarray[ValueRef];
-                  incomingBlocks: openarray[BasicBlockRef]) =
+proc addIncoming*(phiNode: ValueRef; incomingValues: openArray[ValueRef];
+                  incomingBlocks: openArray[BasicBlockRef]) =
   var s0 = @incomingValues
   let n0 = s0.len.cuint
   let p0 = if s0.len > 0: addr(s0[0]) else: nil
@@ -375,17 +375,17 @@ proc addIncoming*(phiNode: ValueRef; incomingValues: openarray[ValueRef];
   addIncoming(phiNode, p0, p1, n0)
 
 proc buildGEP2*(
-    b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openarray[ValueRef];
+    b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openArray[ValueRef];
     name: cstring): ValueRef =
   asRaw(indices, buildGEP2(b, ty, pointer, p, n, name))
 
 proc buildInBoundsGEP2*(
-    b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openarray[ValueRef];
+    b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openArray[ValueRef];
     name: cstring): ValueRef =
   asRaw(indices, buildInBoundsGEP2(b, ty, pointer, p, n, name))
 
 proc buildCall2*(
-    b: BuilderRef; ty: TypeRef, fn: ValueRef; args: openarray[ValueRef];
+    b: BuilderRef; ty: TypeRef, fn: ValueRef; args: openArray[ValueRef];
     name: cstring): ValueRef =
   asRaw(args, buildCall2(b, ty, fn, p, n, name))
 
