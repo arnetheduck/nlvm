@@ -2805,7 +2805,7 @@ proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef) =
       fty = llvm.functionType(llvm.voidTypeInContext(g.lc),
         [g.voidPtrType, i8t, llvm.int64TypeInContext(g.lc),
         llvm.int1TypeInContext(g.lc)])
-      f = g.m.getOrInsertFunction("llvm.memset.p0i8.i64", fty)
+      f = g.m.getOrInsertFunction("llvm.memset.p0.i64", fty)
 
     discard g.b.buildCall2(fty, f, [t, v8, len, g.constInt1(false)], "")
   else:
@@ -2814,7 +2814,7 @@ proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef) =
       fty = llvm.functionType(llvm.voidTypeInContext(g.lc),
         [g.voidPtrType, llvm.int8TypeInContext(g.lc), i32t,
         llvm.int1TypeInContext(g.lc)])
-      f = g.m.getOrInsertFunction("llvm.memset.p0i8.i32", fty)
+      f = g.m.getOrInsertFunction("llvm.memset.p0.i32", fty)
       len32 = g.b.buildZExt(len, i32t, "memset.l32")
 
     discard g.b.buildCall2(fty, f, [t, v8, len32, g.constInt1(false)], "")
@@ -2829,7 +2829,7 @@ proc callMemcpy(g: LLGen, tgt, src, len: llvm.ValueRef) =
       fty = llvm.functionType(llvm.voidTypeInContext(g.lc), [
         g.voidPtrType, g.voidPtrType, llvm.int64TypeInContext(g.lc),
         llvm.int1TypeInContext(g.lc)])
-      f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i64", fty)
+      f = g.m.getOrInsertFunction("llvm.memcpy.p0.p0.i64", fty)
 
     discard g.b.buildCall2(fty, f, [t, s, len, g.constInt1(false)], "")
   else:
@@ -2837,7 +2837,7 @@ proc callMemcpy(g: LLGen, tgt, src, len: llvm.ValueRef) =
       i32t = llvm.int32TypeInContext(g.lc)
       fty = llvm.functionType(llvm.voidTypeInContext(g.lc), [
         g.voidPtrType, g.voidPtrType, i32t, llvm.int1TypeInContext(g.lc)])
-      f = g.m.getOrInsertFunction("llvm.memcpy.p0i8.p0i8.i32", fty)
+      f = g.m.getOrInsertFunction("llvm.memcpy.p0.p0.i32", fty)
       len32 = g.b.buildZExt(len, i32t, "memcpy.l32")
 
     discard g.b.buildCall2(fty, f, [t, s, len32, g.constInt1(false)], "")
@@ -7612,7 +7612,7 @@ proc genNode(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
 proc newLLGen(graph: ModuleGraph, idgen: IdGenerator, tgt: string, tm: TargetMachineRef): LLGen =
   let
     lc = llvm.getGlobalContext()
-  lc.contextSetOpaquePointers(0)
+  # lc.contextSetOpaquePointers(0)
   let
     name = graph.config.m.fileInfos[graph.config.projectMainIdx.int].shortName
     intType = llvm.intTypeInContext(lc, graph.config.target.intSize.cuint * 8)
