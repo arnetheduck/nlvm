@@ -12,6 +12,8 @@ tests/arc/t17173.nim c --gc:arc
 tests/arc/t17812.nim c --gc:arc
 tests/arc/t18971.nim c
 tests/arc/t19435.nim c --gc:arc
+tests/arc/t19862.nim c --gc:arc
+tests/arc/t19862.nim c --gc:refc
 tests/arc/tamemfiles.nim c
 tests/arc/tamodule.nim c
 tests/arc/tarcmisc.nim c
@@ -31,6 +33,7 @@ tests/arc/tcomputedgoto.nim c
 tests/arc/tconst_to_sink.nim c --gc:arc
 tests/arc/tcontrolflow.nim c
 tests/arc/tcursor_field_obj_constr.nim c
+tests/arc/tcursorloop.nim c
 tests/arc/tcursor_on_localvar.nim c
 tests/arc/tcustomtrace.nim c
 tests/arc/tdeepcopy.nim c
@@ -149,10 +152,8 @@ tests/destructor/tgotoexceptions6.nim c
 tests/destructor/tgotoexceptions7.nim c
 tests/destructor/tgotoexceptions8.nim c
 tests/destructor/tgotoexceptions.nim c
-tests/destructor/tmove_objconstr.nim c
 tests/destructor/tnewruntime_misc.nim c
 tests/destructor/tnewruntime_strutils.nim c
-tests/destructor/topttree.nim c
 tests/destructor/towned_binary_tree.nim c
 tests/destructor/tselect.nim c
 tests/destructor/tsetjmp_raise.nim c
@@ -267,10 +268,12 @@ tests/misc/tidentconcatenations.nim c
 tests/misc/tinvalidarrayaccess2.nim c
 tests/misc/tinvalidarrayaccess.nim c
 tests/misc/tjoinable.nim c
+tests/misc/tlocals.nim c --mm:orc
 tests/misc/trunner.nim c
 tests/misc/tsizeof.nim c
 tests/misc/tstrace.nim c
 tests/misc/ttlsemulation.nim c -d:nimTtlsemulationCase1 --threads --tlsEmulation:on
+tests/modules/tmodule_name_clashes.nim c
 tests/navigator/tincludefile_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off
 tests/navigator/tnav1_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off
 tests/nimdoc/t15916.nim c

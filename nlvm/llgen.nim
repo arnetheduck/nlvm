@@ -949,7 +949,7 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
   of tyNil, tyTyped, tyNone: g.dtypes[tyChar] # void*?
   of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
       tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
-      tyUserTypeClassInst, tyInferred, tyStatic:
+      tyUserTypeClassInst, tyInferred, tyStatic, tyOwned:
     g.debugType(typ.lastSon)
   of tyEnum:
     let (bits, _, _, _) = g.debugSize(typ)
@@ -1374,7 +1374,7 @@ proc llType(g: LLGen, typ: PType, deep = true): llvm.TypeRef =
   of tyBool, tyChar, tyNil, tyTyped, tyNone: g.primitives[typ.kind]
   of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam,
      tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass,
-     tyUserTypeClassInst, tyInferred, tyStatic:
+     tyUserTypeClassInst, tyInferred, tyStatic, tyOwned:
     g.llType(typ.lastSon, deep)
   of tyEnum: llvm.intTypeInContext(g.lc, g.config.getSize(typ).cuint * 8)
   of tyArray:
