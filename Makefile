@@ -47,7 +47,7 @@ $(NLVMR): $(LLVM_DEP) $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim nlvm-lib
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) -d:release $(NLVMCFLAGS) -o:nlvmr c nlvm
 
 nlvm/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim nlvm-lib/*.nim
-	cd nlvm && time ./nlvm $(NLVMFLAGS) -o:nlvm.ll -c c nlvm
+	cd nlvm && time ./nlvm $(NLVMFLAGS) -o:nlvm.ll $(NLVMCFLAGS) -c c nlvm
 
 nlvm/nlvm.self: $(NLVMC)
 	cd nlvm && time ./nlvm -o:nlvm.self $(NLVMFLAGS) $(NLVMCFLAGS) c nlvm
