@@ -226,6 +226,7 @@ tests/gc/refarrayleak c  --gc:orc
 tests/gc/refarrayleak c  --gc:orc -d:release
 tests/gc/stackrefleak c  --gc:orc
 tests/gc/stackrefleak c  --gc:orc -d:release
+tests/gc/thavlak c  -d:release --gc:markAndSweep
 tests/gc/thavlak c  --gc:orc
 tests/gc/thavlak c  --gc:orc -d:release
 tests/gc/tlists c  --gc:orc
@@ -270,6 +271,7 @@ tests/misc/tinvalidarrayaccess.nim c
 tests/misc/tjoinable.nim c
 tests/misc/tlocals.nim c --mm:orc
 tests/misc/trunner.nim c
+tests/misc/trunner_special.nim c
 tests/misc/tsizeof.nim c
 tests/misc/tstrace.nim c
 tests/misc/ttlsemulation.nim c -d:nimTtlsemulationCase1 --threads --tlsEmulation:on
@@ -286,7 +288,6 @@ tests/niminaction/Chapter7/Tweeter/src/tweeter.nim c
 tests/niminaction/Chapter7/Tweeter/tests/database_test.nim c
 tests/niminaction/Chapter8/sdl/sdl_test.nim c
 tests/objvariant/t14581.nim c --gc:arc
-tests/osproc/texecps.nim c
 tests/osproc/treadlines.nim c
 tests/overflw/tdistinct_range.nim c
 tests/overload/t8829.nim c
@@ -333,9 +334,7 @@ tests/stdlib/tstrbasics.nim c --gc:arc
 tests/stdlib/tstreams.nim c --gc:arc
 tests/stdlib/ttasks.nim c --gc:orc
 tests/stdlib/tthreadpool.nim c --threads:on --gc:arc
-tests/stdlib/tunittest_error.nim c -d:case1
 tests/stdlib/tunittestexceptiontype.nim c
-tests/stdlib/tunittesttemplate.nim c
 tests/stdlib/tvarargs.nim c --gc:arc
 tests/stdlib/tvarints.nim c
 tests/system/tdeepcopy.nim c
