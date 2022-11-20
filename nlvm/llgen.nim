@@ -2593,16 +2593,13 @@ proc rootIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
     result = result & @[zero]
     t = skipTypes(t.lastSon, typedescInst)
 
-  while t.kind == tyObject and t.sons[0] != nil:
+  while t.kind == tyObject and t[0] != nil:
     result = result & @[zero]
-    t = skipTypes(t.sons[0], abstractPtrs)
+    t = skipTypes(t[0], skipPtrs)
 
   if t.isObjLackingTypeField():
     # TODO why is this check in the generator???
     g.config.internalError("no 'of' operator available for pure objects")
-
-proc mtypeIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
-  g.rootIndex(typ) & g.gep0
 
 proc excNameIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
   g.rootIndex(typ)[0..^2] & g.constGEPIdx(2)
@@ -3032,15 +3029,14 @@ proc genObjectInit(g: LLGen, typ: PType, v: llvm.ValueRef, setType: bool) =
     if setType and not isObjLackingTypeField(typ):
       let
         ti = g.genTypeInfo(typ)
-        tgt = g.b.buildInboundsGEP2(ty, v, g.mtypeIndex(typ), g.nn("mtype", v))
-      discard g.b.buildStore(ti, tgt)
+      # `mtype` field always at beginning of object
+      discard g.b.buildStore(ti, v)
 
     var start = 0
 
     if typ.len > 0 and typ[0] != nil:
       let baseTyp = typ[0].skipTypes(skipPtrs)
-      if analyseObjectWithTypeField(baseTyp) == frEmbedded:
-        g.genObjectInit(baseTyp, v, false)
+      g.genObjectInit(baseTyp, v, false)
       start = 1 # Skip super type field
     elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
       start = 1 # Skip m_type in inheritable root object
@@ -3816,43 +3812,44 @@ proc getOrdering(n: PNode): llvm.AtomicOrdering =
   else:
     llvm.AtomicOrderingSequentiallyConsistent
 
-proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
+proc genFakeCall(g: LLGen, n: PNode, o: var LLValue, load: bool): bool =
   let nf = n[0]
-  if nf.kind != nkSym: return false
+  if nf.kind != nkSym:
+    return false
 
   let s = nf.sym
-  if s.originatingModule().name.s == "system":
+  if s.originatingModule.name.s == "system":
     if s.name.s == "atomicLoad":
       let
-        p0 = g.genNode(n[1], false).v
-        p1 = g.genNode(n[2], false).v
+        p0 = g.genNode(n[1], true).v
+        p1 = g.genNode(n[2], true).v
         ord = getOrdering(n[3])
-        ld = g.b.buildLoad2(g.llType(n[1].typ), p0)
+        ld = g.b.buildLoad2(g.llType(n[1].typ.elemType), p0)
       ld.setOrdering(ord)
       discard g.b.buildStore(ld, p1)
       return true
 
     if s.name.s == "atomicLoadN":
       let
-        p0 = g.genNode(n[1], false).v
+        p0 = g.genNode(n[1], true).v
         ord = getOrdering(n[2])
-      o = LLValue(v: g.b.buildLoad2(g.llType(n[1].typ), p0))
+      o = LLValue(v: g.b.buildLoad2(g.llType(n[1].typ.elemType), p0))
       o.v.setOrdering(ord)
       return true
 
     if s.name.s == "atomicStore":
       let
-        p0 = g.genNode(n[1], false).v
-        p1 = g.genNode(n[2], false).v
+        p0 = g.genNode(n[1], true).v
+        p1 = g.genNode(n[2], true).v
         ord = getOrdering(n[3])
-        ld = g.b.buildLoad2(g.llType(n[2].typ), p1)
+        ld = g.b.buildLoad2(g.llType(n[2].typ.elemType), p1)
         ax = g.b.buildStore(ld, p0)
       ax.setOrdering(ord)
       return true
 
     if s.name.s == "atomicStoreN":
       let
-        p0 = g.genNode(n[1], false).v
+        p0 = g.genNode(n[1], true).v
         p1 = g.genNode(n[2], true).v
         ord = getOrdering(n[3])
         ax = g.b.buildStore(p1, p0)
@@ -3861,7 +3858,7 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
 
     if s.name.s == "atomicAddFetch":
       let
-        p0 = g.genNode(n[1], false).v
+        p0 = g.genNode(n[1], true).v
         p1 = g.genNode(n[2], true).v
         ord = getOrdering(n[3])
       o = LLValue(v: g.b.buildAtomicRMW(
@@ -3870,7 +3867,7 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       return true
 
     if s.name.s == "atomicSubFetch":
-      let p0 = g.genNode(n[1], false).v
+      let p0 = g.genNode(n[1], true).v
       let p1 = g.genNode(n[2], true).v
       let ord = getOrdering(n[3])
       o = LLValue(v: g.b.buildAtomicRMW(
@@ -3901,10 +3898,10 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
         p2 = g.genNode(n[3], true).v
         ord1 = getOrdering(n[5])
         ord2 = getOrdering(n[6])
-        l1 = g.b.buildLoad2(g.llType(n[2].typ), p1)
+        l1 = g.b.buildLoad2(g.llType(n[2].typ.elemType), p1)
         l2 =
           if s.name.s == "atomicCompareExchangeN": p2
-          else: g.b.buildLoad2(g.llType(n[3].typ), p2)
+          else: g.b.buildLoad2(g.llType(n[3].typ.elemType), p2)
         x = g.b.buildAtomicCmpXchg(p0, l1, l2, ord1, ord2, llvm.False)
         ok = g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))
         lok = g.b.appendBasicBlockInContext(g.lc, g.nn("cas.ok", n))
@@ -3930,14 +3927,28 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       return true
 
     if s.name.s == "getCurrentException":
-      o = LLValue(
-        v: g.callCompilerProc("nlvmGetCurrentException", [], noInvoke=true))
+      let ax = g.callCompilerProc("nlvmGetCurrentException", [], noInvoke=true)
+      o = LLValue(v: if load:
+        ax
+      else:
+        let tmp = g.localAlloca(ax.typeOfX, g.nn("tmp", ax))
+        discard g.b.buildStore(ax, tmp)
+        tmp)
+      return true
+
+    if s.name.s == "getCurrentExceptionMsg":
+      let ax = g.callCompilerProc("nlvmGetCurrentExceptionMsg", [], noInvoke=true)
+      o = LLValue(v: if load:
+        ax
+      else:
+        let tmp = g.localAlloca(ax.typeOfX, g.nn("tmp", ax))
+        discard g.b.buildStore(ax, tmp)
+        tmp)
       return true
 
     if s.name.s == "closureIterSetupExc":
       let p0 = g.genNode(n[1], true).v
-      o = LLValue(
-        v: g.callCompilerProc("nlvmSetClosureException", [p0], noInvoke=true))
+      discard g.callCompilerProc("nlvmSetClosureException", [p0], noInvoke=true)
       return true
 
     if s.name.s == "abs":
@@ -4007,7 +4018,7 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       let
         p0 = g.genNode(n[1], false).v
         ord = getOrdering(n[2])
-        ld = g.b.buildLoad2(g.llType(n[1].typ), p0)
+        ld = g.b.buildLoad2(g.llType(n[1].typ.elemType), p0)
       ld.setOrdering(ord)
       o = LLValue(v: ld)
       return true
@@ -4039,7 +4050,7 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
         p2 = g.genNode(n[3], true).v
         ord1 = getOrdering(n[4])
         ord2 = getOrdering(n[5])
-        l1 = g.b.buildLoad2(g.llType(n[2].typ), p1)
+        l1 = g.b.buildLoad2(g.llType(n[2].typ.elemType), p1)
         x = g.b.buildAtomicCmpXchg(p0, l1, p2, ord1, ord2, llvm.False)
         ok = g.b.buildExtractValue(x, 1.cuint, g.nn("cas.b", n))
         lok = g.b.appendBasicBlockInContext(g.lc, g.nn("cas.ok", n))
@@ -4094,6 +4105,10 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue): bool =
       return true
     of "__builtin_bswap64":
       o = LLValue(v: g.callBSwap(g.genNode(n[1], true).v, 64))
+      return true
+    of "alloca", "__builtin_alloca":
+      let p0 = g.genNode(n[1], true).v
+      o = LLValue(v: g.b.buildArrayAlloca(g.int8Ty, p0, g.nn("alloca", n)))
       return true
 
 proc genBoundsCheck(g: LLGen, arr, len, a, b: llvm.ValueRef) =
@@ -4346,9 +4361,10 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
   # the call - in certain cases, the return value of the function can be
   # placed directly in `dest` in which case the ordinary `LLValue` returned will
   # be `nil`.
-  if g.genFakeCall(n, result):
+  if g.genFakeCall(n, result, load):
     return
 
+  var needsReset = false
   let
     nf = n[namePos]
     ftyp = nf.typ.skipTypes(abstractInstOwned)
@@ -4365,16 +4381,21 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
             dest.v.typeOfX().getTypeKind == llvm.PointerTypeKind and
             not (isPartOf(dest.lode, n) != arNo) and
             not g.preventNrvo(dest.lode, le, n):
-          g.callReset(ftyp[0], dest)
+          needsReset = true
           @[dest.v]
         else:
           let tmp = g.localAlloca(retArgType, g.nn("call.res.stack", n))
           g.callMemset(
             tmp, g.constInt8(0), g.constStoreSize((retArgType)))
+          g.genObjectInit(ftyp[0], tmp)
           @[tmp]
       else:
         @[]
     args = g.genCallArgs(n, fty, ftyp, retArgs.len)
+  if needsReset:
+    # Reset after process call arguments
+    g.callReset(ftyp[0], LLValue(v: retArgs[0]))
+
   let callres = if ftyp.callConv == ccClosure:
     let
       prc = g.b.buildExtractValue(fx, 0, g.nn("call.clo.prc.ptr", n))
@@ -4419,8 +4440,7 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
   else:
     g.buildCallOrInvoke(fty, fx, retArgs & args, g.nn("call.res", n))
 
-  if (retty.getTypeKind() != llvm.VoidTypeKind and not load and
-      ftyp[0].kind != tyRef):
+  if (retty.getTypeKind() != llvm.VoidTypeKind and not load):
     # if the originator of the call wants a pointer, we'll have
     # to create one for them - this is interesting for example
     # when a struct is returned "by value"
@@ -4900,22 +4920,21 @@ proc genMagicSizeOf(g: LLGen, n: PNode): LLValue =
   LLValue(v: g.constNimInt(dl.aBISizeOfType(g.llType(t)).int))
 
 proc genMagicOf(g: LLGen, n: PNode): LLValue =
-  var ax = g.genNode(n[1], skipTypes(n[1].typ, abstractInst).kind == tyRef)
+  var
+    typ = skipTypes(n[1].typ, abstractInst)
+    ax = g.genNode(n[1], false)
 
   # C generator does this extra dereferencing here - looks odd that it's needed
   # but there are test case fails because of it - needs more investigation
-  var typ = skipTypes(n[1].typ, abstractInst)
   while typ.kind in {tyVar, tyLent, tyPtr, tyRef}:
-    if typ.lastSon.kind in {tyVar, tyLent, tyPtr, tyRef}:
-      ax = g.buildLoadValue(g.llType(typ.lastSon), ax)
-    typ = skipTypes(typ.lastSon, typedescInst)
+    ax = g.buildLoadValue(g.llType(typ), ax)
+    typ = skipTypes(typ.lastSon, typedescInst+{tyOwned})
 
   let
-    ty = g.llType(typ)
-    mt_gep = g.b.buildInboundsGEP2(ty, ax.v, g.mtypeIndex(typ), g.nn("mtype", ax))
-    m_type = g.b.buildLoad2(g.ptrTy, mt_gep) # g.llMagicType("TNimType").pointerType()
+    mtype = g.b.buildLoad2(g.ptrTy, ax.v) # g.llMagicType("TNimType").pointerType()
   # TODO nil check if n is a pointer
-  LLValue(v: g.callCompilerProc("isObj", [m_type, g.genTypeInfo(n[2].typ.skipTypes(typedescPtrs))]))
+  LLValue(v: g.callCompilerProc(
+    "isObj", [mtype, g.genTypeInfo(n[2].typ.skipTypes(typedescPtrs))]))
 
 proc genMagicEcho(g: LLGen, n: PNode) =
   let b = n[1].skipConv
@@ -5009,17 +5028,18 @@ proc genMagicNewFinalize(g: LLGen, n: PNode) =
 
   # Funny enough, the finalizer is set for all objects of this type, not
   # just the one that's being created (!)
-  let init = ti.getInitializer()
-  ti.setInitializer(constNamedStruct(init.typeOfX(), [
-    init.getOperand(0),
-    init.getOperand(1),
-    init.getOperand(2),
-    init.getOperand(3),
-    init.getOperand(4),
-    init.getOperand(5),
-    f,
-    init.getOperand(7),
-    init.getOperand(8)]))
+  let
+    init = ti.getInitializer()
+  var
+    newInit = newSeq[llvm.ValueRef](init.getNumOperands())
+
+  for i in 0..<newInit.len:
+    if i == 6:
+      newInit[i] = f
+    else:
+      newInit[i] = init.getOperand(cuint i)
+
+  ti.setInitializer(constNamedStruct(init.typeOfX(), newInit))
 
   let
     src = g.callCompilerProc("newObj", [ti, sizeOfExpr])
@@ -6271,21 +6291,11 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): LLValue =
     else:
       v
   of skParam:
-    let v = g.symbols[sym.id]
+    var v = g.symbols[sym.id]
+    if g.llPassAsPtr(sym, g.f.sym.typ[0]):
+      v = g.buildLoadValue(g.ptrTy, v)
 
-    var toload = g.llPassAsPtr(sym, g.f.sym.typ[0])
-    if toload and load:
-      let
-        symTy = g.llType(sym.typ)
-        tmp = g.buildLoadValue(g.ptrTy, v) # symTy.pointerType
-      g.buildLoadValue(symTy, tmp)
-    elif not load and not toload and
-        sym.typ.kind notin {tyPtr, tyVar, tyRef, tyPointer, tyLent}:
-      # Someone wants an address, but all we have is a value...
-      v
-    else:
-      let symTy = g.llType(sym.typ)
-      g.buildLoadValue(if toload: g.ptrTy else: symTy, v) # symTy.pointerType
+    g.maybeLoadValue(g.llType(sym.typ), v, load)
   of skType:
     LLValue(v: g.genTypeInfo(sym.typ))
   of skMethod:
@@ -6945,37 +6955,28 @@ proc genNodeObjDownConv(g: LLGen, n: PNode, load: bool): LLValue =
   g.genNode(n[0], load)
 
 proc genNodeObjUpConv(g: LLGen, n: PNode, load: bool): LLValue =
-  let ax = g.genNode(n[0], n.typ.skipTypes(abstractInst).kind == tyRef)
+  let ax = g.genNode(n[0], false)
 
-  let dest = n.typ.skipTypes(abstractPtrs)
-  if optObjCheck in g.f.options and not isObjLackingTypeField(dest):
+  let destTyp = n.typ.skipTypes(abstractPtrs)
+  if optObjCheck in g.f.options and not isObjLackingTypeField(destTyp):
     var r = ax
     var nilCheck: LLValue
     var t = n[0].typ.skipTypes(abstractInst)
-    var first = true
     while t.kind in {tyVar, tyLent, tyPtr, tyRef}:
+      r = g.buildLoadValue(g.llType(t), r)
       if t.kind notin {tyVar, tyLent}: nilCheck = r
-      if first:
-        first = false
-      else:
-        r = g.buildLoadValue(g.llType(t), r)
-
       t = t.lastSon.skipTypes(abstractInst)
     let
-      ti = g.genTypeInfo(t)
-      ty = g.llType(t)
-      mt_gep = g.b.buildInboundsGEP2(ty, r.v, g.mtypeIndex(t), g.nn("mt_gep", r))
-      mt = g.b.buildLoad2(g.ptrTy, mt_gep) # g.llMagicType("TNimType").pointerType()
+      destTi = g.genTypeInfo(destTyp)
+      mtype = g.b.buildLoad2(g.ptrTy, r.v) # g.llMagicType("TNimType").pointerType()
 
     if not nilCheck.v.isNil():
       g.withNotNil(nilCheck.v):
-        discard g.callCompilerProc("chckObj", [mt, ti])
+        discard g.callCompilerProc("chckObj", [mtype, destTi])
     else:
-      discard g.callCompilerProc("chckObj", [mt, ti])
+      discard g.callCompilerProc("chckObj", [mtype, destTi])
 
-  g.maybeLoadValue(
-    g.llType(n.typ), ax,
-    load and n.typ.skipTypes(abstractInst).kind notin {tyVar, tyLent, tyPtr, tyRef})
+  g.maybeLoadValue(g.llType(n.typ), ax, load)
 
 proc genNodeChckRange(g: LLGen, n: PNode): LLValue =
   let
@@ -7566,10 +7567,8 @@ proc genNodeRaiseStmt(g: LLGen, n: PNode) =
   if n[0].kind != nkEmpty:
     let
       ax = g.genNode(n[0], true).v
-      typ = skipTypes(n[0].typ, abstractPtrs)
-      name = g.b.buildGlobalStringPtr(typ.sym.name.s, "raise." & typ.sym.name.s)
 
-    discard g.callCompilerProc("nlvmRaise", [ax, name], noReturn = true)
+    discard g.callCompilerProc("nlvmRaise", [ax], noReturn = true)
   else:
     discard g.callCompilerProc("nlvmReraise", [], noReturn = true)
 
@@ -7812,7 +7811,7 @@ proc genNode(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
 
   of nkTypeSection, nkCommentStmt, nkIteratorDef, nkIncludeStmt,
      nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
-     nkFromStmt, nkTemplateDef, nkMacroDef: discard
+     nkFromStmt, nkTemplateDef, nkMacroDef, nkArgList: discard
   else:
     g.config.internalError(n.info, "Unhandled node: " & $n)
 

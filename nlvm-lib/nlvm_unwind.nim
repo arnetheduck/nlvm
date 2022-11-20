@@ -44,7 +44,7 @@ type
     actions: UnwindAction,
     exceptionClass: uint64,
     exception: ptr UnwindException,
-    context: UnwindContext,
+    ctx: UnwindContext,
     parameter: pointer
   ) {.cdecl.}
 
@@ -69,7 +69,7 @@ func getLanguageSpecificData*(ctx: UnwindContext): uint {.importc: "_Unwind_GetL
 proc forcedUnwind*(exception: ptr UnwindException, stop: UnwindStopFn, parameter: pointer) {.importc: "_Unwind_ForcedUnwind".}
 proc resumeOrRethrow*(exception: ptr UnwindException): UnwindReasonCode {.importc: "_Unwind_Resume_Or_Rethrow".}
 
-type UnwindTraceFn* = proc(context: UnwindContext, parameter: pointer) {.cdecl.}
+type UnwindTraceFn* = proc(ctx: UnwindContext, parameter: pointer) {.cdecl.}
 proc backtrace*(traceFn: UnwindTraceFn, parameter: pointer) {.importc: "_Unwind_Backtrace".}
 
 func getCFA*(ctx: UnwindContext): uint {.importc: "_Unwind_GetCFA".}

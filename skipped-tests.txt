@@ -73,16 +73,9 @@ tests/arc/tunref_cycle.nim c
 tests/arc/tweavecopy.nim c
 tests/arc/tweave.nim c
 tests/arc/twrong_sinkinference.nim c
-tests/assert/tassert2.nim c
 tests/assert/tassert_c.nim c
-tests/async/t8982.nim c
-tests/async/tasyncclosestall.nim c
-tests/async/tasyncfile.nim c
 tests/async/tasyncssl.nim c
 tests/async/tasync_traceback.nim c
-tests/async/tasynctry.nim c
-tests/async/tawaitsemantics.nim c
-tests/async/tfuturevar.nim c
 tests/avr/thello.nim c
 tests/casestmt/t7699.nim c
 tests/ccgbugs2/tinefficient_const_table.nim c
@@ -91,7 +84,6 @@ tests/ccgbugs/t16374.nim c --gc:orc
 tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445
 tests/ccgbugs/targ_lefttoright.nim c
 tests/ccgbugs/tassign_nil_strings.nim c
-tests/ccgbugs/tcodegenbug1.nim c
 tests/ccgbugs/tcodegenbug_bool.nim c
 tests/ccgbugs/tcodegendecllambda.nim c
 tests/ccgbugs/tcompile_time_var_at_runtime.nim c
@@ -99,7 +91,6 @@ tests/ccgbugs/tctypes.nim c --gc:arc
 tests/ccgbugs/tcvarargs.nim c
 tests/ccgbugs/tforward_decl_only.nim c
 tests/ccgbugs/tlvalueconv.nim c --gc:arc
-tests/ccgbugs/tlvalueconv.nim c --gc:refc
 tests/ccgbugs/tmangle_field.nim c
 tests/ccgbugs/tmissingvolatile.nim c
 tests/ccgbugs/tnoalias.nim c
@@ -187,15 +178,9 @@ tests/errmsgs/treportunused.nim c --hint:all:off --hint:XDeclaredButNotUsed
 tests/exception/t13115.nim c
 tests/exception/t18620.nim c --gc:arc
 tests/exception/t18620.nim c --gc:refc
-tests/exception/tcontinuexc.nim c
-tests/exception/tdefer1.nim c
 tests/exception/texception_inference.nim c
 tests/exception/texceptions.nim c -d:nimBuiltinSetjmp
-tests/exception/texceptions.nim c -d:nimRawSetjmp
 tests/exception/texceptions.nim c -d:nimSigSetjmp
-tests/exception/texceptions.nim c -d:nimStdSetjmp
-tests/exception/tfinally3.nim c
-tests/exception/tfinally.nim c
 tests/exception/tsetexceptions.nim c
 tests/exception/tunhandledexc.nim c
 tests/float/tfloat3.nim c
@@ -246,7 +231,6 @@ tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/import_in_config/tmain.nim c
 tests/iter/tshallowcopy_closures.nim c
-tests/iter/tyieldintry.nim c
 tests/lent/tbasic_lent_check.nim c
 tests/let/timportc.nim c
 tests/macros/tmemit.nim c
@@ -305,7 +289,6 @@ tests/sets/t5792.nim c --gc:arc
 tests/stdlib/concurrency/tatomic_import.nim c
 tests/stdlib/concurrency/tatomics.nim c
 tests/stdlib/t15663.nim c
-tests/stdlib/tasynchttpserver.nim c
 tests/stdlib/tasynchttpserver_transferencoding.nim c --gc:arc --threads:on
 tests/stdlib/tasynchttpserver_transferencoding.nim c --gc:arc --threads:on -d:danger
 tests/stdlib/tcstring.nim c --gc:arc
@@ -315,26 +298,21 @@ tests/stdlib/tfdleak.nim c -d:nimInheritHandles
 tests/stdlib/thttpclient.nim c
 tests/stdlib/thttpclient_ssl.nim c
 tests/stdlib/tisolation.nim c --gc:orc
-tests/stdlib/tjsonmacro.nim c
 tests/stdlib/tjson.nim c
 tests/stdlib/tlwip.nim c
 tests/stdlib/tnetconnect.nim c -d:ssl
 tests/stdlib/tos.nim c
 tests/stdlib/tosproc.nim c
 tests/stdlib/trepr.nim c --gc:arc
-tests/stdlib/trstgen.nim c
-tests/stdlib/trst.nim c
 tests/stdlib/tsocketstreams.nim c
 tests/stdlib/tsqlitebindatas.nim c
 tests/stdlib/tssl.nim c
 tests/stdlib/tstackframes.nim c
-tests/stdlib/tstdlib_issues.nim c
 tests/stdlib/tstdlib_various.nim c
 tests/stdlib/tstrbasics.nim c --gc:arc
 tests/stdlib/tstreams.nim c --gc:arc
 tests/stdlib/ttasks.nim c --gc:orc
 tests/stdlib/tthreadpool.nim c --threads:on --gc:arc
-tests/stdlib/tunittestexceptiontype.nim c
 tests/stdlib/tvarargs.nim c --gc:arc
 tests/stdlib/tvarints.nim c
 tests/system/tdeepcopy.nim c
