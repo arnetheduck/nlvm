@@ -2,7 +2,7 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-import strutils, strformat
+import strformat
 
 const
   LLVMMaj = 15

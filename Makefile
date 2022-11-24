@@ -52,6 +52,9 @@ nlvm/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim nlvm-lib/*.nim
 nlvm/nlvm.self: $(NLVMC)
 	cd nlvm && time ./nlvm -o:nlvm.self $(NLVMFLAGS) $(NLVMCFLAGS) c nlvm
 
+nlvm/nlvmr.self: $(NLVMR)
+	cd nlvm && time ./nlvmr -o:nlvmr.self -d:release $(NLVMFLAGS) $(NLVMCFLAGS) c nlvm
+
 nlvm/nlvm.self.ll: nlvm/nlvm.self
 	cd nlvm && time ./nlvm.self -c $(NLVMFLAGS) $(NLVMCFLAGS) -o:nlvm.self.ll c nlvm
 

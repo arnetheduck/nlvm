@@ -22,3 +22,4 @@ tools
 dist/
 /megatest.nim
 .vscode
+/nlvm/nlvmr.self

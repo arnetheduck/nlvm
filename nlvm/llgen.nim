@@ -182,12 +182,17 @@ type
 
 template config(g: LLGen): untyped = g.graph.config
 template fileInfos(g: LLGen): untyped = g.config.m.fileInfos
+template ptrBits(g: LLGen): untyped = g.m.getModuleDataLayout().pointerSize() * 8
 
 # Helpers
 proc llPassAsPtr(g: LLGen, s: PSym, retType: PType): bool
 proc llType(g: LLGen, typ: PType, deep = true): llvm.TypeRef
+proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef
+proc llTupleType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef
+proc llProcType(g: LLGen, typ: PType, closure = false): llvm.TypeRef
 proc llStringType(g: LLGen): llvm.TypeRef
 proc llGenericSeqType(g: LLGen): llvm.TypeRef
+proc llSeqType(g: LLGen, typ: PType): llvm.TypeRef
 proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[FieldPath]
 proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef)
 proc callErrno(g: LLGen, prefix: string): llvm.ValueRef
@@ -300,6 +305,7 @@ template withFunc(g: LLGen, llf: LLFunc, body: untyped) =
     let f = g.f
     g.f = llf
     let db = g.b.getCurrentDebugLocation2()
+    g.b.setCurrentDebugLocation2(nil)
     body
     g.f = f
     if optCDebug in g.config.globalOptions:
@@ -481,6 +487,12 @@ proc typeName(typ: PType): Rope =
 
 proc supportsCopyMem(typ: PType): bool =
   not (containsGarbageCollectedRef(typ) or hasDestructor(typ))
+
+template hasMTypeField(typ: PType): bool =
+  # Check if this object type specifically has a type info field - does not
+  # consider base types
+  assert typ.kind == tyObject
+  not typ.lacksMTypeField()
 
 proc llName(g: LLGen, typ: PType, sig: SigHash): string =
   # getTypeName from ccgtypes.nim
@@ -925,18 +937,34 @@ proc isInvalidReturnType(g: LLGen, rettype: PType): bool =
     else:
       g.isLargeType(g.llType(t)) and (tfByCopy notin rettype.flags)
 
-proc debugSize(g: LLGen, typ: llvm.TypeRef):
-    tuple[typeBits, storeBits, abiBits, alignmentBits: uint32] =
+proc debugSize(g: LLGen, ty: llvm.TypeRef): uint32 =
   let
     dl = g.m.getModuleDataLayout()
-  (sizeOfXTypeInBits(dl, typ).uint32,
-    storeSizeOfType(dl, typ).uint32 * 8,
-    aBISizeOfType(dl, typ).uint32 * 8,
-    preferredAlignmentOfType(dl, typ).uint32 * 8)
+  sizeOfXTypeInBits(dl, ty).uint32
 
-proc debugSize(g: LLGen, typ: PType):
-    tuple[typeBits, storeBits, abiBits, alignmentBits: uint32] =
+proc debugSize(g: LLGen, typ: PType): uint32 =
   g.debugSize(g.llType(typ))
+
+proc debugOffset(g: LLGen, ty: llvm.TypeRef, element: int): uint32 =
+  let
+    dl = g.m.getModuleDataLayout()
+  dl.offsetOfElement(ty, cuint element).uint32 * 8
+
+proc debugGetLine(g: LLGen, sym: PSym): (llvm.MetadataRef, cuint) =
+  let
+    idx = if sym == nil: g.config. projectMainIdx else: sym.info.fileIndex
+    line = if sym == nil: cuint 1 else: cuint sym.info.line
+
+  if int(idx) in g.dfiles:
+    return (g.dfiles[int(idx)], line)
+
+  let
+    path = g.config.toFullPath(idx)
+    (dir, fn) = path.splitPath()
+    df = g.d.dIBuilderCreateFile(fn, dir)
+
+  g.dfiles[int(idx)] = df
+  (df, line)
 
 proc debugGetFile(g: LLGen, idx: FileIndex): llvm.MetadataRef =
   if int(idx) in g.dfiles: return g.dfiles[int(idx)]
@@ -953,7 +981,6 @@ proc debugMagicType(g: LLGen, name: string): llvm.MetadataRef
 
 proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
   if g.d == nil: return nil
-  let ptrBits = g.m.getModuleDataLayout().pointerSize() * 8
   case typ.kind
   of tyBool: g.dtypes[tyBool]
   of tyChar: g.dtypes[tyChar]
@@ -963,85 +990,80 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
       tyUserTypeClassInst, tyInferred, tyStatic, tyOwned:
     g.debugType(typ.lastSon)
   of tyEnum:
-    let (bits, _, _, _) = g.debugSize(typ)
     g.d.dIBuilderCreateBasicType(
-      g.llName(typ, hashType(typ)), bits, DW_ATE_unsigned)
+      g.llName(typ, hashType(typ)), g.debugSize(typ), DW_ATE_unsigned)
   of tyArray:
     let et = g.debugType(typ.elemType)
-    let (bits, _, _, _) = g.debugSize(typ)
-
-    g.d.dIBuilderCreateArrayType(bits, 0, et,
-              [g.d.dIBuilderGetOrCreateSubrange(0, g.config.lengthOrd(typ).toInt.int64)])
+    g.d.dIBuilderCreateArrayType(
+      g.debugSize(typ), 0, et,
+      [g.d.dIBuilderGetOrCreateSubrange(0, g.config.lengthOrd(typ).toInt.int64)])
   of tyUncheckedArray:
     let et = g.debugType(typ.elemType)
-    g.d.dIBuilderCreateArrayType(0, 0, et,
-                [g.d.dIBuilderGetOrCreateSubrange(0, -1)])
+    g.d.dIBuilderCreateArrayType(
+      0, 0, et, [g.d.dIBuilderGetOrCreateSubrange(0, -1)])
   of tyObject: g.debugStructType(typ)
   of tyTuple: g.debugTupleType(typ)
   of tySet:
-    let (bits, _, _, _) = g.debugSize(typ)
+    let bits = g.debugSize(typ)
     if bits <= 8 * 8:
       g.d.dIBuilderCreateBasicType("set" & $bits, bits, DW_ATE_unsigned)
     else:
       g.d.dIBuilderCreateArrayType(
         bits, 0, g.dtypes[tyUInt8],
         [g.d.dIBuilderGetOrCreateSubrange(0, bits.int64 div 8)])
-  of tyRange: g.debugType(typ.sons[0])
+  of tyRange: g.debugType(typ[0])
   of tyPtr, tyRef, tyVar, tyLent:
     g.d.dIBuilderCreatePointerType(
-      g.debugType(typ.lastSon), ptrBits, ptrBits, "")
+      g.debugType(typ.lastSon), g.ptrBits, g.ptrBits, "")
   of tySequence:
-    var st: llvm.MetadataRef
-
-    let sig = hashType(typ)
-
-    if sig in g.dstructs:
-      st = g.dstructs[sig]
-    else:
-      let
-        name = g.llName(typ, sig)
-        file = g.debugGetFile(g.config.projectMainIdx)
-        line = if typ.sym != nil: typ.sym.info.line else: 0
-        sup = g.debugMagicType("TGenericSeq")
-        supt = g.llGenericSeqType()
-        (bits, _, _, _) = g.debugSize(supt)
-
-        st = g.d.dIBuilderCreateStructType(g.dcu, name,
-          file, line.cuint, bits, 0, 0, nil, [], 0, nil, name)
-      g.dstructs[sig] = st
-
-      var elems = @[
-        g.d.dIBuilderCreateMemberType(g.dcu, "Sup", file, 0, bits, 0, 0, 0,
-          sup)
-      ]
-      if typ.elemType.kind != tyEmpty:
+    let
+      sig = hashType(typ)
+      st = if sig in g.dstructs:
+        g.dstructs[sig]
+      else:
         let
-          dt = g.debugType(typ.elemType)
+          seqTy = g.llSeqType(typ)
+          name = g.llName(typ, sig)
+          (df, line) = g.debugGetLine(typ.sym)
+          sup = g.debugMagicType("TGenericSeq")
+          bits = g.debugSize(seqTy.structGetTypeAtIndex(0))
+          st = g.d.dIBuilderCreateStructType(
+            df, name, df, line, bits, 0, 0, nil, [], 0, nil, name)
+        g.dstructs[sig] = st
 
-        elems.add(
-          g.d.dIBuilderCreateMemberType(g.dcu, "data", file, 0, 0, 0, bits, 0,
-            g.d.dIBuilderCreateArrayType(0, 0, dt,[
-              g.d.dIBuilderGetOrCreateSubrange(0, -1)])))
+        var elems = @[
+          g.d.dIBuilderCreateMemberType(st, "Sup", df, line, bits, 0, 0, 0, sup)
+        ]
+        if typ.elemType.kind != tyEmpty:
+          let
+            dt = g.debugType(typ.elemType)
 
-      g.d.nimDICompositeTypeSetTypeArray(
-        st, g.d.dIBuilderGetOrCreateArray(elems))
+          elems.add(
+            g.d.dIBuilderCreateMemberType(st, "data", df, 0, 0, 0,
+              g.debugOffset(seqTy, 1), 0, g.d.dIBuilderCreateArrayType(
+                0, 0, dt, [g.d.dIBuilderGetOrCreateSubrange(0, -1)])))
 
-    g.d.dIBuilderCreatePointerType(st, ptrBits, ptrBits, "")
+        g.d.nimDICompositeTypeSetTypeArray(
+          st, g.d.dIBuilderGetOrCreateArray(elems))
+
+        st
+    g.d.dIBuilderCreatePointerType(st, g.ptrBits, g.ptrBits, "")
   of tyProc:
     if typ.callConv == ccClosure:
-      g.d.dIBuilderCreateStructType(g.dcu, "closure",
-        g.debugGetFile(g.config.projectMainIdx), 0, ptrBits * 2, ptrBits, 0, nil,
+      let df = g.debugGetFile(g.config.projectMainIdx)
+      g.d.dIBuilderCreateStructType(df, "closure",
+        df, 0, g.ptrBits * 2, g.ptrBits, 0, nil,
         [g.dtypes[tyPointer], g.dtypes[tyPointer]], 0, nil, "closure")
     else:
       g.dtypes[tyPointer]
   of tyPointer: g.dtypes[tyPointer]
   of tyOpenArray, tyVarargs:
     g.d.dIBuilderCreatePointerType(
-      g.debugType(typ.elemType), ptrBits, ptrBits, "openArray")
+      g.debugType(typ.elemType), g.ptrBits, g.ptrBits, "openArray")
   of tyString:
     if g.dtypes[tyString] == nil:
       g.dtypes[tyString] = g.d.dIBuilderCreatePointerType(
-        g.debugMagicType("NimStringDesc"), ptrBits, ptrBits, "")
+        g.debugMagicType("NimStringDesc"), g.ptrBits, g.ptrBits, "")
     g.dtypes[tyString]
   of tyCString: g.dtypes[tyCString]
   of tyInt..tyUInt64: g.dtypes[typ.kind]
@@ -1060,37 +1082,33 @@ func caseTypeName(t: llvm.TypeRef, tag: PSym, index: int): string =
   $t.getStructName() & "_" & tag.name.s & "_" & $index
 
 proc debugStructFields(
-    g: LLGen, elements: var seq[MetadataRef], n: PNode, typ: PType,
-    t: llvm.TypeRef) =
-  let dl = g.m.getModuleDataLayout()
-
+    g: LLGen, dty: llvm.MetadataRef, elements: var seq[MetadataRef], n: PNode,
+    typ: PType, ty: llvm.TypeRef) =
   case n.kind
   of nkRecList:
     for child in n:
-      g.debugStructFields(elements, child, typ, t)
+      g.debugStructFields(dty, elements, child, typ, ty)
   of nkRecCase:
     let
       tag = n[0].sym
-      baseName = caseTypeName(t, tag, 0)
+      baseName = caseTypeName(ty, tag, 0)
       base = g.lc.getTypeByName2(baseName)
-
-      line = if typ.sym != nil: typ.sym.info.line else: 0
-      file = g.debugGetFile(g.config.projectMainIdx)
-      (bits, _, _, _) = g.debugSize(base)
-      baseType = g.d.dIBuilderCreateStructType(g.dcu, baseName,
-        file, line.cuint, bits, 0, 0, nil, [], 0, nil, baseName)
+      (df, line) = g.debugGetLine(typ.sym)
+      bits = g.debugSize(base)
+      baseType = g.d.dIBuilderCreateStructType(df, baseName,
+        df, line, bits, 0, 0, nil, [], 0, nil, baseName)
 
     var
       baseFields: seq[MetadataRef]
 
-    g.debugStructFields(baseFields, n[0], typ, base)
+    g.debugStructFields(baseType, baseFields, n[0], typ, base)
 
     g.d.nimDICompositeTypeSetTypeArray(
       baseType, g.d.dIBuilderGetOrCreateArray(baseFields))
 
     let member = g.d.dIBuilderCreateMemberType(
-      g.dcu, baseName, g.debugGetFile(g.config.projectMainIdx), line.cuint, bits,
-      0, dl.offsetOfElement(t, cuint elements.len()) * 8, 0, baseType)
+      baseType, baseName, df, line.cuint, bits,
+      0, g.debugOffset(ty, elements.len()), 0, baseType)
 
     elements.add(member)
 
@@ -1098,13 +1116,11 @@ proc debugStructFields(
     let field = n.sym
     if field.typ.isEmptyType(): return
     let
-      (mbits, _, _, _) = g.debugSize(field.typ)
       name = debugFieldName(field, typ)
-      line = field.info.line
+      (df, line) = g.debugGetLine(field)
       member = g.d.dIBuilderCreateMemberType(
-        g.dcu, name, g.debugGetFile(g.config.projectMainIdx), line.cuint, mbits,
-        0, dl.offsetOfElement(t, cuint elements.len()) * 8, 0,
-        g.debugType(field.typ))
+        dty, name, df, line.cuint, g.debugSize(field.typ), 0,
+        g.debugOffset(ty, elements.len()), 0, g.debugType(field.typ))
 
     elements.add(member)
   else: g.config.internalError(n.info, "debugStructFields")
@@ -1123,13 +1139,11 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
   let
     name = g.llName(typ, sig)
     t = g.llType(typ)
-    line = if typ.sym != nil: typ.sym.info.line else: 0
-    file = g.debugGetFile(g.config.projectMainIdx)
-    (bits, _, _, _) = g.debugSize(typ)
+    (df, line) = g.debugGetLine(typ.sym)
 
   # Create struct before setting body in case it's recursive
-  result = g.d.dIBuilderCreateStructType(g.dcu, name,
-    file, line.cuint, bits, 0, 0, nil, [], 0, nil, name)
+  result = g.d.dIBuilderCreateStructType(
+    df, name, df, line, g.debugSize(typ), 0, 0, nil, [], 0, nil, name)
 
   g.dstructs[sig] = result
 
@@ -1145,34 +1159,27 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
         [g.d.dIBuilderGetOrCreateSubrange(0, int64(bytes))])
       # TODO make actual union metadata instead
       member = g.d.dIBuilderCreateMemberType(
-        g.dcu, "union", g.debugGetFile(g.config.projectMainIdx), 0, bits,
-        0, 0, 0, at)
+        result, "union", df, line, bits, 0, 0, 0, at)
     fields.add(member)
   else:
-    let super = if typ.sons.len == 0: nil else: typ.sons[0]
-    if super == nil:
-      if (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags:
-        discard
-      else:
-        let
-          ptrBits = g.m.getModuleDataLayout().pointerSize().uint32 * 8
-          tnt = g.debugMagicType("TNimType")
-          tntp = g.d.dIBuilderCreatePointerType(tnt, ptrBits, ptrBits, "")
-          member = g.d.dIBuilderCreateMemberType(
-            g.dcu, "m_type", g.debugGetFile(g.config.projectMainIdx), 0, ptrBits,
-            ptrBits, 0, 0, tntp)
-
-        fields.add(member)
-    else:
+    if typ[0] != nil:
       let
-        (bits, _, _, _) = g.debugSize(super)
+        super = typ[0].skipTypes(skipPtrs)
         member = g.d.dIBuilderCreateMemberType(
-          g.dcu, "Sup", g.debugGetFile(g.config.projectMainIdx), 0, bits,
-          0, 0, 0, g.debugType(super))
+          result, "Sup", df, line, g.debugSize(super), 0, 0, 0,
+          g.debugType(super))
+
+      fields.add(member)
+    elif typ.hasMTypeField():
+      let
+        tnt = g.debugMagicType("TNimType")
+        tntp = g.d.dIBuilderCreatePointerType(tnt, g.ptrBits, g.ptrBits, "")
+        member = g.d.dIBuilderCreateMemberType(
+          result, "m_type", df, line, g.ptrBits, g.ptrBits, 0, 0, tntp)
 
       fields.add(member)
 
-    g.debugStructFields(fields, typ.n, typ, t)
+    g.debugStructFields(result, fields, typ.n, typ, t)
 
   g.d.nimDICompositeTypeSetTypeArray(
     result, g.d.dIBuilderGetOrCreateArray(fields))
@@ -1187,30 +1194,22 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
 
   let
     name = g.llName(typ, sig)
-    line = if typ.sym != nil: typ.sym.info.line else: 0
+    (df, line) = g.debugGetLine(typ.sym)
+    ty = g.llType(typ)
 
   # Create struct before setting body in case it's recursive
-  let
-    file = g.debugGetFile(g.config.projectMainIdx)
-    t = g.llType(typ)
-    dl = g.m.getModuleDataLayout()
-    (bits, _, _, _) = g.debugSize(t)
-
   result = g.d.dIBuilderCreateStructType(
-    g.dcu, name, file, line.cuint, bits, 0, 0, nil, [], 0, nil, name)
+    df, name, df, line, g.debugSize(ty), 0, 0, nil, [], 0, nil, name)
 
   g.dstructs[sig] = result
 
   var elements = newSeq[MetadataRef]()
   for field in typ.sons:
     let
-      (mbits, _, _, _) = g.debugSize(field)
-      mline = if field.sym != nil: field.sym.info.line else: line
-
-    let member = g.d.dIBuilderCreateMemberType(
-      g.dcu, "tup" & $elements.len(), g.debugGetFile(g.config.projectMainIdx),
-      mline, mbits, 0, dl.offsetOfElement(t, cuint elements.len()), 0,
-      g.debugType(field))
+      mline = if field.sym != nil: cuint field.sym.info.line else: line
+      member = g.d.dIBuilderCreateMemberType(
+        result, "tup" & $elements.len(), df, mline, g.debugSize(field), 0,
+        g.debugOffset(ty, elements.len()), 0, g.debugType(field))
     elements.add(member)
 
   g.d.nimDICompositeTypeSetTypeArray(
@@ -1223,9 +1222,7 @@ proc debugProcParamType(g: LLGen, sym: PSym, retType: PType): llvm.MetadataRef =
   let
     dt = g.debugType(sym.typ)
   if g.llPassAsPtr(sym, retType):
-    let
-      ptrBits = g.m.getModuleDataLayout().pointerSize() * 8
-    g.d.dIBuilderCreatePointerType(dt, ptrBits, ptrBits, "")
+    g.d.dIBuilderCreatePointerType(dt, g.ptrBits, g.ptrBits, "")
   else:
     dt
 
@@ -1234,8 +1231,8 @@ proc debugProcType(g: LLGen, typ: PType, closure: bool): seq[llvm.MetadataRef] =
                 else: g.debugType(typ[0])
   if retType != nil and g.isInvalidReturnType(typ[0]):
     result.add(nil)
-    let ptrBits = g.m.getModuleDataLayout().pointerSize() * 8
-    result.add(g.d.dIBuilderCreatePointerType(retType, ptrBits, ptrBits, ""))
+    result.add(
+      g.d.dIBuilderCreatePointerType(retType, g.ptrBits, g.ptrBits, ""))
   else:
     result.add(retType)
 
@@ -1297,17 +1294,14 @@ proc debugVariable(g: LLGen, sym: PSym, v: llvm.ValueRef, argNo = -1) =
   let
     dt = g.debugType(sym.typ)
     scope = g.debugGetScope()
+    (df, line) = g.debugGetLine(sym)
     vd =
       if argNo == -1:
         g.d.dIBuilderCreateAutoVariable(
-          scope, sym.llName,
-          g.debugGetFile(sym.info.fileIndex),
-          sym.info.line.cuint, dt, false, 0, 0)
+          scope, sym.llName, df, line, dt, false, 0, 0)
       else:
         g.d.dIBuilderCreateParameterVariable(
-          scope, sym.llName, argNo.cuint,
-          g.debugGetFile(sym.info.fileIndex),
-          sym.info.line.cuint, dt, false, 0)
+          scope, sym.llName, argNo.cuint, df, line, dt, false, 0)
 
   discard g.d.dIBuilderInsertDeclareAtEnd(v, vd,
     g.d.dIBuilderCreateExpression(nil, 0),
@@ -1331,21 +1325,16 @@ proc debugGlobal(g: LLGen, sym: PSym, v: llvm.ValueRef) =
   v.nimSetMetadataGlobal(g.dbgKind, g.lc.metadataAsValue(gve))
 
 proc debugFunction(
-    g: LLGen, s: PSym, params: openArray[llvm.MetadataRef],
+    g: LLGen, sym: PSym, params: openArray[llvm.MetadataRef],
     f: llvm.ValueRef): llvm.MetadataRef =
   let
-    df = g.debugGetFile(if s == nil: g.config.projectMainIdx else: s.info.fileIndex)
-    line = if s == nil: 0.cuint else: s.info.line.cuint
+    (df, line) = g.debugGetLine(sym)
     st = g.d.dIBuilderCreateSubroutineType(df, params)
     linkageName = $f.getValueName()
-    name = if s == nil or s.name.s.len == 0: linkageName else: s.name.s
+    name = if sym == nil or sym.name.s.len == 0: linkageName else: sym.name.s
   result = g.d.dIBuilderCreateFunction(
-    g.dcu, name, linkageName, df, line, st, false, true, line, 0, false)
+    df, name, linkageName, df, line, st, false, true, line, 0, false)
   f.setSubprogram(result)
-
-proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef
-proc llTupleType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef
-proc llProcType(g: LLGen, typ: PType, closure = false): llvm.TypeRef
 
 proc llMagicType(g: LLGen, name: string): llvm.TypeRef =
   g.llType(g.graph.getCompilerProc(name).typ)
@@ -1627,11 +1616,6 @@ proc headerType(g: LLGen, name: string): llvm.TypeRef =
     g.lc.getTypeByName2("TGenericSeq")
   else: nil
 
-proc headerTypeIndex(g: LLGen, typ: PType, sym: PSym): seq[int] =
-  let sig = hashType(typ)
-  case g.llName(typ, sig)
-  else: discard
-
 proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   if typ == nil:
     return
@@ -1673,14 +1657,10 @@ proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
 
   var fields = newSeq[TypeRef]()
 
-  let super = if typ.sons.len == 0: nil else: typ.sons[0]
-  if super == nil:
-    if (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags:
-      discard
-    else:
-      fields.add(g.ptrTy) # g.llMagicType("TNimType").pointerType()
-  else:
-    fields.add(g.llStructType(super, deep))
+  if typ[0] != nil:
+    fields.add(g.llStructType(typ[0].skipTypes(skipPtrs), deep)) # Sup
+  elif typ.hasMTypeField():
+    fields.add(g.ptrTy) # ptr TNimType
 
   g.addStructFields(fields, typ.n, result)
 
@@ -1771,9 +1751,9 @@ template withRecCase(n: PNode, ty: llvm.TypeRef, v: llvm.ValueRef, body: untyped
   let
     tags = n[0].sym
     tagTy {.inject.} = g.llType(tags.typ)
-    tagGEP {.inject.} =
-      g.b.buildStructGEP2(ty, v, cuint start, g.nn("vari.tag", v))
-    tag = g.b.buildLoad2(tagTy, tagGEP)
+    branchGEP {.inject.} =
+      g.b.buildStructGEP2(ty, v, cuint start, g.nn("vari.branch", v))
+    tag = g.b.buildLoad2(tagTy, branchGEP) # branch always starts with tag
     caseend = g.b.appendBasicBlockInContext(g.lc, g.nn("vari.tag.end", v))
 
   var hasElse = false
@@ -1816,9 +1796,7 @@ template withRecCase(n: PNode, ty: llvm.TypeRef, v: llvm.ValueRef, body: untyped
 
     let x = g.b.getInsertBlock()
     g.b.positionBuilderAtEnd(ctrue)
-    let
-      fieldGep {.inject.} =
-        g.b.buildStructGEP2(ty, v, cuint start, g.nn("vari.data", v))
+
     body
 
     discard g.b.buildBr(caseend)
@@ -1840,7 +1818,7 @@ proc genMarkerFields(
   of nkRecCase:
     withRecCase(n, ty, v):
       var recStart = 1
-      g.genMarkerFields(branchTy, branch.lastSon, fieldGep, op, recStart)
+      g.genMarkerFields(branchTy, branch.lastSon, branchGEP, op, recStart)
     inc(start)
   of nkSym:
     let field = n.sym
@@ -1873,10 +1851,10 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
 
   of tyObject:
     var start = 0
-    if typ.len > 0 and typ[0] != nil:
+    if typ[0] != nil:
       g.genMarker(typ[0].skipTypes(skipPtrs), v, op)
       start = 1 # Skip super type field
-    elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
+    elif typ.hasMTypeField:
       start = 1 # Skip m_type in inheritable root object
 
     # TODO what if there's a pointer hiding in a union?
@@ -1927,7 +1905,6 @@ proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
     g.debugUpdateLoc(typ.sym)
 
     g.withBlock(g.section(g.f, secBody)):
-
       var v = f.getFirstParam()
       v.setValueName("v")
       let op = v.getNextParam()
@@ -1940,20 +1917,22 @@ proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
       discard g.b.buildStore(op, ops)
 
       if g.d != nil:
-        let dt = if typ.kind == tySequence: g.debugType(typ)
-                else: g.d.dIBuilderCreatePointerType(
-          g.debugType(typ.elemType), 64, 64, "")
-
-        let file = g.debugGetFile(
-          if typ.sym == nil: g.config.projectMainIdx else: typ.sym.info.fileIndex)
-        let vd = g.d.dIBuilderCreateParameterVariable(
-          llf.ds, $v.getValueName(), 1, file, 0, dt, false, 0)
+        let
+          dt =
+            if typ.kind == tySequence:
+              g.debugType(typ)
+            else:
+              g.d.dIBuilderCreatePointerType(
+                g.debugType(typ.elemType), g.ptrBits, g.ptrBits, "")
+          (df, line) = g.debugGetLine(typ.sym)
+          vd = g.d.dIBuilderCreateParameterVariable(
+            llf.ds, $v.getValueName(), 1, df, line, dt, false, 0)
         discard g.d.dIBuilderInsertDeclareAtEnd(vs, vd,
           g.d.dIBuilderCreateExpression(nil, 0),
           valueAsMetadata(g.b.getCurrentDebugLocation()), g.b.getInsertBlock())
 
         let opd = g.d.dIBuilderCreateParameterVariable(
-          llf.ds, $op.getValueName(), 2, file, 0, g.dtypes[tyInt], false, 0)
+          llf.ds, $op.getValueName(), 2, df, line, g.dtypes[tyInt], false, 0)
         discard g.d.dIBuilderInsertDeclareAtEnd(ops, opd,
           g.d.dIBuilderCreateExpression(nil, 0),
           valueAsMetadata(g.b.getCurrentDebugLocation()), g.b.getInsertBlock())
@@ -2056,11 +2035,10 @@ proc genGcRegistrar(g: LLGen, sym: PSym, v: llvm.ValueRef) =
         f.ds = g.debugFunction(nil, [], registrar)
       g.registrar = f
 
-      g.withFunc(g.registrar): g.withBlock(g.section(g.f, secReturn)):
-        if g.f.ds != nil:
-          let dl = g.lc.dIBuilderCreateDebugLocation(1, 1, g.f.ds, nil)
-          g.b.setCurrentDebugLocation2(dl)
-        discard g.b.buildRetVoid()
+      g.withFunc(g.registrar):
+        g.debugUpdateLoc(sym)
+        g.withBlock(g.section(g.f, secReturn)):
+          discard g.b.buildRetVoid()
 
     let prc = g.genGlobalMarkerProc(sym, v)
 
@@ -2401,11 +2379,10 @@ proc genTypeInfo(g: LLGen, typ: PType): llvm.ValueRef =
     let
       sym = typ.sym
       dt = g.debugMagicType("TNimType")
+      (df, line) = g.debugGetLine(sym)
 
     let gve = g.d.dIBuilderCreateGlobalVariableExpression(
-      g.dcu, name, "",
-      g.debugGetFile(if sym == nil: g.config.projectMainIdx else: sym.info.fileIndex),
-      if sym == nil: 0.cuint else: sym.info.line.cuint, dt, false,
+      df, name, "", df, line, dt, false,
       dIBuilderCreateExpression(g.d, nil, 0), nil, 0)
     result.nimSetMetadataGlobal(g.dbgKind, g.lc.metadataAsValue(gve))
 
@@ -2574,13 +2551,13 @@ proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[FieldPath] =
 
   var start = 0
   if typ.kind != tyTuple:
-    if typ.len > 0 and typ[0] != nil:
+    if typ[0] != nil:
       # Look in base types first
       let s = g.fieldIndex(typ[0].skipTypes(skipPtrs), sym)
       if s.len > 0:
         return @[FieldPath((ty, 0, nil))] & s
       start = 1 # Skip super type field
-    elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
+    elif typ.hasMTypeField:
       start = 1 # Skip m_type in inheritable root object
 
   g.fieldIndexFields(ty, typ.n, sym, start, tfUnion in typ.flags)
@@ -2993,7 +2970,7 @@ proc genObjectInitFields(
   of nkRecCase:
     withRecCase(n, ty, v):
       var recStart = 1
-      g.genObjectInitFields(branchTy, branch.lastSon, fieldGep, recStart)
+      g.genObjectInitFields(branchTy, branch.lastSon, branchGEP, recStart)
     inc(start)
 
   of nkSym:
@@ -3034,11 +3011,11 @@ proc genObjectInit(g: LLGen, typ: PType, v: llvm.ValueRef, setType: bool) =
 
     var start = 0
 
-    if typ.len > 0 and typ[0] != nil:
+    if typ[0] != nil:
       let baseTyp = typ[0].skipTypes(skipPtrs)
       g.genObjectInit(baseTyp, v, false)
       start = 1 # Skip super type field
-    elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
+    elif typ.hasMTypeField:
       start = 1 # Skip m_type in inheritable root object
 
     if analyseObjectWithTypeField(typ) == frEmbedded:
@@ -3195,9 +3172,9 @@ proc genResetFields(
   of nkRecCase:
     withRecCase(n, ty, v.v):
       var recStart = 1
-      g.genResetFields(branchTy, branch.lastSon, LLValue(v: fieldGep), recStart)
+      g.genResetFields(branchTy, branch.lastSon, LLValue(v: branchGEP), recStart)
 
-    g.buildStoreNull(tagTy, tagGep)
+    g.buildStoreNull(tagTy, branchGEP)
     inc(start)
   of nkSym:
     let field = n.sym
@@ -3229,10 +3206,10 @@ proc genReset(g: LLGen, typ: PType, v: LLValue) =
     of tyObject:
       var start = 0
 
-      if typ.len > 0 and typ[0] != nil:
+      if typ[0] != nil:
         g.callReset(typ[0].skipTypes(skipPtrs), v)
         start = 1 # Skip super type field
-      elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
+      elif typ.hasMTypeField():
         start = 1 # Skip m_type in inheritable root object
 
       g.genResetFields(ty, typ.n, v, start)
@@ -3430,10 +3407,10 @@ proc genAssign(g: LLGen, typ: PType, dest, src, shallow: llvm.ValueRef) =
     of tyObject:
       var start = 0
 
-      if typ.len > 0 and typ[0] != nil:
+      if typ[0] != nil:
         g.callAssign(typ[0].skipTypes(skipPtrs), dest, src, shallow, false)
         start = 1 # Skip super type field
-      elif not ((typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags):
+      elif typ.hasMTypeField:
         start = 1 # Skip m_type in inheritable root object
 
       g.genAssignFields(ty, typ.n, dest, src, shallow, start)
@@ -3577,9 +3554,8 @@ proc genAssignFunc(g: LLGen, typ: PType): llvm.ValueRef =
 
   if g.d != nil:
     let
-      ptrBits = g.m.getModuleDataLayout().pointerSize() * 8
       dt = g.d.dIBuilderCreatePointerType(
-        g.debugType(typ), ptrBits, ptrBits, "")
+        g.debugType(typ), g.ptrBits, g.ptrBits, "")
       db = g.dtypes[tyBool] # TODO do we need a `bit` debug type?
 
     llf.ds = g.debugFunction(nil, [nil, dt, dt, db], f)
@@ -4715,6 +4691,111 @@ proc genConstInitializer(g: LLGen, n: PNode): llvm.ValueRef =
     g.config.internalError(n.info, "Can't gen const initializer " & $n.kind)
     quit 1
 
+proc genFakeConstInitializer(
+  g: LLGen, typ: PType, constr: PNode, v: LLValue)
+
+proc caseObjDefaultBranch(obj: PNode; branch: Int128): int =
+  # From ccgexprs
+  for i in 1 ..< obj.len:
+    for j in 0 .. obj[i].len - 2:
+      if obj[i][j].kind == nkRange:
+        let x = getOrdValue(obj[i][j][0])
+        let y = getOrdValue(obj[i][j][1])
+        if branch >= x and branch <= y:
+          return i
+      elif getOrdValue(obj[i][j]) == branch:
+        return i
+    if obj[i].len == 1:
+      # else branch
+      return i
+  assert(false, "unreachable")
+
+proc genFakeConstInitializerFields(
+    g: LLGen, ty: llvm.TypeRef, n, constr: PNode, v: LLValue,
+    start: var int) =
+  if n == nil: return
+  case n.kind
+  of nkRecList:
+    for s in n:
+      g.genFakeConstInitializerFields(ty, s, constr, v, start)
+  of nkRecCase:
+    var branch = Zero
+    if constr != nil:
+      ## find kind value, default is zero if not specified
+      for i in 1..<constr.len:
+        if constr[i].kind == nkExprColonExpr:
+          if constr[i][0].sym.name.id == n[0].sym.name.id:
+            branch = getOrdValue(constr[i][1])
+            break
+        elif i == n[0].sym.position:
+          branch = getOrdValue(constr[i])
+          break
+    let
+      selectedBranch = caseObjDefaultBranch(n, branch)
+      b = lastSon(n[selectedBranch])
+      tags = n[0].sym
+      tagTy = g.llType(tags.typ)
+      branchTy = g.lc.getTypeByName2(caseTypeName(ty, tags, selectedBranch))
+      branchGEP = g.b.buildStructGEP2(ty, v, cuint start, g.nn("const.branch", v))
+
+    discard g.b.buildStore(
+      constInt(tagTy, branch.toInt().culonglong, llvm.False), branchGEP.v)
+
+    var recStart = 1
+    g.genFakeConstInitializerFields(branchTy, b, constr, branchGEP, recStart)
+
+    inc(start)
+  of nkSym:
+    let field = n.sym
+    if field.typ.isEmptyType(): return
+    # TODO This will result in out-of-order execution of the init funcs - not
+    #      ideal but...
+    if constr != nil:
+      var init: PNode
+      for i in 1..<constr.len:
+        if constr[i].kind == nkExprColonExpr:
+          if constr[i][0].sym.name.id == field.name.id:
+            init = constr[i][1]
+            break
+        elif i == field.position:
+          init = constr[i]
+          break
+
+      if init != nil and init.kind != nkEmpty:
+        g.debugUpdateLoc(field)
+        let
+          fieldGEP = g.b.buildStructGEP2(ty, v, cuint start, g.nn("const", field))
+
+        g.genFakeConstInitializer(field.typ, init, fieldGEP)
+    inc(start)
+  else:
+    g.config.internalError("Unexpected kind in genResetFields: " & $n.kind)
+
+proc genFakeConstInitializer(g: LLGen, typ: PType, constr: PNode, v: LLValue) =
+  # case objects and other special cases need special const inits - annoyingly,
+  # the object constructor in the AST contains initializers also for the
+  # inactive case branches meaning it's a mess to create an initializer
+  # TODO for case objects in particular, we could generate a true constant
+  #      but it's messy with padding
+  case typ.kind
+  of tyObject:
+    let ty = g.llType(typ)
+    var start = 0
+
+    if typ[0] != nil:
+      g.genFakeConstInitializer(typ[0].skipTypes(skipPtrs), constr, v)
+      start = 1 # Skip super type field
+    elif typ.hasMTypeField:
+      start = 1 # Skip m_type in inheritable root object
+
+    g.genFakeConstInitializerFields(ty, typ.n, constr, v, start)
+  else:
+    let
+      lx = g.loadAssignment(typ)
+      bx = g.genNode(constr, lx, v)
+
+    g.genAssignment(v, bx, typ, {})
+
 proc genConst(g: LLGen, n: PNode): LLValue =
   let sym = n.sym
   if sym.id in g.symbols: return g.symbols[sym.id]
@@ -4746,6 +4827,27 @@ proc genConst(g: LLGen, n: PNode): LLValue =
   if sfGlobal in sym.flags:
     result = g.genGlobal(n, false)
     g.registerGcRoot(sym, result.v)
+
+    # Initialize global in init function
+    let initFunc = g.module.getInitFunc()
+
+    if initFunc.sections[secLastPreinit] == nil:
+      initFunc.sections[secLastPreinit] = g.section(initFunc, secPreinit)
+
+    g.withFunc(initFunc):
+      g.debugUpdateLoc(sym)
+      g.withBlock(g.section(initFunc, secLastPreinit)):
+        # Avoid using the wrong exception handling context when initializing
+        # globals..
+        # TODO use the right exception handling context
+        let nts = g.f.nestedTryStmts
+        g.f.nestedTryStmts = @[]
+
+        g.genFakeConstInitializer(sym.typ, init, result)
+
+        initFunc.sections[secLastPreinit] = g.b.getInsertBlock()
+        g.f.nestedTryStmts = nts
+
   else:
     if sym.id in g.symbols: return g.symbols[sym.id]
 
@@ -4756,14 +4858,12 @@ proc genConst(g: LLGen, n: PNode): LLValue =
     g.buildStoreNull(ty, result.v)
     g.genObjectInit(sym.typ, result.v)
 
-  if init.kind != nkEmpty:
-    let
-      lx = g.loadAssignment(sym.typ)
-      bx = g.genNode(init, lx, result)
+    if init.kind != nkEmpty:
+      let
+        lx = g.loadAssignment(sym.typ)
+        bx = g.genNode(init, lx, result)
 
-    g.genAssignment(result, bx, sym.typ, sym.assignCopy)
-
-  if sfGlobal notin sym.flags:
+      g.genAssignment(result, bx, sym.typ, sym.assignCopy)
     g.symbols[sym.id] = result
 
 proc genCallOrNode(g: LLGen, le, ri: PNode, ax: LLValue): LLValue =
@@ -4820,19 +4920,21 @@ proc genSingleVar(g: LLGen, v: PSym, vn, value: PNode) =
         if initFunc.sections[secLastPreinit] == nil:
           initFunc.sections[secLastPreinit] = g.section(initFunc, secPreinit)
 
-        g.withFunc(initFunc): g.withBlock(g.section(initFunc, secLastPreinit)):
-          # Avoid using the wrong exception handling context when initializing
-          # globals..
-          # TODO use the right exception handling context
-          let nts = g.f.nestedTryStmts
-          g.f.nestedTryStmts = @[]
+        g.withFunc(initFunc):
+          g.debugUpdateLoc(v)
+          g.withBlock(g.section(initFunc, secLastPreinit)):
+            # Avoid using the wrong exception handling context when initializing
+            # globals..
+            # TODO use the right exception handling context
+            let nts = g.f.nestedTryStmts
+            g.f.nestedTryStmts = @[]
 
-          let
-            lx = g.loadAssignment(v.typ)
-            bx = g.genNode(value, lx, tmp)
-          g.genAssignment(tmp, bx, v.typ, v.assignCopy)
-          initFunc.sections[secLastPreinit] = g.b.getInsertBlock()
-          g.f.nestedTryStmts = nts
+            let
+              lx = g.loadAssignment(v.typ)
+              bx = g.genNode(value, lx, tmp)
+            g.genAssignment(tmp, bx, v.typ, v.assignCopy)
+            initFunc.sections[secLastPreinit] = g.b.getInsertBlock()
+            g.f.nestedTryStmts = nts
         LLValue()
       else:
         tmp
@@ -6608,14 +6710,12 @@ proc genNodeBracket(g: LLGen, n: PNode, load: bool): LLValue =
     result = LLvalue(
       v: g.localAlloca(ty, g.nn("bracket.arr", n)), lode: n, storage: OnStack)
     g.buildStoreNull(ty, result.v)
-
     let lx = g.loadAssignment(typ.elemType)
     for i in 0..<n.len:
       let
         gep = g.b.buildInboundsGEP2(
           ty, result, [g.gep0, g.constGEPIdx(i)], g.nn("bracket.n", n))
         bx = g.genNode(n[i], lx, gep)
-
       g.genAssignment(gep, bx, typ.elemType, {needToCopy})
 
     result = g.maybeLoadValue(ty, result, load)
@@ -6944,8 +7044,11 @@ proc genNodeCast(g: LLGen, n: PNode, load: bool): LLValue =
         size = max(dl.aBISizeOfType(vt), dl.aBISizeOfType(nt))
         tmp = g.localAlloca(
           llvm.arrayType(g.primitives[tyUInt8], size.cuint), g.nn("cast.tmp", n))
-      discard g.b.buildStore(v, tmp)
-      g.buildLoadValue(nt, tmp)
+      if load: # TODO when not loading, we could simply return pointers...
+        discard g.b.buildStore(v, tmp)
+      else:
+        g.callMemcpy(tmp, v, g.constNimInt(size.int))
+      g.maybeLoadValue(nt, LLValue(v: tmp), load).v
   )
 
 proc genNodeAddr(g: LLGen, n: PNode): LLValue =
@@ -7924,7 +8027,7 @@ proc newLLGen(graph: ModuleGraph, idgen: IdGenerator, tgt: string, tm: TargetMac
     add(tyBool, "bool", 8, DW_ATE_boolean)
     add(tyChar, "char", 8, DW_ATE_unsigned_char)
     g.dtypes[tyPointer] = d.dIBuilderCreatePointerType(
-      g.dtypes[tyChar], 64, 64, "pointer")
+      g.dtypes[tyChar], g.ptrBits, g.ptrBits, "pointer")
 
     add(tyInt, "int", 64, DW_ATE_signed)
     add(tyInt8, "int8", 8, DW_ATE_signed)
@@ -7942,7 +8045,7 @@ proc newLLGen(graph: ModuleGraph, idgen: IdGenerator, tgt: string, tm: TargetMac
     add(tyUInt64, "uint64", 64, DW_ATE_unsigned)
 
     g.dtypes[tyCString] = g.d.dIBuilderCreatePointerType(
-      g.dtypes[tyChar], 64, 64, "")
+      g.dtypes[tyChar], g.ptrBits, g.ptrBits, "")
 
     # Magic string, see https://groups.google.com/forum/#!topic/llvm-dev/1O955wQjmaQ
     g.m.addModuleFlag(
@@ -7973,14 +8076,13 @@ proc genMain(g: LLGen) =
     g.withBlock(g.section(f, secArgs)):
       if g.d != nil:
         let
-          ptrBits = g.m.getModuleDataLayout().pointerSize() * 8
           types = [
             g.dtypes[tyInt32],
             g.dtypes[tyInt32],
             g.d.dIBuilderCreatePointerType(
               g.d.dIBuilderCreatePointerType(
-                g.dtypes[tyChar], ptrBits , ptrBits, ""),
-              ptrBits, ptrBits, "")
+                g.dtypes[tyChar], g.ptrBits , g.ptrBits, ""),
+              g.ptrBits, g.ptrBits, "")
           ]
         f.ds = g.debugFunction(nil, types, main)
         let dl = g.lc.dIBuilderCreateDebugLocation(1, 1, f.ds, nil)
@@ -8003,7 +8105,8 @@ proc genMain(g: LLGen) =
 
         let vd1 = g.d.dIBuilderCreateParameterVariable(
           g.f.ds, "argv", 2, g.debugGetFile(g.config.projectMainIdx), 0,
-          g.d.dIBuilderCreatePointerType(g.dtypes[tyCString], 64, 64, ""),
+          g.d.dIBuilderCreatePointerType(
+            g.dtypes[tyCString], g.ptrBits, g.ptrBits, ""),
           false, 0)
         discard g.d.dIBuilderInsertDeclareAtEnd(argv, vd1,
           g.d.dIBuilderCreateExpression(nil, 0),
@@ -8053,7 +8156,7 @@ proc genMain(g: LLGen) =
           prl = g.b.buildLoad2(pr.globalGetValueType(), pr)
         g.buildTruncOrExt(prl, g.cintTy, true)
       else:
-        constInt(g.cintTy, 0, False)
+        g.constCInt(0)
       discard g.b.buildRet(ret)
 
     if g.d != nil:
