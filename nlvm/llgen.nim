@@ -7526,7 +7526,7 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
     let tmp = g.getCleanupPadBlock()
     g.f.nestedTryStmts[^1].excPad = tmp
 
-  doAssert g.f.nestedTryStmts[^1].excPad != nil
+  assert g.f.nestedTryStmts[^1].excPad != nil
   g.f.nestedTryStmts[^1].inExcept = true
 
   let
@@ -7710,7 +7710,7 @@ proc genNodeBreakStmt(g: LLGen, n: PNode) =
   if n[0].kind != nkEmpty:
     # named break?
     let sym = n[0].sym
-    doAssert(sym.loc.k == locOther)
+    assert(sym.loc.k == locOther)
     idx = sym.position-1
   else:
     # an unnamed 'break' can only break a loop after 'transf' pass:

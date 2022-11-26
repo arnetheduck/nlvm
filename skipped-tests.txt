@@ -293,12 +293,9 @@ tests/stdlib/tasynchttpserver_transferencoding.nim c --gc:arc --threads:on
 tests/stdlib/tasynchttpserver_transferencoding.nim c --gc:arc --threads:on -d:danger
 tests/stdlib/tcstring.nim c --gc:arc
 tests/stdlib/tdeques.nim c --gc:orc
-tests/stdlib/thttpclient.nim c
-tests/stdlib/thttpclient_ssl.nim c
 tests/stdlib/tisolation.nim c --gc:orc
 tests/stdlib/tjson.nim c
 tests/stdlib/tlwip.nim c
-tests/stdlib/tnetconnect.nim c -d:ssl
 tests/stdlib/tos.nim c
 tests/stdlib/tosproc.nim c
 tests/stdlib/trepr.nim c --gc:arc
@@ -327,6 +324,7 @@ tests/views/tsplit_into_seq.nim c
 tests/views/tsplit_into_table.nim c
 tests/views/tviews1.nim c
 tests/vm/t9622.nim c --gc:arc
+tests/vm/topenarrays.nim c
 tests/vm/tvmmisc.nim c
 tests/vm/tvmops.nim c
 tools/nimgrep c  --debugger:on

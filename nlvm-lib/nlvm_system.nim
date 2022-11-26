@@ -257,8 +257,7 @@ proc nlvmRaise(e: ref Exception) {.compilerproc, noreturn.} =
 proc nlvmReraise() {.compilerproc, noreturn.} =
   let unwindException = ehGlobals.caughtExceptions
   if unwindException.isNil():
-    c_fprintf(cstderr, "Error: no exception to reraise\n")
-    c_abort() # reraising outside of catch
+    nlvmRaise((ref ReraiseDefect)(msg: "no exception to reraise"))
 
   dprintf("Reraise %p\n", unwindException)
   ehGlobals.closureException = nil  # Just in case, see workaround notes
