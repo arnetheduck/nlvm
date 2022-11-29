@@ -321,10 +321,7 @@ tests/views/tcan_compile_nim.nim c
 tests/views/tconst_views.nim c
 tests/views/tsplit_into_openarray.nim c
 tests/views/tsplit_into_seq.nim c
-tests/views/tsplit_into_table.nim c
-tests/views/tviews1.nim c
 tests/vm/t9622.nim c --gc:arc
-tests/vm/topenarrays.nim c
 tests/vm/tvmmisc.nim c
 tests/vm/tvmops.nim c
 tools/nimgrep c  --debugger:on
