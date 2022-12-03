@@ -10,7 +10,11 @@
 
 # https://itanium-cxx-abi.github.io/cxx-abi/abi-eh.html
 
+# Nothing in here may raise
+{.push raises: [].}
+
 import system/ansi_c
+import ./nlvm_unwind
 
 const
   DW_EH_PE_omit = 0xFF'u8
@@ -37,8 +41,6 @@ const
 
 # Need these for the runtime type information
 include system/inclrtl, system/hti
-
-import ./nlvm_unwind
 
 template dprintf(s: cstring, x: varargs[untyped]) =
   when defined(nlvmDebugSystem): c_printf(s, x)
@@ -223,9 +225,6 @@ func exceptionType(e: ref Exception): PNimType =
 import system/memory
 
 proc nlvmRaise(e: ref Exception) {.compilerproc, noreturn.} =
-  # TODO for reasons unknown, using `new` aka the GC here fails, even if we
-  #      GC_ref the given reference - in release mode, the personality function
-  #      ends up not being called and the handler not found. hmm...
   const esize = csize_t(sizeof NlvmException)
   let excMem = c_malloc(esize)
   nimZeroMem(excMem, esize)
@@ -241,7 +240,8 @@ proc nlvmRaise(e: ref Exception) {.compilerproc, noreturn.} =
     GC_ref(e)
 
   let unwindException = exc.toUnwindException()
-  dprintf("Raising %p\n", unwindException)
+  dprintf(
+    "Raising %s %p %p\n", cstring(e.name), unwindException, e.exceptionType())
 
   let reason = raiseException(unwindException)
 
@@ -299,7 +299,7 @@ proc nlvmGetCurrentExceptionMsg(): string {.compilerproc.} =
   let e = nlvmGetCurrentException()
   if e != nil: e.msg else: ""
 
-proc nlvmBeginCatch(unwindArg: pointer) {.compilerproc, raises: [].} =
+proc nlvmBeginCatch(unwindArg: pointer) {.compilerproc.} =
   dprintf("begin catch %p\n", unwindArg)
   ehGlobals.closureException = nil  # Just in case, see workaround notes
 
@@ -359,11 +359,6 @@ proc nlvmEndCatch() {.compilerproc.} =
   else:
     deleteException(ehGlobals.caughtExceptions)
     ehGlobals.caughtExceptions = nil
-
-proc nlvmBadCleanup() {.compilerproc, noreturn.} =
-  # Cleanup failed, exception was raised during end-catch (?)
-  c_fprintf(cstderr, "Error: cannot raise exception during stack unwind\n")
-  c_abort()
 
 func getNimType(
     ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8,
@@ -497,10 +492,13 @@ func scanEHTable(
         # we're not going to have more types than fits in the natural pointer
         # size of the machine
         let ttypeIndex = cast[int](action.readSleb128())
+        dprintf("trying index %d\n", ttypeIndex)
+
         if ttypeIndex > 0:
           # Catch
           let catchType =
             getNimType(ttypeIndex, classInfo, ttypeEncoding, ctx)
+          dprintf("catch type %p\n", catchType)
 
           if catchType.isNil():
             # Catch-all
@@ -651,3 +649,5 @@ proc nlvmEHPersonality(
         results.reason
   else:
     URC_FATAL_PHASE1_ERROR
+
+{.pop.}

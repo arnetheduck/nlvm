@@ -3,10 +3,13 @@
 # See the LICENSE file for license info (doh!)
 
 import
-  os,
-  strutils,
-  sequtils,
-  tables
+  std/[
+    algorithm,
+    os,
+    strutils,
+    sequtils,
+    tables
+  ]
 
 import
   compiler/[
@@ -63,9 +66,10 @@ type
   LLEhEntry = tuple[
     n: PNode,
     inExcept: bool,
+    inFin: bool,
     tryPad: llvm.BasicBlockRef,
     excPad: llvm.BasicBlockRef,
-    extraPads: seq[tuple[pad, src: llvm.BasicBlockRef]]
+    cmps: llvm.BasicBlockRef
   ]
 
   LLFunc = ref object
@@ -79,10 +83,10 @@ type
     ds: llvm.MetadataRef
     breakIdx: int
     sections: array[SectionKind, llvm.BasicBlockRef]
-    cleanupPad: llvm.BasicBlockRef
-    badCleanupPad: llvm.BasicBlockRef
     unreachableBlock: llvm.BasicBlockRef
     deadBlocks: seq[llvm.BasicBlockRef]
+    landingRes: llvm.ValueRef
+    resumeBlock: llvm.BasicBlockRef
 
   LLModule = ref object of PPassContext
     ## One LLModule per .nim file (module)
@@ -272,9 +276,6 @@ proc newLLFunc(g: LLGen, f: llvm.ValueRef, sym: PSym): LLFunc =
 func pad(e: LLEhEntry): llvm.BasicBlockRef =
   if e.inExcept: e.excPad else: e.tryPad
 
-func fin(e: LLEhEntry): PNode =
-  if e.n[^1].kind == nkFinally: e.n[^1] else: nil
-
 proc startBlock(f: LLFunc, n: PNode, exit: llvm.BasicBlockRef): int =
   result = f.blocks.len
   f.blocks.add(
@@ -288,8 +289,11 @@ proc section(g: LLGen, llf: LLFunc, sk: SectionKind): llvm.BasicBlockRef =
     llf.sections[sk] = appendBasicBlockInContext(g.lc, llf.f, g.nn($sk))
   llf.sections[sk]
 
-proc positionAndMoveToEnd(b: llvm.BuilderRef, bl: llvm.BasicBlockRef) =
+proc moveToEnd(b: llvm.BuilderRef, bl: llvm.BasicBlockRef) =
   bl.moveBasicBlockAfter(b.getInsertBlock().getBasicBlockParent().getLastBasicBlock())
+
+proc positionAndMoveToEnd(b: llvm.BuilderRef, bl: llvm.BasicBlockRef) =
+  b.moveToEnd(bl)
   b.positionBuilderAtEnd(bl)
 
 template withBlock(g: LLGen, bb: llvm.BasicBlockRef, body: untyped) =
@@ -886,7 +890,7 @@ proc buildCallOrInvoke(
       then = g.b.appendBasicBlockInContext(g.lc, g.nn("invoke.then", f))
       res = g.b.buildInvoke2(
         fty, f, args, then, g.f.nestedTryStmts[^1].pad, name)
-    g.b.positionBuilderAtEnd(then)
+    g.b.positionAndMoveToEnd(then)
     res
   else:
     g.b.buildCall2(fty, f, args, name)
@@ -900,7 +904,6 @@ proc buildCallOrInvokeBr(
   if g.f.nestedTryStmts.len > 0:
     let res = g.b.buildInvoke2(
       fty, f, args, then, g.f.nestedTryStmts[^1].pad, name)
-    g.b.positionBuilderAtEnd(then)
     res
   else:
     let res = g.b.buildCall2(fty, f, args, name)
@@ -2393,13 +2396,20 @@ proc genNodeInfo(g: LLGen, typ: PType): llvm.ValueRef =
 
 proc genTypeInfoBase(g: LLGen, typ: PType): llvm.ValueRef =
   if typ.kind == tyArray:
-    result = g.genTypeInfo(typ[1])
-  elif typ.kind in {tyUncheckedArray, tySequence, tyRef, tyPtr, tyRange, tySet, tyObject} and
-    typ.len > 0 and typ[0] != nil:
-    result = g.genTypeInfo(typ[0])
+    g.genTypeInfo(typ[1])
+  elif typ.kind in {
+      tyUncheckedArray, tySequence, tyRef, tyPtr, tyRange, tySet, tyObject} and
+      typ.len > 0 and typ[0] != nil:
+    let base =
+      if typ.kind == tyObject: typ[0].skipTypes(skipPtrs)
+      else: typ[0]
 
-  if result == nil:
-    result = constNull(g.ptrTy) # g.llMagicType("TNimType").pointerType().constNull()
+    if typ.kind == tyPtr and base.kind == tyObject and incompleteType(base):
+      constNull(g.ptrTy)
+    else:
+      g.genTypeInfo(base)
+  else:
+    constNull(g.ptrTy) # g.llMagicType("TNimType").pointerType().constNull()
 
 proc genTypeInfo(g: LLGen, typ: PType): llvm.ValueRef =
   let
@@ -4463,8 +4473,9 @@ proc genRefAssign(g: LLGen, dest: LLValue, src: llvm.ValueRef) =
 
 proc callGenericAssign(
     g: LLGen, dest, src: LLValue, typ: PType, flags: TAssignmentFlags) =
-  if needToCopy notin flags or
-      tfShallow in typ.skipTypes(abstractVarRange).flags:
+  if (needToCopy notin flags or
+      tfShallow in typ.skipTypes(abstractVarRange).flags) and
+      src.storage != OnStatic:
     if (dest.storage == OnStack and g.config.selectedGC != gcGo) or
         not usesWriteBarrier(g.config):
       g.callMemcpy(
@@ -4523,15 +4534,27 @@ proc genAssignment(g: LLGen, dest, src: LLValue, typ: PType,
 
   of tyProc:
     if typ.containsGarbageCollectedRef():
-      let
-        destp = g.buildClosurePrcGEP(dest.v)
-        srcp = g.b.buildExtractValue(src, 0, g.nn("asgnr.p", src))
-      discard g.b.buildStore(srcp.v, destp)
+      # TODO this is a hack to work around "automatic" conversion between
+      #      function pointers and closures with nil environment - it
+      #      probably needs improvement
+      if src.v.typeOfX.getTypeKind() == llvm.PointerTypeKind:
+        let
+          destp = g.buildClosurePrcGEP(dest.v)
+        discard g.b.buildStore(src.v, destp)
+        let
+          deste = g.buildClosureEnvGEP(dest.v)
+        g.genRefAssign(LLValue(v: deste), constNull(g.ptrTy))
 
-      let
-        deste = g.buildClosureEnvGEP(dest.v)
-        srce = g.b.buildExtractValue(src, 1, g.nn("asgnr.e", src))
-      g.genRefAssign(LLValue(v: deste), srce.v)
+      else:
+        let
+          destp = g.buildClosurePrcGEP(dest.v)
+          srcp = g.b.buildExtractValue(src, 0, g.nn("asgnr.p", src))
+        discard g.b.buildStore(srcp.v, destp)
+
+        let
+          deste = g.buildClosureEnvGEP(dest.v)
+          srce = g.b.buildExtractValue(src, 1, g.nn("asgnr.e", src))
+        g.genRefAssign(LLValue(v: deste), srce.v)
     else:
       discard g.b.buildStore(
         g.b.buildBitCast(src.v, ty, g.nn("asgnr.xc")), dest.v)
@@ -4806,6 +4829,7 @@ proc genFakeConstInitializer(g: LLGen, typ: PType, constr: PNode, v: LLValue) =
   # inactive case branches meaning it's a mess to create an initializer
   # TODO for case objects in particular, we could generate a true constant
   #      but it's messy with padding
+  let typ = typ.skipTypes(abstractRange + tyUserTypeClasses + {tyStatic})
   case typ.kind
   of tyObject:
     let ty = g.llType(typ)
@@ -4818,7 +4842,27 @@ proc genFakeConstInitializer(g: LLGen, typ: PType, constr: PNode, v: LLValue) =
       start = 1 # Skip m_type in inheritable root object
 
     g.genFakeConstInitializerFields(ty, typ.n, constr, v, start)
+
+  of tyTuple:
+    let ty = g.llType(typ)
+    var start = 0
+
+    g.genFakeConstInitializerFields(ty, typ.n, constr, v, start)
+
+  of tyArray:
+    if constr != nil:
+      let ty = g.llType(typ)
+      doAssert constr.kind == nkBracket
+      for i in 0..<constr.len:
+        let
+          gep = g.b.buildInboundsGEP2(
+            ty, v, [g.gep0, g.constGEPIdx(i)], g.nn("bracket.n", constr))
+        g.genFakeConstInitializer(typ.elemType, constr[i], gep)
+
   else:
+    # TODO this doesn't work when case objects are nested .. for that, what's
+    #      needed really is to make proper constants or fix genNodeObjConstr or
+    #      fix upstream
     let
       bx = g.genAsgnNode(constr, typ, v)
 
@@ -4887,10 +4931,8 @@ proc genConst(g: LLGen, n: PNode): LLValue =
     g.genObjectInit(sym.typ, result.v)
 
     if init.kind != nkEmpty:
-      let
-        bx = g.genAsgnNode(init, sym.typ, result)
+      g.genFakeConstInitializer(sym.typ, init, result)
 
-      g.genAssignment(result, bx, sym.typ, sym.assignCopy)
     g.symbols[sym.id] = result
 
 proc genCallOrNode(g: LLGen, le, ri: PNode, ax: LLValue): LLValue =
@@ -6535,26 +6577,41 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): LLValue =
     g.config.internalError(n.info, "Unhandled nodesym kind: " & $sym.kind)
     LLValue()
 
-proc genNodeIntLit(g: LLGen, n: PNode): LLValue =
-  let nt = g.llType(n.typ)
+proc genNodeIntLit(g: LLGen, n: PNode, load: bool): LLValue =
+  let
+    ty = g.llType(n.typ)
+    v =
+      case ty.getTypeKind
+      of llvm.PointerTypeKind:
+        llvm.constIntToPtr(
+          llvm.constInt(g.primitives[tyInt], n.intVal.culonglong, llvm.False), ty)
+      of llvm.HalfTypeKind..llvm.PPC_FP128TypeKind:
+        # This is pretty nuts, but an example can be seen in `lib/pure/json.nim`
+        # where `Q7` gets initialized..
+        llvm.constReal(ty, n.intVal.cdouble)
+      else:
+        llvm.constInt(ty, n.intVal.culonglong, llvm.False)
 
-  let v =
-    case nt.getTypeKind
-    of llvm.PointerTypeKind:
-      llvm.constIntToPtr(
-        llvm.constInt(g.primitives[tyInt], n.intVal.culonglong, llvm.False), nt)
-    of llvm.HalfTypeKind..llvm.PPC_FP128TypeKind:
-      # This is pretty nuts, but an example can be seen in `lib/pure/json.nim`
-      # where `Q7` gets initialized..
-      llvm.constReal(nt, n.intVal.cdouble)
-    else:
-      llvm.constInt(nt, n.intVal.culonglong, llvm.False)
+  if load:
+    LLValue(v: v, lode: n, storage: OnStatic)
+  else:
+    let
+      tmp = g.m.addPrivateConstant(ty, g.nn("lit", n))
+    tmp.setInitializer(v)
+    LLValue(v: tmp, lode: n, storage: OnStatic)
 
-  LLValue(v: v, lode: n, storage: OnStatic)
+proc genNodeFloatLit(g: LLGen, n: PNode, load: bool): LLValue =
+  let
+    ty = g.llType(n.typ)
+    v = llvm.constReal(ty, n.floatVal)
 
-proc genNodeFloatLit(g: LLGen, n: PNode): LLValue =
-  let v = llvm.constReal(g.llType(n.typ), n.floatVal)
-  LLValue(v: v, lode: n, storage: OnStatic)
+  if load:
+    LLValue(v: v, lode: n, storage: OnStatic)
+  else:
+    let
+      tmp = g.m.addPrivateConstant(ty, g.nn("lit", n))
+    tmp.setInitializer(v)
+    LLValue(v: tmp, lode: n, storage: OnStatic)
 
 proc genNodeStrLit(g: LLGen, n: PNode, load: bool): LLValue =
   let v =
@@ -7487,89 +7544,90 @@ proc getLandingPadTy(g: LLGen): TypeRef =
 
   g.landingPadTy
 
-proc genLandingPad(g: LLGen, n: PNode, name: string): llvm.BasicBlockRef =
+proc finNode(n: PNode): PNode =
+  assert n.kind in {nkTryStmt, nkHiddenTryStmt}, $n.kind
+  if n[^1].kind == nkFinally: n[^1] else: nil
+
+proc genLandingPad(g: LLGen, v: PNode, inExc: bool, cmps: llvm.BasicBlockRef): llvm.BasicBlockRef =
   let
-    pad = g.b.appendBasicBlockInContext(g.lc, g.nn(name, n))
-    fin = if n[^1].kind == nkFinally: n[^1] else: nil
+    pad = g.b.appendBasicBlockInContext(
+      g.lc, g.nn(if inExc: "try.excPad" else: "try.pad", v))
 
   g.withBlock(pad):
     let
       landing =
         g.b.buildLandingPad(
-          g.getLandingPadTy(), g.getPersonalityFn(), 0, g.nn("landing", n))
+          g.getLandingPadTy(), g.getPersonalityFn(), 0,
+          g.nn(if inExc: "land.exc" else: "land.try", v))
 
-    var catchAllPresent = false
+    var hasCatchAll = false
 
-    for i in 1..<n.len:
-      let ni = n[i]
-      if ni.kind != nkExceptBranch: break
+    template addClauses(nParam: PNode) =
+      let n = nParam
+      for i in 1..<n.len:
+        let ni = n[i]
+        if ni.kind != nkExceptBranch: break
 
-      if ni.len == 1:
-        # catch-all
-        catchAllPresent = true
-        # Catch all exceptions
+        if ni.len == 1: # `except:`
+          hasCatchAll = true
+          landing.addClause(constNull(g.ptrTy))
+        else:
+          for j in 0..ni.len-2: #`except Type`
+            let
+              etyp =
+                if ni[j].isInfixAs(): ni[j][1].typ
+                else: ni[j].typ
+              eti = g.genTypeInfo(etyp)
 
-        landing.addClause(constNull(g.ptrTy))
-      else:
-        for j in 0..ni.len-2:
-          let
-            etyp =
-              if ni[j].isInfixAs(): ni[j][1].typ
-              else: ni[j].typ
-            eti = g.genTypeInfo(etyp)
+            landing.addClause(eti)
 
-          landing.addClause(eti)
+      if not hasCatchAll:
+        let fin = n.finNode
+        if fin != nil:
+          # If there is no catch-all, we generate a fake one where the finally
+          # code can run
+          landing.addClause(constNull(g.ptrTy))
+          hasCatchAll = true
 
-    if fin != nil:
-      if not catchAllPresent:
-        # Catch all exceptions, do finally code, then reraise
-        landing.addClause(constNull(g.ptrTy))
+    if inExc:
+      landing.setCleanup(llvm.True)
+    else:
+      addClauses(v)
+
+    # When looking for an exception handler, we match all outer handlers as well
+    # until we hit one that is guaranteed to have handled all exceptions - if
+    # none of them match, we move on to the resume instruction which tries the
+    # next function.
+
+    # TODO skip subtypes if supertype has been caught?
+    for entry in reversed(g.f.nestedTryStmts):
+      if hasCatchAll: break
+
+      addClauses(entry.n)
+
+    if g.f.landingRes == nil:
+      g.f.landingRes = g.localAlloca(landing.typeOfX, g.nn("landingRes"))
+      g.f.resumeBlock = g.b.appendBasicBlockInContext(g.lc, g.nn("eh.resume"))
+      g.withBlock(g.f.resumeBlock):
+        let
+          land = g.b.buildLoad2(g.f.landingRes.getAllocatedType(), g.f.landingRes)
+        discard g.b.buildResume(land)
+
+    discard g.b.buildStore(landing, g.f.landingRes)
+
+    if inExc:
+      discard g.callCompilerProc("nlvmEndCatch", [], noInvoke = true)
+      let nextCmps =
+        if g.f.nestedTryStmts.len > 0:
+          g.f.nestedTryStmts[^1].cmps
+        else:
+          g.f.resumeBlock
+
+      discard g.b.buildBr(nextCmps)
+    else:
+      discard g.b.buildBr(cmps)
 
   pad
-
-proc getBadCleanupPad(g: LLGen): llvm.BasicBlockRef =
-  # Bad cleanup is called when endCatch raises - basically when the destructor
-  # of an exception raises, or other similar situations
-  if g.f.badCleanupPad.isNil():
-    g.f.badCleanupPad =
-      g.b.appendBasicBlockInContext(g.lc, g.nn("cleanup.bad.pad"))
-
-    g.withBlock(g.f.badCleanupPad):
-      # if endCatch raises, this is where we land!
-      let bad = g.b.buildLandingPad(
-        g.getLandingPadTy(), g.getPersonalityFn(), 0,
-        g.nn("cleanup.bad.landing"))
-
-      # Pad of last resort - catch everything
-      bad.addClause(constNull(g.ptrTy))
-
-      discard g.callCompilerProc(
-        "nlvmBadCleanup", [], noInvoke = true, noReturn = true)
-  g.f.badCleanupPad
-
-template withBadCleanupPad(g: LLGen, body: untyped) =
-  g.f.nestedTryStmts.add((nil, false, g.getBadCleanupPad(), nil, @[]))
-  body
-  discard g.f.nestedTryStmts.pop
-
-proc getCleanupPadBlock(g: LLGen): llvm.BasicBlockRef =
-  # Cleanup block is used when nlvmEndCatch needs to be called while an
-  # exception is about to leave a function boundary
-
-  if g.f.cleanupPad.isNil():
-    let f = g.b.getInsertBlock().getBasicBlockParent()
-    g.f.cleanupPad = g.b.appendBasicBlockInContext(g.lc, g.nn("cleanup.pad", f))
-
-    g.withBlock(g.f.cleanupPad):
-      let cleanup = g.b.buildLandingPad(
-        g.getLandingPadTy(), g.getPersonalityFn(), 0, g.nn("cleanup", f))
-      cleanup.setCleanup(llvm.True)
-
-      g.withBadCleanupPad(): discard g.callCompilerProc("nlvmEndCatch", [])
-
-      discard g.b.buildResume(cleanup)
-
-  g.f.cleanupPad
 
 proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
   template genOrAssign(n: PNode) =
@@ -7584,101 +7642,55 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
     typ = n.deepTyp
 
   if not typ.isEmptyType():
-
     result = LLValue(
       v: g.localAlloca(g.llType(typ), g.nn("try.res", n)), storage: OnStack)
     g.buildStoreNull(result.v.getAllocatedType(), result.v)
     g.genObjectInit(typ, result.v)
 
+  # We create two landing pads: one for when we're in "try" and the other
+  # when we're in "except" and want to clean up after the caught
+  # exception then continue to an outer try or next frame
   let
-    pad = g.genLandingPad(n, "try.pad")
+    cmps = g.b.appendBasicBlockInContext(g.lc, g.nn("try.cmps", n))
+    tryPad = g.genLandingPad(n, false, cmps)
+    excPad = g.genLandingPad(n, true, cmps)
+    tryEnd = g.b.appendBasicBlockInContext(g.lc, g.nn("try.end", n))
 
-  g.f.nestedTryStmts.add((n, false, pad, nil, @[]))
-
-  let fin = g.f.nestedTryStmts[^1].fin
+  g.f.nestedTryStmts.add((n, false, false, tryPad, excPad, cmps))
 
   # Generate code inside try block - anything that raises in here will jump
-  # to pad
+  # to tryPad
   discard g.f.startBlock(nil, nil)
   genOrAssign(n[0])
   g.f.endBlock()
 
   # Happy ending - no exception was raised or it was raised and caught
-  let tryEnd = g.b.appendBasicBlockInContext(g.lc, g.nn("try.end", n))
   g.b.buildBrFallthrough(tryEnd)
 
-  # While catching stuff, we want exceptions to pass through our cleanup pad
-  # so that end catch is called properly
-  if g.f.nestedTryStmts.len > 1 and not g.f.nestedTryStmts[^2].inExcept:
-    # When we're catching exceptions, any exception that escapes the current
-    # scope will need to call `nlvmEndCatch`. This means that the landingpad
-    # that's used in invoke calls must make the call in the parent scope - we
-    # end up with two landingpad blocks that are identical save for the call.
-    # Once cleanup is done, we move on to the handler part that compares type.
-    if g.f.nestedTryStmts[^2].extraPads.len > 0:
-      # If there are two sibling try blocks nested inside another try block,
-      # they can use the same exception cleanup pad as they will be identical.
-      # TODO the code keeps a seq of extra pads here because that's what the
-      #      clang/c++ eh code generates, but we could get away with a single
-      #      entry - investigate!
-      g.f.nestedTryStmts[^1].excPad = g.f.nestedTryStmts[^2].extraPads[0].pad
-    else:
-      g.f.nestedTryStmts[^1].excPad = g.genLandingPad(g.f.nestedTryStmts[^2].n, "try.pad.exc")
-
-      g.withBlock(g.f.nestedTryStmts[^1].excPad):
-        g.withBadCleanupPad(): discard g.callCompilerProc("nlvmEndCatch", [])
-
-        g.f.nestedTryStmts[^2].extraPads.add((
-          g.f.nestedTryStmts[^1].excPad, g.b.getInsertBlock()))
-
-  else:
-    let tmp = g.getCleanupPadBlock()
-    g.f.nestedTryStmts[^1].excPad = tmp
-
-  assert g.f.nestedTryStmts[^1].excPad != nil
   g.f.nestedTryStmts[^1].inExcept = true
 
-  let
-    land =
-      if g.f.nestedTryStmts[^1].extraPads.len > 0:
-        let
-          cmp = g.b.appendBasicBlockInContext(g.lc, g.nn("try.type.cmp", n))
-
-        g.b.positionBuilderAtEnd(cmp)
-
-        let landing = g.b.buildPhi(g.getLandingPadTy(), g.nn("try.pad.phi", n))
-        landing.addIncoming([pad.getFirstInstruction()], [pad])
-
-        for (epad, esrc) in g.f.nestedTryStmts[^1].extraPads:
-          g.withBlock(esrc):
-            discard g.b.buildBr(cmp)
-          landing.addIncoming([epad.getFirstInstruction()], [esrc])
-
-        g.withBlock(pad):
-          discard g.b.buildBr(cmp)
-
-        landing
-      else:
-        let landing = pad.getFirstInstruction()
-        g.b.positionBuilderAtEnd(pad)
-        landing
+  # `cmps` is where we look for handlers that match the exception type - we
+  # search the current scope and any parent scopes until we hit a catch-all
+  # or resume in the caller frame
+  g.b.positionAndMoveToEnd(cmps)
 
   let
+    land = g.b.buildLoad2(g.f.landingRes.getAllocatedType(), g.f.landingRes)
     landedPtr = g.b.buildExtractValue(land, 0, g.nn("landedptr", n))
     landedTypeId = g.b.buildExtractValue(land, 1, g.nn("landedti", n))
 
-  var catchAllPresent = false
+  var hasCatchAll = false
 
   for i in 1..<n.len:
     let ni = n[i]
     if ni.kind != nkExceptBranch: break
 
-    if ni.len == 1:
+    if ni.len == 1: # `except:`
+      # TODO detect type id here too for foreign exceptions?
       # catch-all
-      catchAllPresent = true
-      # Catch all exceptions
+      hasCatchAll = true
 
-      discard g.callCompilerProc("nlvmBeginCatch", [landedPtr], true)
+      discard g.callCompilerProc("nlvmBeginCatch", [landedPtr], noInvoke = true)
 
       discard g.f.startBlock(nil, nil)
       genOrAssign(ni[0])
@@ -7686,11 +7698,11 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
 
       if g.b.needsTerminator():
         # Looks like exception was handled, release and jump to end-of-block
-        g.withBadCleanupPad(): discard g.callCompilerProc("nlvmEndCatch", [])
+        discard g.callCompilerProc("nlvmEndCatch", [], noInvoke = true)
         discard g.b.buildBr(tryEnd)
 
     else:
-      for j in 0..ni.len-2:
+      for j in 0..ni.len-2: # `except A`, `except A as a`
         # exception handler body will duplicated for every type
         # TODO we could avoid this..
 
@@ -7721,19 +7733,23 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
 
         if g.b.needsTerminator():
           # Looks like exception was handled, release and jump to end-of-block
-          g.withBadCleanupPad(): discard g.callCompilerProc("nlvmEndCatch", [])
+          discard g.callCompilerProc("nlvmEndCatch", [], noInvoke = true)
 
           discard g.b.buildBr(tryEnd)
 
         # No match, keep building
         g.b.positionBuilderAtEnd(ne)
 
-  # We're now outside of the try part and the builder is positioned right after
-  # the last type check
-  discard g.f.nestedTryStmts.pop()
+  g.b.moveToEnd(excPad)
 
+  let fin = n.finNode
   if fin != nil:
-    if not catchAllPresent:
+    # The finalizer is added right before the end of ever possible exit from
+    # the try scope - outside of try, but inside of except (ie when the finally
+    # code runs inside an `except`, `getCurrentException` still points to the
+    # exception corresponding to that `except`)
+    g.f.nestedTryStmts[^1].inFin = true
+    if not hasCatchAll:
       # If there's no catch-all, the exceptions that are not caught need to
       # have the finally code run as well - in the section above we tried
       # matching all types that were meant to be caught so here we build the
@@ -7747,30 +7763,44 @@ proc genNodeTryStmt(g: LLGen, n: PNode, load: bool): LLValue =
 
       discard g.callCompilerProc("nlvmReraise", [], noReturn = true)
 
-    g.b.buildBrFallthrough(tryEnd)
-    g.b.positionBuilderAtEnd(tryEnd)
+      # With the finalizer done, we've done everything that happens "inside"
+      # the context of the raised exception
+      discard g.f.nestedTryStmts.pop()
+      g.b.positionAndMoveToEnd(tryEnd)
+    else:
+      discard g.f.nestedTryStmts.pop()
+      g.b.buildBrFallthrough(tryEnd)
+      g.b.positionAndMoveToEnd(tryEnd)
 
-    # Emit finalizer code
+    # Emit finalizer code in happy path
     discard g.f.startBlock(nil, nil)
     g.genNode(fin[0])
     g.f.endBlock()
-  else:
-    if not catchAllPresent:
-      # TODO if we end up here we entered the landing pad but didn't match
-      #      any type - how could that have happened?? Should we resume then?
-      # discard g.b.buildResume(land)
-      discard g.b.buildUnreachable()
 
-    g.b.buildBrFallthrough(tryEnd)
-    g.b.positionBuilderAtEnd(tryEnd)
+  else:
+    # There is no finalizer - the current exception handling context is finished
+    # and we move on to search the next one
+    discard g.f.nestedTryStmts.pop()
+
+    if not hasCatchAll:
+      # Move on to the parent type comparison section
+      if g.f.nestedTryStmts.len > 0:
+        discard g.b.buildBr(g.f.nestedTryStmts[^1].cmps)
+      else:
+        discard g.b.buildBr(g.f.resumeBlock)
+    else:
+      g.b.buildBrFallthrough(tryEnd)
+
+    g.b.positionAndMoveToEnd(tryEnd)
 
   if not typ.isEmptyType():
     result = g.maybeLoadValue(
       result.v.getAllocatedType(), result, load and result.v != nil)
 
 proc genNodeRaiseStmt(g: LLGen, n: PNode) =
-  if g.f.nestedTryStmts.len > 0 and g.f.nestedTryStmts[^1].inExcept:
-    let fin = g.f.nestedTryStmts[^1].fin
+  if g.f.nestedTryStmts.len > 0 and g.f.nestedTryStmts[^1].inExcept and
+      not g.f.nestedTryStmts[^1].inFin:
+    let fin = g.f.nestedTryStmts[^1].n.finNode
     if fin != nil:
       discard g.f.startBlock(nil, nil)
       g.genNode(fin[0])
@@ -7788,12 +7818,14 @@ proc blockLeave(g: LLGen, howManyTrys: int) =
   var stack = newSeq[LLEhEntry](0)
 
   for i in 1..howManyTrys:
+    # The finally block conceptually runs after the try block has ended, so
+    # we pop entries here as we go through the list
     let tryStmt = g.f.nestedTryStmts.pop
 
     stack.add(tryStmt)
 
-    let fin = tryStmt.fin
-    if fin != nil:
+    let fin = tryStmt.n.finNode
+    if fin != nil and not tryStmt.inFin:
       discard g.f.startBlock(nil, nil)
       g.genNode(fin[0])
       g.f.endBlock()
@@ -7961,8 +7993,8 @@ proc genNode(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   case n.kind
   of nkEmpty: discard
   of nkSym: result = g.genNodeSym(n, load)
-  of nkCharLit..nkUInt64Lit: result = g.genNodeIntLit(n)
-  of nkFloatLit..nkFloat128Lit: result = g.genNodeFloatLit(n)
+  of nkCharLit..nkUInt64Lit: result = g.genNodeIntLit(n, load)
+  of nkFloatLit..nkFloat128Lit: result = g.genNodeFloatLit(n, load)
   of nkStrLit..nkTripleStrLit: result = g.genNodeStrLit(n, load)
   of nkNilLit: result = g.genNodeNilLit(n, load)
   of nkCallKinds: result = g.genNodeCall(n, load, dest)
@@ -8403,7 +8435,6 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
       discard g.b.buildRetVoid()
 
   let s = pc.sym
-
   if sfCompileToCpp in s.flags:
     g.config.internalError("Compile-to-c++ not supported (did you use importcpp?)")
 

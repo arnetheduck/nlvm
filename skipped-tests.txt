@@ -279,7 +279,6 @@ tests/overload/tstatic_with_converter.nim c
 tests/parallel/tdeepcopy2.nim c
 tests/parallel/tdeepcopy.nim c
 tests/parallel/tmissing_deepcopy.nim c
-tests/parallel/tsendtwice.nim c
 tests/pragmas/t12640.nim c
 tests/pragmas/tbitsize.nim c
 tests/pragmas/tlocks.nim c --mm:arc
