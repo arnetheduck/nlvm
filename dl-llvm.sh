@@ -13,8 +13,8 @@ cd ext
 VER="$1.$2"
 VER2="$VER.$3"
 TGT="$4"
-SUFFIX="x86_64-unknown-linux-gnu"
-SUFFIX2="-sles15"
+SUFFIX="x86_64-linux-gnu-ubuntu-18.04"
+SUFFIX2=""
 
 LLVM_ROOT=llvm-$VER2.src
 
