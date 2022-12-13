@@ -154,8 +154,7 @@ proc linkLinuxAmd64(conf: ConfigRef) =
         "crt1.o"
       args.add findFile(filePaths, crt1)
 
-    # TODO adjust toolchain path
-    args.add "/usr/lib64/crti.o"
+    args.add findFile(filePaths, "crti.o")
 
     let crtbegin = if "-shared" in linkOpts:
       if isAndroid: "crtbegin_so.o" else: "crtbeginS.o"
