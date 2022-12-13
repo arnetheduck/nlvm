@@ -128,9 +128,20 @@ type
   TargetMachineRef* = ptr OpaqueTargetMachine
   PassManagerBuilderRef* = ptr OpaquePassManagerBuilder
 
+  ComdatSelectionKind* {.size: sizeof(cint).} = enum
+    AnyComdatSelectionKind,        ## The linker may choose any COMDAT.
+    ExactMatchComdatSelectionKind, ## The data referenced by the COMDAT must
+                                      ## be the same.
+    LargestComdatSelectionKind,    ## The linker will choose the largest
+                                      ## COMDAT.
+    NoDeduplicateComdatSelectionKind, ## No deduplication is performed.
+    SameSizeComdatSelectionKind ## The data referenced by the COMDAT must be
+                                    ## the same size.
+
 include llvm/Types
 include llvm/Support
 
+include llvm/Comdat
 include llvm/Core
 include llvm/DebugInfo
 include llvm/BitReader
@@ -272,6 +283,13 @@ proc nimLLDLinkWasm*(args: openArray[string]): bool =
   defer: deallocCStringArray(argv)
 
   nimLLDLinkWasm(argv, args.len.csize_t)
+
+
+proc nimCreateTargetMachine*(t: TargetRef; triple: cstring; cpu: cstring;
+                         features: cstring; level: CodeGenOptLevel;
+                         reloc: RelocMode; codeModel: CodeModel): TargetMachineRef {.
+    importc: "LLVMNimCreateTargetMachine".}
+
 
 # A few helpers to make things more smooth
 

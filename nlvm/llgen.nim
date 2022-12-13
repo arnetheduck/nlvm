@@ -1,5 +1,5 @@
 # nlvm - llvm IR generator for Nim
-# Copyright (c) Jacek Sieka 2016-2019
+# Copyright (c) Jacek Sieka 2016-2022
 # See the LICENSE file for license info (doh!)
 
 import
@@ -1355,13 +1355,12 @@ proc debugGlobal(g: LLGen, sym: PSym, v: llvm.ValueRef) =
 
   let
     dt = g.debugType(sym.typ)
-    scope = g.debugGetScope()
     linkageName = sym.llName()
     name = if sym.name.s.len == 0: linkageName else: sym.name.s
+    (df, line) = g.debugGetLine(sym)
 
-  let gve = dIBuilderCreateGlobalVariableExpression(
-    g.d, scope, name, linkageName,
-    g.debugGetFile(sym.info.fileIndex), sym.info.line.cuint, dt, false,
+  let gve = g.d.dIBuilderCreateGlobalVariableExpression(
+    g.dcu, name, linkageName, df, line, dt, false,
     dIBuilderCreateExpression(g.d, nil, 0), nil, 0
   )
   v.nimSetMetadataGlobal(g.dbgKind, g.lc.metadataAsValue(gve))
@@ -2444,7 +2443,7 @@ proc genTypeInfo(g: LLGen, typ: PType): llvm.ValueRef =
       (df, line) = g.debugGetLine(sym)
 
     let gve = g.d.dIBuilderCreateGlobalVariableExpression(
-      df, name, "", df, line, dt, false,
+      g.dcu, name, "", df, line, dt, false,
       dIBuilderCreateExpression(g.d, nil, 0), nil, 0)
     result.nimSetMetadataGlobal(g.dbgKind, g.lc.metadataAsValue(gve))
 
@@ -8567,7 +8566,7 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
       cgl =
         if optOptimizeSpeed in graph.config.options: llvm.CodeGenLevelAggressive
         else: llvm.CodeGenLevelDefault
-      tm = createTargetMachine(
+      tm = nimCreateTargetMachine(
         tr, target, "", "", cgl, reloc, llvm.CodeModelDefault)
       layout = tm.createTargetDataLayout()
       g = newLLGen(graph, idgen, target, tm)
