@@ -3,7 +3,7 @@ LLVM_INC=../ext/llvm-15.0.6.src/include
 C2NIM="../../c2nim/c2nim"
 C2NIMFLAGS="--nep1 --skipinclude --prefix:LLVM --dynlib:LLVMLib"
 
-HEADERS="BitReader.h BitWriter.h Core.h Error.h DebugInfo.h IRReader.h Linker.h Target.h TargetMachine.h Support.h Types.h Transforms/PassManagerBuilder.h"
+HEADERS="BitReader.h BitWriter.h Comdat.h Core.h Error.h DebugInfo.h IRReader.h Linker.h Target.h TargetMachine.h Support.h Types.h Transforms/PassManagerBuilder.h"
 
 for a in $HEADERS; do
   OUT="llvm/${a%.h}.nim"
