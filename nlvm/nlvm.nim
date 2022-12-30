@@ -273,6 +273,11 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
     return
 
   self.processCmdLineAndProjectPath(conf)
+  # nlvm exception handling mostly resembles C++ but setjmp avoids some
+  # C++-specific quirks
+  conf.exc = excSetjmp
+
+
   var graph = newModuleGraph(cache, conf)
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
