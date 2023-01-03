@@ -217,10 +217,69 @@ proc unhandledException(e: ref Exception) {.noreturn.} =
 
   quit(1) # TODO alternatively, quitOrDebug
 
-func exceptionType(e: ref Exception): PNimType =
-  # return the dynamic type of an exception, which nlvm stores at the beginning
-  # of the object
-  cast[ptr PNimType](unsafeAddr e[])[]
+func getNimTypePtr(
+    ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8,
+    ctx: UnwindContext): pointer =
+  let
+    ti =
+      case ttypeEncoding and 0x0F'u8
+      of DW_EH_PE_absptr: ttypeIndex * sizeof(pointer)
+      of DW_EH_PE_udata2, DW_EH_PE_sdata2: ttypeIndex * 2
+      of DW_EH_PE_udata4, DW_EH_PE_sdata4: ttypeIndex * 4
+      of DW_EH_PE_udata8, DW_EH_PE_sdata8: ttypeIndex * 8
+      else: c_abort()
+
+  var tiPtr = classInfo.offset(-ti)
+  tiPtr.readEncodedPointer(ctx, ttypeEncoding)
+
+when defined(nimV2):
+  type
+    DestructorProc = proc (p: pointer) {.nimcall, benign, raises: [].}
+    TNimTypeV2 = object
+      destructor: pointer
+      size: int
+      align: int
+      name: cstring
+      traceImpl: pointer
+      typeInfoV1: pointer # for backwards compat, usually nil
+      flags: int
+    PNimTypeV2 = ptr TNimTypeV2
+
+  func exceptionType(e: ref Exception): PNimTypeV2 =
+    # return the dynamic type of an exception, which nlvm stores at the beginning
+    # of the object
+    cast[ptr PNimTypeV2](unsafeAddr e[])[]
+
+  func getNimType(
+      ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8,
+      ctx: UnwindContext): PNimTypeV2 =
+    cast[PNimTypeV2](getNimTypePtr(ttypeIndex, classInfo, ttypeEncoding, ctx))
+
+  proc memcmp(str1, str2: cstring, n: csize_t): cint {.importc, header: "<string.h>".}
+
+  func endsWith(s, suffix: cstring): bool {.inline.} =
+    let
+      sLen = s.len
+      suffixLen = suffix.len
+
+    if suffixLen <= sLen:
+      result = memcmp(cstring(unsafeAddr s[sLen - suffixLen]), suffix, csize_t(suffixLen)) == 0
+
+  proc isObj(obj: PNimTypeV2, subclass: cstring): bool {.compilerRtl, inl.} =
+    endsWith(obj.name, subclass)
+
+  func canCatch(catchType, thrownType: PNimTypeV2): bool =
+    isObj(thrownType, catchType.name)
+else:
+  func exceptionType(e: ref Exception): PNimType =
+    # return the dynamic type of an exception, which nlvm stores at the beginning
+    # of the object
+    cast[ptr PNimType](unsafeAddr e[])[]
+
+  func getNimType(
+      ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8,
+      ctx: UnwindContext): PNimType =
+    cast[PNimType](getNimTypePtr(ttypeIndex, classInfo, ttypeEncoding, ctx))
 
 import system/memory
 
@@ -360,20 +419,12 @@ proc nlvmEndCatch() {.compilerproc.} =
     deleteException(ehGlobals.caughtExceptions)
     ehGlobals.caughtExceptions = nil
 
-func getNimType(
-    ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8,
-    ctx: UnwindContext): PNimType =
-  let
-    ti =
-      case ttypeEncoding and 0x0F'u8
-      of DW_EH_PE_absptr: ttypeIndex * sizeof(pointer)
-      of DW_EH_PE_udata2, DW_EH_PE_sdata2: ttypeIndex * 2
-      of DW_EH_PE_udata4, DW_EH_PE_sdata4: ttypeIndex * 4
-      of DW_EH_PE_udata8, DW_EH_PE_sdata8: ttypeIndex * 8
-      else: c_abort()
+func canCatch(catchType, thrownType: PNimType): bool =
+  var tmp = thrownType
 
-  var tiPtr = classInfo.offset(-ti)
-  cast[PNimType](tiPtr.readEncodedPointer(ctx, ttypeEncoding))
+  while tmp != nil:
+    if tmp == catchType: return true
+    tmp = tmp.base
 
 type
   ScanResult = object
@@ -381,17 +432,15 @@ type
     landingPad: pointer # null -> nothing found, else something found
     reason: UnwindReasonCode
 
-func canCatch(catchType, thrownType: PNimType, adjustedPtr: pointer): bool =
-  var tmp = thrownType
+when defined(nimV2):
+  type PNimTypeVX = PNimTypeV2
+else:
+  type PNimTypeVX = PNimType
 
-  while tmp != nil:
-    if tmp == catchType: return true
-    tmp = tmp.base
 
 func exceptionSpecCanCatch(
     specIndex: int, classInfo: pointer, ttypeEncoding: uint8,
-    excpType: PNimType, adjustedPtr: pointer,
-    ctx: UnwindContext): bool =
+    excpType: PNimTypeVX, ctx: UnwindContext): bool =
   # specIndex is negative of 1-based byte offset into classInfo
   var specIndex = -specIndex
 
@@ -399,14 +448,13 @@ func exceptionSpecCanCatch(
   var temp = classInfo.offset(specIndex.int)
 
   # If any type in the spec list can catch excpType, return false, else return true
-  # adjustments to adjustedPtr are ignored.
   while true:
     let ttypeIndex = cast[int](temp.readUleb128())
     if ttypeIndex == 0:
       break
 
     let catchType = getNimType(ttypeIndex, classInfo, ttypeEncoding, ctx)
-    if catchType.canCatch(excpType, adjustedPtr):
+    if catchType.canCatch(excpType):
       return false
 
   return true
@@ -516,13 +564,12 @@ func scanEHTable(
           elif native:
             let
               exceptionHeader = unwindException.toNlvmException()
-              adjustedPtr = getThrownObjectPtr(unwindException)
               excpType = exceptionHeader.nimException.exceptionType()
 
-            if adjustedPtr.isNil() or excpType.isNil():
+            if excpType.isNil():
               c_abort()
 
-            if catchType.canCatch(excpType, adjustedPtr):
+            if catchType.canCatch(excpType):
               if actions.isSet(UA_SEARCH_PHASE):
                 return ScanResult(
                   ttypeIndex: ttypeIndex,
@@ -538,15 +585,13 @@ func scanEHTable(
           if native:
             let
               exceptionHeader = unwindException.toNlvmException()
-              adjustedPtr = getThrownObjectPtr(unwindException)
               excpType = exceptionHeader.nimException.exceptionType()
 
-            if adjustedPtr.isNil() or excpType.isNil():
+            if excpType.isNil():
               c_abort()
 
             if exceptionSpecCanCatch(
-                ttypeIndex, classInfo, ttypeEncoding, excpType, adjustedPtr,
-                ctx):
+                ttypeIndex, classInfo, ttypeEncoding, excpType, ctx):
               if actions.isSet(UA_SEARCH_PHASE):
                 return ScanResult(
                   ttypeIndex: ttypeIndex,
