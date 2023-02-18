@@ -21,7 +21,7 @@ Fork and enjoy!
 
 Jacek Sieka (arnetheduck on gmail point com)
 
-# Status
+# Features
 
 `nlvm` is generally at par with `nim` in terms of features, with the following
 notable differences:
@@ -33,6 +33,7 @@ notable differences:
 * Smart code generation - compiler intrinsics for overflow checking,
   smart constant initialization, etc
 * Native `wasm32` support with no extra tooling
+* Just-in-time execution (`nim r`) using the LLVM [ORCv2 JIT](https://llvm.org/docs/ORCv2.html)
 
 Most things from `nim` work just fine (see notes below however!):
 

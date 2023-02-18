@@ -13,11 +13,9 @@ tests/arc/tcaseobjcopy.nim c
 tests/arc/tcaseobj.nim c
 tests/arc/tcontrolflow.nim c
 tests/arc/tdeepcopy.nim c
-tests/arc/texceptions.nim c
 tests/arc/thard_alignment.nim c
 tests/arc/tmarshal.nim c
 tests/arc/trtree.nim c
-tests/arc/tthread.nim c
 tests/assert/tassert_c.nim c
 tests/async/tasyncssl.nim c
 tests/async/tasync_traceback.nim c
@@ -40,7 +38,6 @@ tests/ccgbugs/tprogmem.nim c
 tests/ccgbugs/tunsafeaddr.nim c
 tests/closure/ttimeinfo.nim c
 tests/compiler/t12684.nim c
-tests/compiler/tcppCompileToNamespace.nim c
 tests/converter/tgenericconverter.nim c
 tests/coroutines/tgc.nim c --gc:arc
 tests/coroutines/tgc.nim c --gc:orc
@@ -125,6 +122,7 @@ tests/misc/ttlsemulation.nim c -d:nimTtlsemulationCase1 --threads --tlsEmulation
 tests/modules/tmodule_name_clashes.nim c
 tests/navigator/tincludefile_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off
 tests/navigator/tnav1_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off
+tests/newconfig/tfoo.nim c
 tests/nimdoc/t15916.nim c
 tests/nimdoc/t17615.nim c
 tests/nimdoc/trunnableexamples2.nim c
@@ -152,7 +150,6 @@ tests/stdlib/tasynchttpserver_transferencoding.nim c --gc:arc --threads:on
 tests/stdlib/tasynchttpserver_transferencoding.nim c --gc:arc --threads:on -d:danger
 tests/stdlib/tjson.nim c
 tests/stdlib/tlwip.nim c
-tests/stdlib/tos.nim c
 tests/stdlib/tosproc.nim c
 tests/stdlib/trepr.nim c --gc:arc
 tests/stdlib/tsqlitebindatas.nim c

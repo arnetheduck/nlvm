@@ -44,6 +44,7 @@ import
   llvm/llvm,
 
   lllink,
+  lljit,
   llplatform
 
 type
@@ -8927,18 +8928,18 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
 
       g.finalize()
 
-  if g.d != nil:
-    g.d.dIBuilderFinalize()
-
   g.loadBase()
 
-  g.writeOutput(changeFileExt(g.config.projectFull, "").string)
-
   if g.d != nil:
+    g.d.dIBuilderFinalize()
     g.d.disposeDIBuilder()
     g.d = nil
 
-  g.m.disposeModule()
+  if optWasNimscript in g.config.globalOptions:
+    runModule(g.config, g.tm, g.m)
+  else:
+    g.writeOutput(changeFileExt(g.config.projectFull, "").string)
+    g.m.disposeModule()
 
   n
 
