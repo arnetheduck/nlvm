@@ -72,6 +72,39 @@ type
   comdat{.pure, final.} = object
   opaqueModuleFlagEntry{.pure, final.} = object
   OpaqueBinary{.pure, final.} = object
+  OpaqueError{.pure, final.} = object
+
+  ## Orc.nim
+  OrcOpaqueExecutionSession{.pure, final.} = object
+  OrcOpaqueSymbolStringPool{.pure, final.} = object
+  OrcOpaqueJITDylib{.pure, final.} = object
+  OrcOpaqueSymbolStringPoolEntry{.pure, final.} = object
+  OrcOpaqueMaterializationUnit{.pure, final.} = object
+  OrcOpaqueMaterializationResponsibility{.pure, final.} = object
+  OrcOpaqueResourceTracker{.pure, final.} = object
+  OrcOpaqueDefinitionGenerator{.pure, final.} = object
+  OrcOpaqueLookupState{.pure, final.} = object
+  OrcOpaqueThreadSafeContext{.pure, final.} = object
+  OrcOpaqueThreadSafeModule{.pure, final.} = object
+  OrcOpaqueJITTargetMachineBuilder{.pure, final.} = object
+  OrcOpaqueObjectLayer{.pure, final.} = object
+  OrcOpaqueObjectLinkingLayer{.pure, final.} = object
+  OrcOpaqueIRTransformLayer{.pure, final.} = object
+  OrcOpaqueObjectTransformLayer{.pure, final.} = object
+  OrcOpaqueIndirectStubsManager{.pure, final.} = object
+  OrcOpaqueLazyCallThroughManager{.pure, final.} = object
+  OrcOpaqueDumpObjects{.pure, final.} = object
+
+  ## ExecutionEngine.nim
+  OpaqueGenericValue{.pure, final.} = object
+  OpaqueExecutionEngine{.pure, final.} = object
+  OpaqueMCJITMemoryManager{.pure, final.} = object
+
+  ## LLJIT.nim
+  OrcOpaqueLLJITBuilder{.pure, final.} = object
+  OrcOpaqueLLJIT{.pure, final.} = object
+
+  OrcJITTargetAddress* = uint64
 
   # Funny type names that came out of c2nim
   int64T = int64
@@ -138,6 +171,8 @@ type
     SameSizeComdatSelectionKind ## The data referenced by the COMDAT must be
                                     ## the same size.
 
+  ErrorRef* = ptr OpaqueError
+
 include llvm/Types
 include llvm/Support
 
@@ -146,11 +181,20 @@ include llvm/Core
 include llvm/DebugInfo
 include llvm/BitReader
 include llvm/BitWriter
+include llvm/Error
 include llvm/IRReader
 include llvm/Linker
 include llvm/Target
 include llvm/TargetMachine
 include llvm/Transforms/PassManagerBuilder
+
+include llvm/Orc
+include llvm/OrcEE
+
+type OrcLLJITBuilderObjectLinkingLayerCreatorFunction* = proc(ctx: pointer, ES: OrcExecutionSessionRef, triple: cstring): OrcObjectLayerRef {.cdecl, raises: [].}
+
+include llvm/ExecutionEngine
+include llvm/LLJIT
 
 include preprocessed
 
@@ -438,3 +482,4 @@ proc appendBasicBlockInContext*(
     pre = b.getInsertBlock()
     f = pre.getBasicBlockParent()
   appendBasicBlockInContext(c, f, name)
+

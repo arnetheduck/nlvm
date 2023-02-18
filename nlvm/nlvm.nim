@@ -221,30 +221,50 @@ proc mainCommand*(graph: ModuleGraph) =
   # lib/pure/bitops.num
   defineSymbol(conf.symbols, "noIntrinsicsBitOpts")
 
-  case conf.command.normalize
+  case conf.cmd
   # Take over the default compile command
-  of "c", "cc", "compile", "compiletoc":
-    conf.cmd = cmdCompileToC
+  of cmdCompileToC, cmdCompileToCpp:
     if conf.exc == excNone: conf.exc = excSetjmp
     defineSymbol(graph.config.symbols, "c")
     commandCompile(graph)
-  of "dump":
-    conf.msgWriteln("-- list of currently defined symbols --")
-    for s in definedSymbolNames(conf.symbols): conf.msgWriteln(s)
-    conf.msgWriteln("-- end of list --")
+  of cmdDump:
+    msgWriteln(conf, "-- list of currently defined symbols --",
+                {msgStdout, msgSkipHook, msgNoUnitSep})
+    for s in definedSymbolNames(conf.symbols): msgWriteln(conf, s, {msgStdout, msgSkipHook, msgNoUnitSep})
+    msgWriteln(conf, "-- end of list --", {msgStdout, msgSkipHook})
 
-    for it in conf.searchPaths: conf.msgWriteln(it.string)
+    for it in conf.searchPaths: msgWriteln(conf, it.string)
 
   # of "scan":
   #   conf.cmd = cmdScan
   #   conf.wantMainModule()
   #   commandScan(conf)
 
-  of "check":
-    conf.cmd = cmdCheck
+  of cmdCheck:
     commandCheck(graph)
 
-  else: conf.rawMessage(errGenerated, conf.command)
+  of cmdCrun, cmdTcc:
+    if not fileExists(conf.projectFull):
+      rawMessage(conf, errGenerated, "file does not exist: " & conf.projectFull.string)
+    elif conf.projectFull.string.endsWith(".nim"):
+      conf.cmd = cmdCrun
+
+      # TODO: gc unsupported as of yet
+      conf.selectedGC = gcNone
+
+      defineSymbol(conf.symbols, "nogc")
+      defineSymbol(conf.symbols, "useMalloc")
+
+      incl conf.globalOptions, optWasNimscript
+      commandCompile(graph)
+    elif not conf.projectFull.string.endsWith(".nims"):
+      rawMessage(conf, errGenerated, "not a NimScript file: " & conf.projectFull.string)
+  of cmdNimscript:
+    if conf.projectIsCmd or conf.projectIsStdin: discard
+    elif not fileExists(conf.projectFull):
+      rawMessage(conf, errGenerated, "NimScript file does not exist: " & conf.projectFull.string)
+  of cmdNop: discard
+  else: conf.rawMessage(errGenerated, "command not supported in nlvm: " & conf.command)
 
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
     # if optProfileVM in conf.globalOptions:
@@ -277,6 +297,12 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   # C++-specific quirks
   conf.exc = excSetjmp
 
+  if conf.cmd == cmdCrun:
+    conf.verbosity = 0
+    conf.notes = NotesVerbosity[0]
+    conf.foreignPackageNotes = NotesVerbosity[0]
+    conf.mainPackageNotes = NotesVerbosity[0]
+    conf.options.excl(optHints)
 
   var graph = newModuleGraph(cache, conf)
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
