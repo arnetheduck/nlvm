@@ -3,6 +3,8 @@
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Module.h"
 
+#include "llvm/Support/CodeGen.h"
+
 #include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Target/CodeGenCWrappers.h"
@@ -78,7 +80,7 @@ extern "C" LLVMTargetMachineRef LLVMNimCreateTargetMachine(LLVMTargetRef T,
   // `.init_array` sections and is made to work by using `.init_array`
   // alone
 
-  Optional<Reloc::Model> RM;
+  std::optional<Reloc::Model> RM;
   switch (Reloc){
     case LLVMRelocStatic:
       RM = Reloc::Static;
@@ -103,7 +105,7 @@ extern "C" LLVMTargetMachineRef LLVMNimCreateTargetMachine(LLVMTargetRef T,
   }
 
   bool JIT;
-  Optional<CodeModel::Model> CM = unwrap(CodeModel, JIT);
+  std::optional<CodeModel::Model> CM = unwrap(CodeModel, JIT);
 
   CodeGenOpt::Level OL;
   switch (Level) {

@@ -5,9 +5,9 @@
 import strformat
 
 const
-  LLVMMaj = 15
+  LLVMMaj = 16
   LLVMMin = 0
-  LLVMPat = 6
+  LLVMPat = 0
   LLVMVersion* = fmt"{LLVMMaj}.{LLVMMin}.{LLVMPat}"
   LLVMLib = fmt"libLLVM-{LLVMMaj}.so"
   LLVMRoot = fmt"../ext/llvm-{LLVMVersion}.src/"
@@ -18,6 +18,7 @@ const
 {.passL: "-llldMinGW" .}
 {.passL: "-llldCommon" .}
 {.passL: "-lz" .}
+{.passL: "-lzstd" .}
 
 when defined(staticLLVM):
   const
@@ -41,6 +42,7 @@ else:
 {.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
 {.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
 
+{.passC: "-std=gnu++17".}
 {.compile: "wrapper.cc".}
 
 # Includes and helpers for generated code

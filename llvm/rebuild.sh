@@ -1,4 +1,4 @@
-LLVM_INC=../ext/llvm-15.0.6.src/include
+LLVM_INC=../ext/llvm-16.0.0.src/include
 
 C2NIM="../../c2nim/c2nim"
 C2NIMFLAGS="--nep1 --skipinclude --prefix:LLVM --dynlib:LLVMLib"
