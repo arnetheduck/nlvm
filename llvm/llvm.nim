@@ -42,7 +42,7 @@ else:
 {.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
 {.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
 
-{.compile: "wrapper.cc", "-std=gnu++17".}
+{.compile("wrapper.cc", "-std=gnu++17").}
 
 # Includes and helpers for generated code
 type
