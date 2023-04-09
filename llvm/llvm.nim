@@ -175,6 +175,8 @@ type
 
   ErrorRef* = ptr OpaqueError
 
+  MemoryManagerCreateContextCallback* = proc(ctxCtx: pointer): pointer {.cdecl, raises: [].}
+
 include llvm/Types
 include llvm/Support
 
@@ -190,12 +192,12 @@ include llvm/Target
 include llvm/TargetMachine
 include llvm/Transforms/PassManagerBuilder
 
+include llvm/ExecutionEngine
 include llvm/Orc
 include llvm/OrcEE
 
 type OrcLLJITBuilderObjectLinkingLayerCreatorFunction* = proc(ctx: pointer, ES: OrcExecutionSessionRef, triple: cstring): OrcObjectLayerRef {.cdecl, raises: [].}
 
-include llvm/ExecutionEngine
 include llvm/LLJIT
 
 include preprocessed
