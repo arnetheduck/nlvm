@@ -43,7 +43,11 @@ type
     DWARFSourceLanguageRust, DWARFSourceLanguageC11, DWARFSourceLanguageSwift,
     DWARFSourceLanguageJulia, DWARFSourceLanguageDylan,
     DWARFSourceLanguageC_plusPlus14, DWARFSourceLanguageFortran03,
-    DWARFSourceLanguageFortran08, DWARFSourceLanguageRenderScript, DWARFSourceLanguageBLISS, ##  Vendor extensions:
+    DWARFSourceLanguageFortran08, DWARFSourceLanguageRenderScript,
+    DWARFSourceLanguageBLISS, DWARFSourceLanguageKotlin, DWARFSourceLanguageZig,
+    DWARFSourceLanguageCrystal, DWARFSourceLanguageC_plusPlus17,
+    DWARFSourceLanguageC_plusPlus20, DWARFSourceLanguageC17,
+    DWARFSourceLanguageFortran18, DWARFSourceLanguageAda2005, DWARFSourceLanguageAda2012, ##  Vendor extensions:
     DWARFSourceLanguageMipsAssembler, DWARFSourceLanguageGOOGLE_RenderScript,
     DWARFSourceLanguageBORLAND_Delphi
 
@@ -97,6 +101,7 @@ const
   DIStringTypeMetadataKind* = 32
   DIGenericSubrangeMetadataKind* = 33
   DIArgListMetadataKind* = 34
+  DIAssignIDMetadataKind* = 35
 
 ## !!!Ignored construct:  typedef unsigned LLVMMetadataKind ;
 ## Error: identifier expected, but got: ;!!!

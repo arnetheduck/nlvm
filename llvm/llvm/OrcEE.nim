@@ -21,17 +21,61 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_ORCEE_H [NewLine] # LLVM_C_ORCEE_H [NewLine] # llvm-c/Error.h [NewLine] # llvm-c/ExecutionEngine.h [NewLine] # llvm-c/Orc.h [NewLine] # llvm-c/TargetMachine.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+## !!!Ignored construct:  # LLVM_C_ORCEE_H [NewLine] # LLVM_C_ORCEE_H [NewLine] # llvm-c/Error.h [NewLine] # llvm-c/ExecutionEngine.h [NewLine] # llvm-c/Orc.h [NewLine] # llvm-c/TargetMachine.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN typedef void * ( * LLVMMemoryManagerCreateContextCallback ) ( void * CtxCtx ) ;
+## Error: token expected: ; but got: [identifier]!!!
+
+type
+  MemoryManagerNotifyTerminatingCallback* = proc (ctxCtx: pointer)
+
+## *
 ##  @defgroup LLVMCExecutionEngineORCEE ExecutionEngine-based ORC Utils
 ##  @ingroup LLVMCExecutionEngine
 ##
 ##  @{
-##  *
+##
+## *
 ##  Create a RTDyldObjectLinkingLayer instance using the standard
 ##  SectionMemoryManager for memory management.
-##  LLVMOrcObjectLayerRef LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager ( LLVMOrcExecutionSessionRef ES ) ;
-## Error: expected ';'!!!
+##
 
+proc orcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager*(
+    es: OrcExecutionSessionRef): OrcObjectLayerRef {.
+    importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager",
+    dynlib: LLVMLib.}
+## *
+##  Create a RTDyldObjectLinkingLayer instance using MCJIT-memory-manager-like
+##  callbacks.
+##
+##  This is intended to simplify transitions for existing MCJIT clients. The
+##  callbacks used are similar (but not identical) to the callbacks for
+##  LLVMCreateSimpleMCJITMemoryManager: Unlike MCJIT, RTDyldObjectLinkingLayer
+##  will create a new memory manager for each object linked by calling the given
+##  CreateContext callback. This allows for code removal by destroying each
+##  allocator individually. Every allocator will be destroyed (if it has not been
+##  already) at RTDyldObjectLinkingLayer destruction time, and the
+##  NotifyTerminating callback will be called to indicate that no further
+##  allocation contexts will be created.
+##
+##  To implement MCJIT-like behavior clients can implement CreateContext,
+##  NotifyTerminating, and Destroy as:
+##
+##    void *CreateContext(void *CtxCtx) { return CtxCtx; }
+##    void NotifyTerminating(void *CtxCtx) { MyOriginalDestroy(CtxCtx); }
+##    void Destroy(void *Ctx) { }
+##
+##  This scheme simply reuses the CreateContextCtx pointer as the one-and-only
+##  allocation context.
+##
+
+proc orcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks*(
+    es: OrcExecutionSessionRef; createContextCtx: pointer;
+    createContext: MemoryManagerCreateContextCallback;
+    notifyTerminating: MemoryManagerNotifyTerminatingCallback;
+    allocateCodeSection: MemoryManagerAllocateCodeSectionCallback;
+    allocateDataSection: MemoryManagerAllocateDataSectionCallback;
+    finalizeMemory: MemoryManagerFinalizeMemoryCallback;
+    destroy: MemoryManagerDestroyCallback): OrcObjectLayerRef {.importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks",
+    dynlib: LLVMLib.}
 ## *
 ##  Add the given listener to the given RTDyldObjectLinkingLayer.
 ##

@@ -66,7 +66,8 @@ type ## *
     TokenTypeKind,            ## *< Tokens
     ScalableVectorTypeKind,   ## *< Scalable SIMD vector type
     BFloatTypeKind,           ## *< 16 bit brain floating point type
-    X86AMXTypeKind            ## *< X86 AMX
+    X86AMXTypeKind,           ## *< X86 AMX
+    TargetExtTypeKind         ## *< Target extension type
   Linkage* {.size: sizeof(cint).} = enum
     ExternalLinkage,          ## *< Externally visible function
     AvailableExternallyLinkage, LinkOnceAnyLinkage, ## *< Keep one copy of function when linking (inline)
@@ -121,7 +122,7 @@ type ## *
     ConstantDataArrayValueKind, ConstantDataVectorValueKind, ConstantIntValueKind,
     ConstantFPValueKind, ConstantPointerNullValueKind, ConstantTokenNoneValueKind,
     MetadataAsValueValueKind, InlineAsmValueKind, InstructionValueKind,
-    PoisonValueValueKind
+    PoisonValueValueKind, ConstantTargetNoneValueKind
   IntPredicate* {.size: sizeof(cint).} = enum
     IntEQ = 32,                 ## *< equal
     IntNE,                    ## *< not equal
@@ -295,6 +296,16 @@ proc initializeCore*(r: PassRegistryRef) {.importc: "LLVMInitializeCore",
 ##     @see ManagedStatic
 
 proc shutdown*() {.importc: "LLVMShutdown", dynlib: LLVMLib.}
+## ===-- Version query -----------------------------------------------------===
+## *
+##  Return the major, minor, and patch version of LLVM
+##
+##  The version components are returned via the function's three output
+##  parameters or skipped if a NULL pointer was supplied.
+##
+
+proc getVersion*(major: ptr cuint; minor: ptr cuint; patch: ptr cuint) {.
+    importc: "LLVMGetVersion", dynlib: LLVMLib.}
 ## ===-- Error handling ----------------------------------------------------===
 
 proc createMessage*(message: cstring): cstring {.importc: "LLVMCreateMessage",
@@ -1465,6 +1476,14 @@ proc labelType*(): TypeRef {.importc: "LLVMLabelType", dynlib: LLVMLib.}
 proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 proc x86AMXType*(): TypeRef {.importc: "LLVMX86AMXType", dynlib: LLVMLib.}
 ## *
+##  Create a target extension type in LLVM context.
+##
+
+proc targetExtTypeInContext*(c: ContextRef; name: cstring; typeParams: ptr TypeRef;
+                            typeParamCount: cuint; intParams: ptr cuint;
+                            intParamCount: cuint): TypeRef {.
+    importc: "LLVMTargetExtTypeInContext", dynlib: LLVMLib.}
+## *
 ##  @}
 ##
 ## *
@@ -1997,8 +2016,6 @@ proc constNSWNeg*(constantVal: ValueRef): ValueRef {.importc: "LLVMConstNSWNeg",
     dynlib: LLVMLib.}
 proc constNUWNeg*(constantVal: ValueRef): ValueRef {.importc: "LLVMConstNUWNeg",
     dynlib: LLVMLib.}
-proc constFNeg*(constantVal: ValueRef): ValueRef {.importc: "LLVMConstFNeg",
-    dynlib: LLVMLib.}
 proc constNot*(constantVal: ValueRef): ValueRef {.importc: "LLVMConstNot",
     dynlib: LLVMLib.}
 proc constAdd*(lHSConstant: ValueRef; rHSConstant: ValueRef): ValueRef {.
@@ -2036,14 +2053,9 @@ proc constLShr*(lHSConstant: ValueRef; rHSConstant: ValueRef): ValueRef {.
     importc: "LLVMConstLShr", dynlib: LLVMLib.}
 proc constAShr*(lHSConstant: ValueRef; rHSConstant: ValueRef): ValueRef {.
     importc: "LLVMConstAShr", dynlib: LLVMLib.}
-proc constGEP*(constantVal: ValueRef; constantIndices: ptr ValueRef; numIndices: cuint): ValueRef {.
-    importc: "LLVMConstGEP", dynlib: LLVMLib, deprecated.}
 proc constGEP2*(ty: TypeRef; constantVal: ValueRef; constantIndices: ptr ValueRef;
                numIndices: cuint): ValueRef {.importc: "LLVMConstGEP2",
     dynlib: LLVMLib.}
-proc constInBoundsGEP*(constantVal: ValueRef; constantIndices: ptr ValueRef;
-                      numIndices: cuint): ValueRef {.
-    importc: "LLVMConstInBoundsGEP", dynlib: LLVMLib, deprecated.}
 proc constInBoundsGEP2*(ty: TypeRef; constantVal: ValueRef;
                        constantIndices: ptr ValueRef; numIndices: cuint): ValueRef {.
     importc: "LLVMConstInBoundsGEP2", dynlib: LLVMLib.}
@@ -2303,9 +2315,6 @@ proc setExternallyInitialized*(globalVar: ValueRef; isExtInit: Bool) {.
 ##
 ##  @{
 ##
-
-proc addAlias*(m: ModuleRef; ty: TypeRef; aliasee: ValueRef; name: cstring): ValueRef {.
-    importc: "LLVMAddAlias", dynlib: LLVMLib, deprecated.}
 ## *
 ##  Add a GlobalAlias with the given value type, address space and aliasee.
 ##
@@ -3702,9 +3711,6 @@ proc buildSwitch*(a1: BuilderRef; v: ValueRef; `else`: BasicBlockRef; numCases: 
     importc: "LLVMBuildSwitch", dynlib: LLVMLib.}
 proc buildIndirectBr*(b: BuilderRef; `addr`: ValueRef; numDests: cuint): ValueRef {.
     importc: "LLVMBuildIndirectBr", dynlib: LLVMLib.}
-proc buildInvoke*(a1: BuilderRef; fn: ValueRef; args: ptr ValueRef; numArgs: cuint;
-                 then: BasicBlockRef; catch: BasicBlockRef; name: cstring): ValueRef {.
-    importc: "LLVMBuildInvoke", dynlib: LLVMLib, deprecated.}
 proc buildInvoke2*(a1: BuilderRef; ty: TypeRef; fn: ValueRef; args: ptr ValueRef;
                   numArgs: cuint; then: BasicBlockRef; catch: BasicBlockRef;
                   name: cstring): ValueRef {.importc: "LLVMBuildInvoke2",
@@ -3916,20 +3922,10 @@ proc buildArrayAlloca*(a1: BuilderRef; ty: TypeRef; val: ValueRef; name: cstring
     importc: "LLVMBuildArrayAlloca", dynlib: LLVMLib.}
 proc buildFree*(a1: BuilderRef; pointerVal: ValueRef): ValueRef {.
     importc: "LLVMBuildFree", dynlib: LLVMLib.}
-proc buildLoad*(a1: BuilderRef; pointerVal: ValueRef; name: cstring): ValueRef {.
-    importc: "LLVMBuildLoad", dynlib: LLVMLib, deprecated.}
 proc buildLoad2*(a1: BuilderRef; ty: TypeRef; pointerVal: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildLoad2", dynlib: LLVMLib.}
 proc buildStore*(a1: BuilderRef; val: ValueRef; `ptr`: ValueRef): ValueRef {.
     importc: "LLVMBuildStore", dynlib: LLVMLib.}
-proc buildGEP*(b: BuilderRef; pointer: ValueRef; indices: ptr ValueRef;
-              numIndices: cuint; name: cstring): ValueRef {.importc: "LLVMBuildGEP",
-    dynlib: LLVMLib, deprecated.}
-proc buildInBoundsGEP*(b: BuilderRef; pointer: ValueRef; indices: ptr ValueRef;
-                      numIndices: cuint; name: cstring): ValueRef {.
-    importc: "LLVMBuildInBoundsGEP", dynlib: LLVMLib, deprecated.}
-proc buildStructGEP*(b: BuilderRef; pointer: ValueRef; idx: cuint; name: cstring): ValueRef {.
-    importc: "LLVMBuildStructGEP", dynlib: LLVMLib, deprecated.}
 proc buildGEP2*(b: BuilderRef; ty: TypeRef; pointer: ValueRef; indices: ptr ValueRef;
                numIndices: cuint; name: cstring): ValueRef {.
     importc: "LLVMBuildGEP2", dynlib: LLVMLib.}
@@ -4019,8 +4015,6 @@ proc buildFCmp*(a1: BuilderRef; op: RealPredicate; lhs: ValueRef; rhs: ValueRef;
 
 proc buildPhi*(a1: BuilderRef; ty: TypeRef; name: cstring): ValueRef {.
     importc: "LLVMBuildPhi", dynlib: LLVMLib.}
-proc buildCall*(a1: BuilderRef; fn: ValueRef; args: ptr ValueRef; numArgs: cuint;
-               name: cstring): ValueRef {.importc: "LLVMBuildCall", dynlib: LLVMLib, deprecated.}
 proc buildCall2*(a1: BuilderRef; a2: TypeRef; fn: ValueRef; args: ptr ValueRef;
                 numArgs: cuint; name: cstring): ValueRef {.importc: "LLVMBuildCall2",
     dynlib: LLVMLib.}
@@ -4049,8 +4043,6 @@ proc buildIsNull*(a1: BuilderRef; val: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildIsNull", dynlib: LLVMLib.}
 proc buildIsNotNull*(a1: BuilderRef; val: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildIsNotNull", dynlib: LLVMLib.}
-proc buildPtrDiff*(a1: BuilderRef; lhs: ValueRef; rhs: ValueRef; name: cstring): ValueRef {.
-    importc: "LLVMBuildPtrDiff", dynlib: LLVMLib, deprecated.}
 proc buildPtrDiff2*(a1: BuilderRef; elemTy: TypeRef; lhs: ValueRef; rhs: ValueRef;
                    name: cstring): ValueRef {.importc: "LLVMBuildPtrDiff2",
     dynlib: LLVMLib.}

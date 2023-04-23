@@ -5,9 +5,9 @@
 import strformat
 
 const
-  LLVMMaj = 15
+  LLVMMaj = 16
   LLVMMin = 0
-  LLVMPat = 6
+  LLVMPat = 2
   LLVMVersion* = fmt"{LLVMMaj}.{LLVMMin}.{LLVMPat}"
   LLVMLib = fmt"libLLVM-{LLVMMaj}.so"
   LLVMRoot = fmt"../ext/llvm-{LLVMVersion}.src/"
@@ -18,6 +18,7 @@ const
 {.passL: "-llldMinGW" .}
 {.passL: "-llldCommon" .}
 {.passL: "-lz" .}
+{.passL: "-lzstd" .}
 
 when defined(staticLLVM):
   const
@@ -41,7 +42,7 @@ else:
 {.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
 {.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
 
-{.compile: "wrapper.cc".}
+{.compile("wrapper.cc", "-std=gnu++17").}
 
 # Includes and helpers for generated code
 type
@@ -173,6 +174,8 @@ type
 
   ErrorRef* = ptr OpaqueError
 
+  MemoryManagerCreateContextCallback* = proc(ctxCtx: pointer): pointer {.cdecl, raises: [].}
+
 include llvm/Types
 include llvm/Support
 
@@ -188,12 +191,12 @@ include llvm/Target
 include llvm/TargetMachine
 include llvm/Transforms/PassManagerBuilder
 
+include llvm/ExecutionEngine
 include llvm/Orc
 include llvm/OrcEE
 
 type OrcLLJITBuilderObjectLinkingLayerCreatorFunction* = proc(ctx: pointer, ES: OrcExecutionSessionRef, triple: cstring): OrcObjectLayerRef {.cdecl, raises: [].}
 
-include llvm/ExecutionEngine
 include llvm/LLJIT
 
 include preprocessed

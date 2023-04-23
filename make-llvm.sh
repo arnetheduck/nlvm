@@ -52,9 +52,8 @@ CMAKE_ROOT=cmake-$VER2.src
   tar xf $CMAKE_ROOT.tar.xz
 }
 
-[ -f $LLVM_ROOT/cmake/Modules/GNUInstallPackageDir.cmake ] || {
-  cp "$CMAKE_ROOT/Modules"/* "$LLVM_ROOT/cmake/modules"
-}
+rm -f cmake
+ln -s $CMAKE_ROOT cmake
 
 [ -f libunwind-$VER2.src.tar.xz ] || {
   wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/libunwind-$VER2.src.tar.xz
@@ -71,6 +70,6 @@ mkdir -p $TGT
 cd $TGT
 
 shift 4
-cmake -GNinja -DLLVM_USE_LINKER=gold LLVM_INCLUDE_BENCHMARKS=OFF "$@" ..
+cmake -GNinja -DLLVM_USE_LINKER=gold "$@" ..
 
 ninja
