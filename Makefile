@@ -13,7 +13,7 @@ NLVMFLAGS= --debuginfo --linedir:on
 
 LLVM_MAJ=16
 LLVM_MIN=0
-LLVM_PAT=0
+LLVM_PAT=2
 
 LLVM_DIR=llvm-$(LLVM_MAJ).$(LLVM_MIN).$(LLVM_PAT).src
 

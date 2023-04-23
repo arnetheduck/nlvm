@@ -52,7 +52,7 @@ CMAKE_ROOT=cmake-$VER2.src
   tar xf $CMAKE_ROOT.tar.xz
 }
 
-rm -ff cmake
+rm -f cmake
 ln -s $CMAKE_ROOT cmake
 
 [ -f libunwind-$VER2.src.tar.xz ] || {

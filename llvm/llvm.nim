@@ -7,7 +7,7 @@ import strformat
 const
   LLVMMaj = 16
   LLVMMin = 0
-  LLVMPat = 0
+  LLVMPat = 2
   LLVMVersion* = fmt"{LLVMMaj}.{LLVMMin}.{LLVMPat}"
   LLVMLib = fmt"libLLVM-{LLVMMaj}.so"
   LLVMRoot = fmt"../ext/llvm-{LLVMVersion}.src/"
