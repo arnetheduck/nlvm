@@ -2662,6 +2662,9 @@ proc llPassAsPtr(g: LLGen, s: PSym, retType: PType): bool =
       true
     else:
       false
+  elif s.position == 0 and retType != nil and retType.kind == tyLent:
+    not (pt.kind in {tyVar, tyOpenArray, tyVarargs, tyRef, tyPtr, tyPointer} or
+      pt.kind == tySet and g.llType(pt).getTypeKind() != IntegerTypeKind)
   else:
     case pt.kind
     of tyObject:
