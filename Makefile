@@ -107,6 +107,7 @@ ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
 		-DLLVM_LINK_LLVM_DYLIB=1 \
 		-DLLVM_ENABLE_ASSERTIONS=1 \
 		-DLLVM_INCLUDE_TESTS=Off \
+		-DLLVM_INCLUDE_BENCHMARKS=Off \
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 ext/$(LLVM_DIR)/sta/bin/llvm-config:
