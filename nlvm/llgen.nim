@@ -3905,23 +3905,24 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
       "raiseFieldError", "nlvmRaise", "nlvmReraise"]:
     f.addFuncAttribute(g.attrCold)
 
-  if s.name.s == "allocImpl" and s.originatingModule.name.s == "system":
+  if s.name.s in ["allocImpl"] and s.originatingModule.name.s == "system":
     f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
     f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, 9),)
     f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)),)
-
-  elif s.name.s == "alloc0Impl" and s.originatingModule.name.s == "system":
+  elif s.name.s in ["alloc0Impl"] and s.originatingModule.name.s == "system":
     f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
     f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, 17),)
     f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)),)
-  elif s.name.s == "newObj" and s.originatingModule.name.s == "system":
+  elif s.name.s in ["alloc0", "newObj", "newObjRC1", "rawAlloc0"] and s.originatingModule.name.s == "system":
     f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
     f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, 17),)
     f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1)),)
-  elif s.name.s in ["newObjNoInit", "rawNewObj"] and s.originatingModule.name.s == "system":
+    f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
+  elif s.name.s in ["alloc", "rawAlloc", "newObjNoInit", "rawNewObj", "rawAlloc"] and s.originatingModule.name.s == "system":
     f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
     f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, 9),)
     f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1)),)
+    f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
 
   if g.genFakeImpl(s, f):
     f.setLinkage(llvm.InternalLinkage)
