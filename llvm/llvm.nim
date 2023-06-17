@@ -469,6 +469,9 @@ let
   attrNoReturn* = getEnumAttrKind("noreturn")
   attrNoInline* = getEnumAttrKind("noinline")
   attrCold* = getEnumAttrKind("cold")
+  attrAllockind* = getEnumAttrKind("allockind")
+  attrAllocsize* = getEnumAttrKind("allocsize")
+  attrAlign* = getEnumAttrKind("align")
 
 proc addFuncAttribute*(f: ValueRef, v: AttributeRef) =
   addAttributeAtIndex(f, cast[AttributeIndex](AttributeFunctionIndex), v)
