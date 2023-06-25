@@ -128,8 +128,11 @@ type
 
     attrNoInline: AttributeRef
     attrNoReturn: AttributeRef
+    attrNoUnwind: AttributeRef
     attrNoOmitFP: AttributeRef
     attrCold: AttributeRef
+    attrNonnull: AttributeRef
+    attrNoalias: AttributeRef
 
     symbols: Table[int, LLValue]
     gmarkers: Table[int, llvm.ValueRef]
@@ -214,7 +217,8 @@ proc callCompilerProc(
 proc genFunction(g: LLGen, s: PSym): LLValue
 proc genFunctionWithBody(g: LLGen, s: PSym): LLValue
 proc genRefAssign(g: LLGen, dest: LLValue, src: llvm.ValueRef)
-
+proc genAssignment(g: LLGen, dest, src: LLValue, typ: PType,
+    flags: TAssignmentFlags)
 # Magic expressions
 proc genMagicLength(g: LLGen, n: PNode): LLValue
 
@@ -3905,24 +3909,40 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
       "raiseFieldError", "nlvmRaise", "nlvmReraise"]:
     f.addFuncAttribute(g.attrCold)
 
-  if s.name.s in ["allocImpl"] and s.originatingModule.name.s == "system":
-    f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
-    f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, 9),)
-    f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)),)
-  elif s.name.s in ["alloc0Impl"] and s.originatingModule.name.s == "system":
-    f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
-    f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, 17),)
-    f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)),)
-  elif s.name.s in ["alloc0", "newObj", "newObjRC1", "rawAlloc0"] and s.originatingModule.name.s == "system":
-    f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
-    f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, 17),)
-    f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1)),)
-    f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
-  elif s.name.s in ["alloc", "rawAlloc", "newObjNoInit", "rawNewObj", "rawAlloc"] and s.originatingModule.name.s == "system":
-    f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
-    f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, 9),)
-    f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1)),)
-    f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
+  if (s.originatingModule.name.s, s.name.s) in [
+        ("system", "quit"),
+        ("ansi_c", "c_abort")]:
+      f.addFuncAttribute(g.attrNoUnwind)
+
+  if s.originatingModule.name.s == "system":
+    if s.name.s in ["allocImpl", "allocSharedImpl"]:
+      f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindUninitialized),)
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)),)
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
+    elif s.name.s in ["alloc0Impl", "allocShared0Impl"]:
+      f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindZeroed),)
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)),)
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
+    elif s.name.s in ["alloc0", "newObj", "newObjRC1", "rawAlloc0", "allocShared0"]:
+      f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindZeroed),)
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1)),)
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
+    elif s.name.s in ["alloc", "rawAlloc", "newObjNoInit", "rawNewObj", "rawAlloc", "allocShared"]:
+      f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindUninitialized),)
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1)),)
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
 
   if g.genFakeImpl(s, f):
     f.setLinkage(llvm.InternalLinkage)
@@ -4491,7 +4511,80 @@ proc genOpenArrayConv(g: LLGen, n: PNode): (llvm.ValueRef, llvm.ValueRef) =
       raiseAssert "unreachable"
   (data, len)
 
+from compiler/dfa import aliases, AliasKind
+
+proc potentialAlias(n: PNode, potentialWrites: seq[PNode]): bool =
+  for p in potentialWrites:
+    if p.aliases(n) != no or n.aliases(p) != no:
+      return true
+
+proc skipTrivialIndirections(n: PNode): PNode =
+  result = n
+  while true:
+    case result.kind
+    of nkDerefExpr, nkHiddenDeref, nkAddr, nkHiddenAddr, nkObjDownConv, nkObjUpConv:
+      result = result[0]
+    of nkHiddenStdConv, nkHiddenSubConv:
+      result = result[1]
+    else: break
+
+proc getPotentialWrites(n: PNode; mutate: bool; result: var seq[PNode]) =
+  case n.kind:
+  of nkLiterals, nkIdent, nkFormalParams: discard
+  of nkSym:
+    if mutate: result.add n
+  of nkAsgn, nkFastAsgn:
+    getPotentialWrites(n[0], true, result)
+    getPotentialWrites(n[1], mutate, result)
+  of nkAddr, nkHiddenAddr:
+    getPotentialWrites(n[0], true, result)
+  of nkBracketExpr, nkDotExpr, nkCheckedFieldExpr:
+    getPotentialWrites(n[0], mutate, result)
+  of nkCallKinds:
+    case n.getMagic:
+    of mIncl, mExcl, mInc, mDec, mAppendStrCh, mAppendStrStr, mAppendSeqElem,
+        mAddr, mNew, mNewFinalize, mWasMoved, mDestroy, mReset:
+      getPotentialWrites(n[1], true, result)
+      for i in 2..<n.len:
+        getPotentialWrites(n[i], mutate, result)
+    of mSwap:
+      for i in 1..<n.len:
+        getPotentialWrites(n[i], true, result)
+    else:
+      for i in 1..<n.len:
+        getPotentialWrites(n[i], mutate, result)
+  else:
+    for s in n:
+      getPotentialWrites(s, mutate, result)
+
+proc getPotentialReads(n: PNode; result: var seq[PNode]) =
+  case n.kind:
+  of nkLiterals, nkIdent, nkFormalParams: discard
+  of nkSym: result.add n
+  else:
+    for s in n:
+      getPotentialReads(s, result)
+
 proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType, extra: int): seq[llvm.ValueRef] =
+  # We must generate temporaries in cases like #14396
+  # to keep the strict Left-To-Right evaluation
+  var needTmp = newSeq[bool](n.len - 1)
+  var potentialWrites: seq[PNode]
+  for i in countdown(n.len - 1, 1):
+    if n[i].skipTrivialIndirections.kind == nkSym:
+      needTmp[i - 1] = potentialAlias(n[i], potentialWrites)
+    else:
+      #if not ri[i].typ.isCompileTimeOnly:
+      var potentialReads: seq[PNode]
+      getPotentialReads(n[i], potentialReads)
+      for n in potentialReads:
+        if not needTmp[i - 1]:
+          needTmp[i - 1] = potentialAlias(n, potentialWrites)
+      getPotentialWrites(n[i], false, potentialWrites)
+    if n[i].kind in {nkHiddenAddr, nkAddr}:
+      # Optimization: don't use a temp, if we would only take the address anyway
+      needTmp[i - 1] = false
+
   var args: seq[ValueRef] = @[]
 
   let parTypes = fxt.getParamTypes()
@@ -4521,7 +4614,19 @@ proc genCallArgs(g: LLGen, n: PNode, fxt: llvm.TypeRef, ftyp: PType, extra: int)
       args.add([data, len])
     else:
       let pt = parTypes[args.len + extra]
-      var v = g.genNode(p, not g.llPassAsPtr(param.sym, ftyp[0])).v
+      var v = if needTmp[i - 1]:
+        let tmp = LLValue(v: g.localAlloca(pt, g.nn("alias.tmp", n)), storage: OnStack)
+        g.buildStoreNull(pt, tmp.v)
+        g.genObjectInit(n[i].typ, tmp.v)
+        let
+          bx = g.genAsgnNode(n[i], n[i].typ, tmp)
+        g.genAssignment(tmp, bx, n[i].typ, {})
+        if g.llPassAsPtr(param.sym, ftyp[0]):
+          tmp.v
+        else:
+          g.b.buildLoad2(pt, tmp.v)
+      else:
+        g.genNode(p, not g.llPassAsPtr(param.sym, ftyp[0])).v
       # We need to use the type from the function, because with multimethods,
       # it looks like the type in param.sym.typ changes during compilation!
       # seen with tmultim1.nim
@@ -4600,8 +4705,7 @@ proc genCall(g: LLGen, le, n: PNode, load: bool, dest: LLValue): LLValue =
           @[dest.v]
         else:
           let tmp = g.localAlloca(retArgType, g.nn("call.res.stack", n))
-          g.callMemset(
-            tmp, g.constInt8(0), g.constStoreSize((retArgType)))
+          g.buildStoreNull(retArgType, tmp)
           g.genObjectInit(ftyp[0], tmp)
           @[tmp]
       else:
@@ -4772,7 +4876,7 @@ proc genAssignment(g: LLGen, dest, src: LLValue, typ: PType,
         discard g.b.buildStore(src.v, destp)
         let
           deste = g.buildClosureEnvGEP(dest.v)
-        g.genRefAssign(LLValue(v: deste), constNull(g.ptrTy))
+        g.genRefAssign(LLValue(v: deste, storage: dest.storage), constNull(g.ptrTy))
 
       else:
         let
@@ -4783,7 +4887,7 @@ proc genAssignment(g: LLGen, dest, src: LLValue, typ: PType,
         let
           deste = g.buildClosureEnvGEP(dest.v)
           srce = g.b.buildExtractValue(src, 1, g.nn("asgnr.e", src))
-        g.genRefAssign(LLValue(v: deste), srce.v)
+        g.genRefAssign(LLValue(v: deste, storage: dest.storage), srce.v)
     else:
       discard g.b.buildStore(
         g.b.buildBitCast(src.v, ty, g.nn("asgnr.xc")), dest.v)
@@ -5179,11 +5283,12 @@ proc genSingleVar(g: LLGen, v: PSym, vn, value: PNode) =
           v.loc.flags * {lfHeader, lfNoDecl} != {}:
         return
 
-      let isConst =
-        (v.kind == skLet and g.f.withinLoop == 0) and value.isDeepConstExprLL()
-      var tmp = g.genGlobal(vn, isConst)
+      let
+        isConstInit = g.f.withinLoop == 0 and value.isDeepConstExprLL()
+        isConst = isConstInit and v.kind == skLet
+        tmp = g.genGlobal(vn, isConst)
 
-      if isConst:
+      if isConstInit and (v.kind == skLet or not containsGarbageCollectedRef(v.typ)):
         let ci = g.genConstInitializer(value)
         if ci == nil:
           g.config.internalError(vn.info, "Unable to generate const initializer: " & $value)
@@ -6973,7 +7078,7 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): LLValue =
   case sym.kind
   of skVar, skLet, skTemp, skResult, skForVar:
     if {sfGlobal, sfThread} * sym.flags != {}:
-      if sfCompileTime in sym.flags:
+      if sfCompileTime in sym.flags and sym.id notin g.symbols:
         genSingleVar(g, sym, n, astdef(sym))
     let v =
       if lfHeader in sym.loc.flags or lfNoDecl in sym.loc.flags:
@@ -7232,7 +7337,8 @@ proc genNodeObjConstr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
       s = n[i]
       gep = LLValue(
         v: g.toGEP(v.v, g.fieldIndex(typ, s[0].sym), "objconstr"),
-        lode: s[1])
+        lode: s[1],
+        storage: v.storage)
       bx = g.genAsgnNode(s[1], s[0].sym.typ, gep)
     g.genAssignment(gep, bx, s[0].sym.typ, {needToCopy})
 
@@ -7493,7 +7599,7 @@ proc genNodeDot(g: LLGen, n: PNode, load: bool): LLValue =
   let
     v = g.genNode(n[0], false)
     typ = skipTypes(n[0].typ, abstractInst + tyUserTypeClasses)
-    gep = LLValue(v: g.toGEP(v.v, g.fieldIndex(typ, n[1].sym), "dot"))
+    gep = LLValue(v: g.toGEP(v.v, g.fieldIndex(typ, n[1].sym), "dot"), storage: v.storage)
 
   g.maybeLoadValue(g.llType(n.typ), gep, load)
 
@@ -8372,15 +8478,15 @@ proc genNodeDiscardStmt(g: LLGen, n: PNode) =
   if n[0].kind != nkEmpty:
     discard g.genNode(n[0], true)
 
-proc genNodeStmtListExpr(g: LLGen, n: PNode, load: bool): LLValue =
+proc genNodeStmtListExpr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   for s in n.sons[0..^2]:
     g.genNode(s)
   if n.sons.len > 0:
-    g.genNode(n[^1], load)
+    g.genNode(n[^1], load, dest)
   else:
     LLValue()
 
-proc genNodeBlockExpr(g: LLGen, n: PNode, load: bool): LLValue =
+proc genNodeBlockExpr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   preserve(g.f.breakIdx):
     g.f.breakIdx = g.f.startBlock(n[0], nil)
     if n[0].kind != nkEmpty:
@@ -8389,7 +8495,7 @@ proc genNodeBlockExpr(g: LLGen, n: PNode, load: bool): LLValue =
       sym.loc.k = locOther
       sym.position = g.f.breakIdx+1
 
-    result = g.genNode(n[1], load)
+    result = g.genNode(n[1], load, dest)
     let scope = g.f.endBlock()
 
     if scope.exit != nil:
@@ -8477,7 +8583,7 @@ proc genNode(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   of nkStrLit..nkTripleStrLit: result = g.genNodeStrLit(n, load)
   of nkNilLit: result = g.genNodeNilLit(n, load)
   of nkCallKinds: result = g.genNodeCall(n, load, dest)
-  of nkExprColonExpr: result = g.genNode(n[1], load)
+  of nkExprColonExpr: result = g.genNode(n[1], load, dest)
   of nkIdentDefs: g.genNodeIdentDefs(n)
   of nkVarTuple: g.genNodeVarTuple(n)
   of nkPar: result = g.genNodePar(n, load, dest)
@@ -8522,8 +8628,8 @@ proc genNode(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   of nkBlockStmt: g.genNodeBlockStmt(n)
   of nkDiscardStmt: g.genNodeDiscardStmt(n)
   of nkStmtList: g.genSons(n)
-  of nkStmtListExpr: result = g.genNodeStmtListExpr(n, load)
-  of nkBlockExpr: result = g.genNodeBlockExpr(n, load)
+  of nkStmtListExpr: result = g.genNodeStmtListExpr(n, load, dest)
+  of nkBlockExpr: result = g.genNodeBlockExpr(n, load, dest)
   of nkClosure: result = g.genNodeClosure(n, load)
   of nkGotoState: g.genNodeGotoState(n)
   of nkState: g.genNodeState(n)
@@ -8565,8 +8671,11 @@ proc newLLGen(graph: ModuleGraph, idgen: IdGenerator, tgt: string, tm: TargetMac
 
     attrNoInline: lc.createEnumAttribute(llvm.attrNoInline, 0),
     attrNoReturn: lc.createEnumAttribute(llvm.attrNoReturn, 0),
+    attrNoUnwind: lc.createEnumAttribute(llvm.attrNoUnwind, 0),
     attrNoOmitFP: lc.createStringAttribute("no-frame-pointer-elim", "true"),
     attrCold: lc.createEnumAttribute(llvm.attrCold, 0),
+    attrNonnull: lc.createEnumAttribute(llvm.attrNonnull, 0),
+    attrNoalias: lc.createEnumAttribute(llvm.attrNoalias, 0),
 
     symbols: initTable[int, LLValue](),
     gmarkers: initTable[int, llvm.ValueRef](),

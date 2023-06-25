@@ -18,7 +18,7 @@ target triple = "x86_64-unknown-linux-gnu"
 @PTHREAD_BARRIER_SERIAL_THREAD = linkonce_odr constant i32 -1
 
 ; signal.h
-@SIG_IGN = global void (i32)* inttoptr (i64 1 to void (i32)*), align 8
+@SIG_IGN = linkonce_odr constant void (i32)* inttoptr (i64 1 to void (i32)*), align 8
 @SEGV_MAPERR = linkonce_odr constant i32 1
 
 ; stdio.h
