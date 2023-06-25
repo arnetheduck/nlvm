@@ -446,7 +446,7 @@ proc addPrivateConstant*(
 proc idOrSig(g: LLGen; s: PSym): Rope =
   # from ccgtypes.nim
   if s.kind in routineKinds and s.typ != nil:
-    let sig = hashProc(s)
+    let sig = hashProc(s, g.config)
     result = rope($sig)
     let counter = g.sigConflicts.getOrDefault(sig)
     if counter != 0:
@@ -1023,7 +1023,7 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
     g.debugType(typ.lastSon)
   of tyEnum:
     g.d.dIBuilderCreateBasicType(
-      g.llName(typ, hashType(typ)), g.debugSize(typ), DW_ATE_unsigned)
+      g.llName(typ, hashType(typ, g.config)), g.debugSize(typ), DW_ATE_unsigned)
   of tyArray:
     let et = g.debugType(typ.elemType)
     g.d.dIBuilderCreateArrayType(
@@ -1049,7 +1049,7 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
       g.debugType(typ.lastSon), g.ptrBits, g.ptrBits, "")
   of tySequence:
     let
-      sig = hashType(typ)
+      sig = hashType(typ, g.config)
     if sig in g.dstructs:
       g.dstructs[sig]
     else:
@@ -1112,7 +1112,7 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
   of tyPointer: g.dtypes[tyPointer]
   of tyOpenArray, tyVarargs:
     let
-      sig = hashType(typ)
+      sig = hashType(typ, g.config)
       st = if sig in g.dstructs:
         g.dstructs[sig]
       else:
@@ -1218,7 +1218,7 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
   let typ = typ.skipTypes(abstractPtrs)
   if typ.kind == tyString: return g.debugType(typ)
 
-  let sig = hashType(typ)
+  let sig = hashType(typ, g.config)
   if sig in g.dstructs:
     return g.dstructs[sig]
 
@@ -1274,7 +1274,7 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
   if typ == nil:
     return
 
-  let sig = hashType(typ)
+  let sig = hashType(typ, g.config)
   if sig in g.dstructs:
     return g.dstructs[sig]
 
@@ -1451,7 +1451,7 @@ proc llSeqType(g: LLGen, typ: PType): llvm.TypeRef =
   if typ.kind == tyString:
     return g.llStringType()
 
-  let sig = hashType(typ)
+  let sig = hashType(typ, g.config)
 
   g.types.withValue(sig, st) do:
     return st[]
@@ -1748,7 +1748,7 @@ proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   if typ.kind == tyString:
     return g.llStringType
 
-  let sig = hashType(typ)
+  let sig = hashType(typ, g.config)
   if sig in g.types:
     return g.types[sig]
 
@@ -1816,7 +1816,7 @@ proc llTupleType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   if typ == nil:
     return
 
-  let sig = hashType(typ)
+  let sig = hashType(typ, g.config)
   if sig in g.types:
     return g.types[sig]
 
@@ -2353,7 +2353,7 @@ proc genObjectNodeInfoInit(g: LLGen, typ: PType, n: PNode, suffix: string): llvm
 
 proc genObjectNodeInfo(
     g: LLGen, typ: PType, n: PNode, suffix: string): llvm.ValueRef =
-  let sig = hashType(typ)
+  let sig = hashType(typ, g.config)
   if sig in g.nodeInfos and len(suffix) == 0:
     return g.nodeInfos[sig]
 
@@ -2370,7 +2370,7 @@ proc genTupleNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
 
   var fields: seq[ValueRef] = @[]
 
-  let sig = hashType(t)
+  let sig = hashType(t, g.config)
   let prefix = ".nodeinfo." & g.llName(t, sig) & "."
 
   for i in 0..<t.len:
@@ -2389,7 +2389,7 @@ proc genTupleNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
   g.constNimNodeList(fields)
 
 proc genTupleNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  let sig = hashType(t)
+  let sig = hashType(t, g.config)
   if sig in g.nodeInfos:
     return g.nodeInfos[sig]
 
@@ -2407,7 +2407,7 @@ proc genEnumNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
 
   let l = t.n.len
 
-  let sig = hashType(t)
+  let sig = hashType(t, g.config)
   let prefix = ".nodeinfo." & g.llName(t, sig) & "."
   var fields: seq[ValueRef] = @[]
   for i in 0..<l:
@@ -2429,7 +2429,7 @@ proc genEnumNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
   # TODO c gen sets ntfEnumHole as well on TNimType after generating TNimNode.. odd.
 
 proc genEnumNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  let sig = hashType(t)
+  let sig = hashType(t, g.config)
   if sig in g.nodeInfos:
     return g.nodeInfos[sig]
 
@@ -2444,7 +2444,7 @@ proc genSetNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
   g.constNimNodeNone(g.config.firstOrd(t).toInt) # TODO Int128
 
 proc genSetNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
-  let sig = hashType(t)
+  let sig = hashType(t, g.config)
   if sig in g.nodeInfos:
     return g.nodeInfos[sig]
 
@@ -2498,7 +2498,7 @@ proc genTypeInfoV1Base(g: LLGen, typ: PType): llvm.ValueRef =
 proc genTypeInfoV1(g: LLGen, typ: PType): llvm.ValueRef =
   let
     typ = typ.skipTypes(irrelevantForBackend + tyUserTypeClasses)
-    sig = hashType(typ)
+    sig = hashType(typ, g.config)
   if sig in g.typeInfos:
     return g.typeInfos[sig]
 
@@ -2551,7 +2551,7 @@ proc genTypeInfoV1(g: LLGen, typ: PType): llvm.ValueRef =
   result.setInitializer(g.genTypeInfoInit(
     typ, ntlt, lt, baseVar, nodeVar, finalizerVar, markerVar, deepcopyVar))
 
-proc genTypeInfo2Name(t: PType): string =
+proc genTypeInfo2Name(g: LLGen, t: PType): string =
   var res = "|"
   var it = t
   while it != nil:
@@ -2569,7 +2569,7 @@ proc genTypeInfo2Name(t: PType): string =
         res.add m.name.s & "."
         res.add it.sym.name.s
     else:
-      res.add $hashType(it)
+      res.add $hashType(it, g.config)
     res.add "|"
     it = it[0]
   res
@@ -2596,7 +2596,7 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
     origType = typ
     # distinct types can have their own destructors
     typ = typ.skipTypes(irrelevantForBackend + tyUserTypeClasses - {tyDistinct})
-    sig = hashType(origType)
+    sig = hashType(origType, g.config)
 
   if sig in g.typeInfosV2:
     return g.typeInfosV2[sig]
@@ -2623,7 +2623,7 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
         if incompleteType(typ):
           g.config.internalError("request for RTTI generation for incomplete object: " &
                     typeToString(typ))
-        g.constCStringPtr(genTypeInfo2Name(typ))
+        g.constCStringPtr(g.genTypeInfo2Name(typ))
       else:
         constNull(g.ptrTy)
     traceImpl = g.genHook(typ, attachedTrace)
@@ -3190,7 +3190,7 @@ proc callIsObj(g: LLGen, v: llvm.ValueRef, typ: PType): llvm.ValueRef =
     # Type resides at the start of the object
     mtype = g.b.buildLoad2(g.ptrTy, v)
     cmpTo = if optTinyRtti in g.config.globalOptions:
-      g.constCStringPtr(genTypeInfo2Name(typ))
+      g.constCStringPtr(g.genTypeInfo2Name(typ))
     else:
       g.genTypeInfo(typ)
 
@@ -3501,7 +3501,7 @@ proc genReset(g: LLGen, typ: PType, v: LLValue) =
 proc genResetFunc(g: LLGen, typ: PType): llvm.ValueRef =
   let
     typ = skipTypes(typ, abstractInst)
-    sig = hashType(typ)
+    sig = hashType(typ, g.config)
   g.resets.withValue(sig, reset) do:
     return reset[]
 
@@ -3803,7 +3803,7 @@ proc genAssignFunc(g: LLGen, typ: PType): llvm.ValueRef =
   ## the arguments are the same as for `assign.genericAssign`
   let
     typ = skipTypes(typ, abstractInst)
-    sig = hashType(typ)
+    sig = hashType(typ, g.config)
   g.assigns.withValue(sig, asgn) do:
     return asgn[]
 
