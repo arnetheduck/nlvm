@@ -24,11 +24,9 @@ tests/casestmt/t7699.nim c
 tests/ccgbugs2/tinefficient_const_table.nim c
 tests/ccgbugs/t16027.nim c
 tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445
-tests/ccgbugs/targ_lefttoright.nim c
 tests/ccgbugs/tassign_nil_strings.nim c
 tests/ccgbugs/tcodegenbug_bool.nim c
 tests/ccgbugs/tcodegendecllambda.nim c
-tests/ccgbugs/tcompile_time_var_at_runtime.nim c
 tests/ccgbugs/tcvarargs.nim c
 tests/ccgbugs/tforward_decl_only.nim c
 tests/ccgbugs/tmangle_field.nim c
@@ -140,7 +138,6 @@ tests/overload/tstatic_with_converter.nim c
 tests/parallel/tdeepcopy2.nim c
 tests/parallel/tdeepcopy.nim c
 tests/parallel/tmissing_deepcopy.nim c
-tests/pragmas/t12640.nim c
 tests/pragmas/tbitsize.nim c
 tests/pragmas/tnoreturn.nim c
 tests/realtimeGC/tmain.nim c

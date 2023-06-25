@@ -354,6 +354,13 @@ const
   False*: Bool = 0
   True*: Bool = 1
 
+  AllocFnKindAlloc* = 0x01'u64
+  AllocFnKindRealloc* = 0x02'u64
+  AllocFnKindFree* = 0x04'u64
+  AllocFnKindUninitialized* = 0x08'u64
+  AllocFnKindZeroed* = 0x10'u64
+  AllocFnKindAligned* = 0x20'u64
+
 template checkErr(body: untyped) =
   var err: cstring
   let e {.inject.} = cast[cstringArray](addr(err))
@@ -468,10 +475,14 @@ template getEnumAttrKind(x: untyped): untyped = getEnumAttributeKindForName(x, x
 let
   attrNoReturn* = getEnumAttrKind("noreturn")
   attrNoInline* = getEnumAttrKind("noinline")
+  attrNoUnwind* = getEnumAttrKind("nounwind")
   attrCold* = getEnumAttrKind("cold")
   attrAllockind* = getEnumAttrKind("allockind")
   attrAllocsize* = getEnumAttrKind("allocsize")
+  attrAllocptr* = getEnumAttrKind("allocptr")
   attrAlign* = getEnumAttrKind("align")
+  attrNonnull* = getEnumAttrKind("nonnull")
+  attrNoalias* = getEnumAttrKind("noalias")
 
 proc addFuncAttribute*(f: ValueRef, v: AttributeRef) =
   addAttributeAtIndex(f, cast[AttributeIndex](AttributeFunctionIndex), v)
