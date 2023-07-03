@@ -65,7 +65,7 @@ compare: nlvm/nlvm.self.ll nlvm/nlvm.ll
 Nim/testament/testament: $(NIMC) Nim/testament/*.nim
 	$(NIMC) -d:release c Nim/testament/testament
 
-.PHONY: run-testament
+.PHONY: run-testament run-testament-noskip
 run-testament: $(NLVMR) Nim/testament/testament
 	cd Nim; time testament/testament --megatest:off --targets:c "--nim:../nlvm/nlvmr" --skipFrom:../skipped-tests.txt all
 
@@ -73,23 +73,23 @@ run-testament-noskip: $(NLVMR) Nim/testament/testament
 	-cd Nim; time testament/testament --megatest:off --targets:c "--nim:../nlvm/nlvmr" all
 
 .PHONY: test
-test: run-testament stats
-	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
+test: run-testament
+	-make stats
 
-update-skipped: run-testament-noskip stats
-	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
+update-skipped: run-testament-noskip
 	# Output suitable for sticking into skipped-tests.txt
 	-jq -r -s '([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | .[].name' Nim/testresults/*json | sort | uniq > skipped-tests.txt
+	make stats
 
 .PHONY: badeggs.json
 badeggs.json:
-	-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled")]' Nim/testresults/*.json > badeggs.json
+	-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled" and .result != "reCodeNotFound")]' Nim/testresults/*.json > badeggs.json
 
 .PHONY: stats
 stats: badeggs.json
-	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
 	-jq 'group_by(.category)|.[]|((unique_by(.category)|.[].category) + " " + (length| tostring))' badeggs.json
-
+	-jq -s '. | flatten | group_by(.result) | map({(first.result): (length)}) | add' Nim/testresults/*json
+	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
 .PHONY: t2
 t2:
 	cp -r Nim/testresults tr2
