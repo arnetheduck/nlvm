@@ -1,23 +1,13 @@
 compiler/nim.nim c
 lib/pure/nimtracker.nim c
 tests/align/talign.nim c
-tests/arc/t14383.nim c
-tests/arc/t14472.nim c
-tests/arc/t17812.nim c --gc:arc
-tests/arc/t19862.nim c --gc:refc
 tests/arc/tarcmisc.nim c
-tests/arc/tasyncawait.nim c
 tests/arc/tasyncleak.nim c
-tests/arc/tasyncorc.nim c
 tests/arc/tcaseobjcopy.nim c
 tests/arc/tcaseobj.nim c
-tests/arc/tcontrolflow.nim c
 tests/arc/tdeepcopy.nim c
 tests/arc/thard_alignment.nim c
 tests/arc/tmarshal.nim c
-tests/arc/topenarray.nim c --gc:arc
-tests/arc/topenarray.nim c --gc:arc -d:useMalloc
-tests/arc/trtree.nim c
 tests/assert/tassert_c.nim c
 tests/async/tasyncssl.nim c
 tests/async/tasync_traceback.nim c
@@ -47,12 +37,8 @@ tests/coroutines/twait.nim c --gc:orc
 tests/coroutines/twait.nim c --gc:refc
 tests/cpp/t10148.nim c
 tests/cpp/texportc.nim c
-tests/destructor/tarc.nim c
 tests/destructor/texceptions.nim c
-tests/destructor/tfinalizer.nim c
-tests/destructor/tgcdestructors.nim c
 tests/destructor/tglobaldestructor.nim c
-tests/destructor/tnewruntime_misc.nim c
 tests/destructor/turn_destroy_into_finalizer.nim c
 tests/destructor/tv2_raise.nim c
 tests/dll/client.nim c  -d:release --gc:boehm --threads:on
@@ -69,7 +55,6 @@ tests/dll/visibility.nim c  -d:release --gc:boehm
 tests/dll/visibility.nim c  --gc:boehm
 tests/effects/tdiagnostic_messages.nim c
 tests/effects/tstrict_funcs_imports.nim c
-tests/enum/tenum_no_rtti.nim c
 tests/errmsgs/tcall_with_default_arg.nim c
 tests/errmsgs/tproper_stacktrace2.nim c
 tests/errmsgs/tproper_stacktrace3.nim c
@@ -80,12 +65,9 @@ tests/exception/t18620.nim c --gc:arc
 tests/exception/t18620.nim c --gc:refc
 tests/exception/texceptions.nim c -d:nimBuiltinSetjmp
 tests/exception/texceptions.nim c -d:nimSigSetjmp
-tests/exception/tsetexceptions.nim c
 tests/exception/tunhandledexc.nim c
 tests/float/tfloat3.nim c
 tests/float/tfloats.nim c -d:nimPreviewFloatRoundtrip
-tests/gc/gcleak2 c  --gc:orc
-tests/gc/gcleak2 c  --gc:orc -d:release
 tests/gc/thavlak c  -d:release --gc:markAndSweep
 tests/generics/tforwardgeneric.nim c
 tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
@@ -133,7 +115,6 @@ tests/niminaction/Chapter7/Tweeter/src/createDatabase.nim c
 tests/niminaction/Chapter7/Tweeter/src/tweeter.nim c
 tests/niminaction/Chapter7/Tweeter/tests/database_test.nim c
 tests/niminaction/Chapter8/sdl/sdl_test.nim c
-tests/objvariant/t14581.nim c --gc:arc
 tests/osproc/treadlines.nim c
 tests/overflw/tdistinct_range.nim c
 tests/overload/t8829.nim c
@@ -144,14 +125,8 @@ tests/parallel/tmissing_deepcopy.nim c
 tests/pragmas/tbitsize.nim c
 tests/pragmas/tnoreturn.nim c
 tests/realtimeGC/tmain.nim c
-tests/stdlib/concurrency/tatomic_import.nim c
-tests/stdlib/concurrency/tatomics.nim c
-tests/stdlib/tasynchttpserver_transferencoding.nim c --gc:arc --threads:on
-tests/stdlib/tasynchttpserver_transferencoding.nim c --gc:arc --threads:on -d:danger
-tests/stdlib/tjson.nim c
 tests/stdlib/tlwip.nim c
 tests/stdlib/tosproc.nim c
-tests/stdlib/trepr.nim c --gc:arc
 tests/stdlib/tsqlitebindatas.nim c
 tests/stdlib/tssl.nim c
 tests/stdlib/tstackframes.nim c
@@ -165,7 +140,6 @@ tests/typerel/tnoargopenarray.nim c
 tests/views/tcan_compile_nim.nim c
 tests/views/tconst_views.nim c
 tests/views/tsplit_into_seq.nim c
-tests/vm/t9622.nim c --gc:arc
 tests/vm/tvmmisc.nim c
 tests/vm/tvmops.nim c
 tools/nimgrep c  --debugger:on
