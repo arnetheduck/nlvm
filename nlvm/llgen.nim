@@ -2205,7 +2205,7 @@ proc genTypeInfoInit(g: LLGen, t: PType, ntlt, lt: llvm.TypeRef,
 
   var flags = 0'i8
   if not containsGarbageCollectedRef(t): flags = flags or 1
-  if not canFormAcycle(t) or (t.kind == tyProc and t.callConv == ccClosure):
+  if not g.graph.canFormAcycle(t) or (t.kind == tyProc and t.callConv == ccClosure):
     flags = flags or 2
   if t.kind == tyEnum:
     var hasHoles = false
@@ -2612,7 +2612,7 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
   g.typeInfosV2[sig] = result
 
   var flags = 0
-  if not canFormAcycle(typ): flags = flags or 1
+  if not g.graph.canFormAcycle(typ): flags = flags or 1
   let
     dl = g.m.getModuleDataLayout()
     lt = g.llType(typ)
@@ -5397,8 +5397,9 @@ proc genClosureVar(g: LLGen, n: PNode) =
   let x = g.genNode(n[0], false)
 
   if n[2].kind == nkEmpty:
-    g.buildStoreNull(g.llType(n[0].typ), x.v)
-    g.genObjectInit(n[0].typ, x.v)
+    if sfNoInit notin n[0][1].sym.flags:
+      g.buildStoreNull(g.llType(n[0].typ), x.v)
+      g.genObjectInit(n[0].typ, x.v)
   else:
     let
       bx = g.genCallOrNode(n[0], n[2], x)
@@ -5627,7 +5628,7 @@ proc rawGenNew(g: LLGen, dest: LLValue, sizeExpr: llvm.ValueRef, typ: PType) =
     if dest.storage == OnHeap and usesWriteBarrier(g.config):
       let destl = g.buildLoadValue(g.llType(refType), dest)
       g.withNotNil(destl.v):
-        if canFormAcycle(typ):
+        if g.graph.canFormAcycle(typ):
           discard g.callCompilerProc("nimGCunrefRC1", [destl.v])
         else:
           discard g.callCompilerProc("nimGCunrefNoCycle", [destl.v])
@@ -5706,7 +5707,7 @@ proc genNewSeqAux(g: LLGen, dest: LLValue, destTyp: PType, len: llvm.ValueRef) =
   if dest.storage == OnHeap and usesWriteBarrier(g.config):
     let destl = g.buildLoadValue(g.llType(destTyp), dest)
     g.withNotNil(destl.v):
-      if canFormAcycle(destTyp):
+      if g.graph.canFormAcycle(destTyp):
         discard g.callCompilerProc("nimGCunrefRC1", [destl.v])
       else:
         discard g.callCompilerProc("nimGCunrefNoCycle", [destl.v])
@@ -7122,7 +7123,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   of mGetTypeInfo: result = g.genMagicGetTypeInfo(n)
   of mGetTypeInfoV2: result = g.genMagicGetTypeInfoV2(n)
   of mAccessTypeField: result = g.genMagicAccessTypeField(n, load)
-  of mIsolate, mFinished:
+  of generatedMagics:
     # TODO these are magics, but for some reason they don't have the loc.r set
     result = g.genCall(nil, n, load, dest)
   of mSlice: result = g.genMagicSlice(n, load)

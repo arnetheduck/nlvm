@@ -9,11 +9,11 @@ tests/arc/tdeepcopy.nim c
 tests/arc/thard_alignment.nim c
 tests/arc/tmarshal.nim c
 tests/assert/tassert_c.nim c
-tests/async/tasyncssl.nim c
 tests/async/tasync_traceback.nim c
 tests/avr/thello.nim c
 tests/casestmt/t7699.nim c
 tests/ccgbugs2/tinefficient_const_table.nim c
+tests/ccgbugs/t10964.nim c
 tests/ccgbugs/t16027.nim c
 tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445
 tests/ccgbugs/tassign_nil_strings.nim c
@@ -28,6 +28,7 @@ tests/ccgbugs/tprogmem.nim c
 tests/ccgbugs/tunsafeaddr.nim c
 tests/closure/ttimeinfo.nim c
 tests/compiler/t12684.nim c
+tests/compiler/tcmdlineclib.nim c
 tests/converter/tgenericconverter.nim c
 tests/coroutines/tgc.nim c --gc:arc
 tests/coroutines/tgc.nim c --gc:orc
@@ -55,6 +56,7 @@ tests/dll/visibility.nim c  -d:release --gc:boehm
 tests/dll/visibility.nim c  --gc:boehm
 tests/effects/tdiagnostic_messages.nim c
 tests/effects/tstrict_funcs_imports.nim c
+tests/errmsgs/t14444.nim c --hints:off
 tests/errmsgs/tcall_with_default_arg.nim c
 tests/errmsgs/tproper_stacktrace2.nim c
 tests/errmsgs/tproper_stacktrace3.nim c
@@ -88,7 +90,9 @@ tests/manyloc/standalone2/tavr.nim c
 tests/manyloc/standalone/barebone.nim c
 tests/method/tmethod_issues.nim c --mm:arc
 tests/method/tmethod_issues.nim c --mm:refc
+tests/misc/t15955.nim c
 tests/misc/t18077.nim c
+tests/misc/t19046.nim c --threads:on
 tests/misc/t9710.nim c --debugger:native
 tests/misc/tapp_lib_staticlib.nim c
 tests/misc/temit.nim c
@@ -125,10 +129,10 @@ tests/parallel/tmissing_deepcopy.nim c
 tests/pragmas/tbitsize.nim c
 tests/pragmas/tnoreturn.nim c
 tests/realtimeGC/tmain.nim c
+tests/sets/t20997.nim c
 tests/stdlib/tlwip.nim c
 tests/stdlib/tosproc.nim c
 tests/stdlib/tsqlitebindatas.nim c
-tests/stdlib/tssl.nim c
 tests/stdlib/tstackframes.nim c
 tests/stdlib/tstdlib_various.nim c
 tests/stdlib/tvarints.nim c
