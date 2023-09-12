@@ -35,7 +35,7 @@ notable differences:
 * Native `wasm32` support with no extra tooling
 * Just-in-time execution (`nim r`) using the LLVM [ORCv2 JIT](https://llvm.org/docs/ORCv2.html)
 
-Most things from `nim` work just fine (see notes below however!):
+Most things from `nim` work just fine ([see notes below however!](https://github.com/arnetheduck/nlvm#random-notes)):
 
 * the same standard library is used
 * similar command line options are supported (just change `nim` to `nlvm`!)
