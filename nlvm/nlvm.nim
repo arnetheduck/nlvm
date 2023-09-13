@@ -345,6 +345,8 @@ let
   conf = newConfigRef()
   cache = newIdentCache()
 
+# We accept many clang options in `passc` so why not
+conf.cCompiler = ccCLang
 conf.prefixDir = AbsoluteDir(tmp / "Nim")
 conf.searchPaths.insert(conf.prefixDir / RelativeDir"../nlvm-lib", 0)
 

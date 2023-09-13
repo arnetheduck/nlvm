@@ -11,15 +11,17 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_TYPES_H [NewLine] # LLVM_C_TYPES_H [NewLine] # llvm-c/DataTypes.h [NewLine] # llvm-c/ExternC.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##
 ##  @defgroup LLVMCSupportTypes Types and Enumerations
 ##
 ##  @{
-##  typedef int LLVMBool ;
-## Error: expected ';'!!!
+##
+
+type
+  Bool* = cint
 
 ##  Opaque types.
-## *
+##
 ##  LLVM uses a polymorphic type hierarchy which C cannot represent, therefore
 ##  parameters must be passed as base types. Despite the declared types, most
 ##  of the functions provided operate only on branches of the type hierarchy.
@@ -29,7 +31,7 @@
 ##  If in doubt, refer to Core.cpp, which performs parameter downcasts in the
 ##  form unwrap<RequiredType>(Param).
 ##
-## *
+##
 ##  Used to pass regions of memory through LLVM interfaces.
 ##
 ##  @see llvm::MemoryBuffer
@@ -38,14 +40,14 @@
 type
   MemoryBufferRef* = ptr OpaqueMemoryBuffer
 
-## *
+##
 ##  The top-level container for all LLVM global data. See the LLVMContext class.
 ##
 
 type
   ContextRef* = ptr OpaqueContext
 
-## *
+##
 ##  The top-level container for all other LLVM Intermediate Representation (IR)
 ##  objects.
 ##
@@ -55,7 +57,7 @@ type
 type
   ModuleRef* = ptr OpaqueModule
 
-## *
+##
 ##  Each value in the LLVM IR has a type, an LLVMTypeRef.
 ##
 ##  @see llvm::Type
@@ -64,7 +66,7 @@ type
 type
   TypeRef* = ptr OpaqueType
 
-## *
+##
 ##  Represents an individual value in LLVM IR.
 ##
 ##  This models llvm::Value.
@@ -73,7 +75,7 @@ type
 type
   ValueRef* = ptr OpaqueValue
 
-## *
+##
 ##  Represents a basic block of instructions in LLVM IR.
 ##
 ##  This models llvm::BasicBlock.
@@ -82,7 +84,7 @@ type
 type
   BasicBlockRef* = ptr OpaqueBasicBlock
 
-## *
+##
 ##  Represents an LLVM Metadata.
 ##
 ##  This models llvm::Metadata.
@@ -91,7 +93,7 @@ type
 type
   MetadataRef* = ptr OpaqueMetadata
 
-## *
+##
 ##  Represents an LLVM Named Metadata Node.
 ##
 ##  This models llvm::NamedMDNode.
@@ -100,7 +102,7 @@ type
 type
   NamedMDNodeRef* = ptr OpaqueNamedMDNode
 
-## *
+##
 ##  Represents an entry in a Global Object's metadata attachments.
 ##
 ##  This models std::pair<unsigned, MDNode *>
@@ -109,7 +111,7 @@ type
 type
   ValueMetadataEntry* = opaqueValueMetadataEntry
 
-## *
+##
 ##  Represents an LLVM basic block builder.
 ##
 ##  This models llvm::IRBuilder.
@@ -118,7 +120,7 @@ type
 type
   BuilderRef* = ptr OpaqueBuilder
 
-## *
+##
 ##  Represents an LLVM debug info builder.
 ##
 ##  This models llvm::DIBuilder.
@@ -127,7 +129,7 @@ type
 type
   DIBuilderRef* = ptr OpaqueDIBuilder
 
-## *
+##
 ##  Interface used to provide a module to JIT or interpreter.
 ##  This is now just a synonym for llvm::Module, but we have to keep using the
 ##  different type to keep binary compatibility.
@@ -136,17 +138,17 @@ type
 type
   ModuleProviderRef* = ptr OpaqueModuleProvider
 
-## * @see llvm::PassManagerBase
+##  @see llvm::PassManagerBase
 
 type
   PassManagerRef* = ptr OpaquePassManager
 
-## * @see llvm::PassRegistry
+##  @see llvm::PassRegistry
 
 type
   PassRegistryRef* = ptr OpaquePassRegistry
 
-## *
+##
 ##  Used to get the users and usees of a Value.
 ##
 ##  @see llvm::Use
@@ -154,7 +156,7 @@ type
 type
   UseRef* = ptr OpaqueUse
 
-## *
+##
 ##  Used to represent an attributes.
 ##
 ##  @see llvm::Attribute
@@ -163,44 +165,41 @@ type
 type
   AttributeRef* = ptr OpaqueAttributeRef
 
-## *
+##
 ##  @see llvm::DiagnosticInfo
 ##
 
 type
   DiagnosticInfoRef* = ptr OpaqueDiagnosticInfo
 
-## *
+##
 ##  @see llvm::Comdat
 ##
 
 type
   ComdatRef* = ptr comdat
 
-## *
+##
 ##  @see llvm::Module::ModuleFlagEntry
 ##
 
 type
   ModuleFlagEntry* = opaqueModuleFlagEntry
 
-## *
+##
 ##  @see llvm::JITEventListener
 ##
 
 type
   JITEventListenerRef* = ptr OpaqueJITEventListener
 
-## *
+##
 ##  @see llvm::object::Binary
 ##
 
 type
   BinaryRef* = ptr OpaqueBinary
 
-## *
+##
 ##  @}
 ##
-
-## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
-## Error: expected ';'!!!

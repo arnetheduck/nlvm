@@ -11,14 +11,20 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_LINKER_H [NewLine] # LLVM_C_LINKER_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##
 ##  @defgroup LLVMCCoreLinker Linker
 ##  @ingroup LLVMCCore
 ##
 ##  @{
-##   This enum is provided for backwards-compatibility only. It has no effect. typedef enum { LLVMLinkerDestroySource = 0 ,  This is the default behavior. LLVMLinkerPreserveSource_Removed = 1  This option has been deprecated and
-##                                           should not be used. } LLVMLinkerMode ;
-## Error: expected ';'!!!
+##
+##  This enum is provided for backwards-compatibility only. It has no effect.
+
+type
+  LinkerMode* {.size: sizeof(cint).} = enum
+    LinkerDestroySource = 0, ##  This is the default behavior.
+    LinkerPreserveSourceRemoved = 1 ##  This option has been deprecated and
+                                    ##                                           should not be used.
+
 
 ##  Links the source module into the destination module. The source module is
 ##  destroyed.
@@ -28,7 +34,6 @@
 
 proc linkModules2*(dest: ModuleRef; src: ModuleRef): Bool {.
     importc: "LLVMLinkModules2", dynlib: LLVMLib.}
-## !!!Ignored construct:  LLVM_C_EXTERN_C_END *
+##
 ##  @}
-##  # [NewLine]
-## Error: expected ';'!!!
+##

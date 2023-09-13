@@ -11,18 +11,26 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_COMDAT_H [NewLine] # LLVM_C_COMDAT_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##
 ##  @defgroup LLVMCCoreComdat Comdats
 ##  @ingroup LLVMCCore
 ##
 ##  @{
-##  typedef enum { LLVMAnyComdatSelectionKind , /< The linker may choose any COMDAT. LLVMExactMatchComdatSelectionKind , /< The data referenced by the COMDAT must
-## /< be the same. LLVMLargestComdatSelectionKind , /< The linker will choose the largest
-## /< COMDAT. LLVMNoDeduplicateComdatSelectionKind , /< No deduplication is performed. LLVMSameSizeComdatSelectionKind /< The data referenced by the COMDAT must be
-## /< the same size. } LLVMComdatSelectionKind ;
-## Error: expected ';'!!!
+##
 
-## *
+type
+  ComdatSelectionKind* {.size: sizeof(cint).} = enum
+    AnyComdatSelectionKind, ## < The linker may choose any COMDAT.
+    ExactMatchComdatSelectionKind, ## < The data referenced by the COMDAT must
+                                    ## < be the same.
+    LargestComdatSelectionKind, ## < The linker will choose the largest
+                                 ## < COMDAT.
+    NoDeduplicateComdatSelectionKind, ## < No deduplication is performed.
+    SameSizeComdatSelectionKind ## < The data referenced by the COMDAT must be
+                                ## < the same size.
+
+
+##
 ##  Return the Comdat in the module with the specified name. It is created
 ##  if it didn't already exist.
 ##
@@ -31,20 +39,22 @@
 
 proc getOrInsertComdat*(m: ModuleRef; name: cstring): ComdatRef {.
     importc: "LLVMGetOrInsertComdat", dynlib: LLVMLib.}
-## *
+##
 ##  Get the Comdat assigned to the given global object.
 ##
 ##  @see llvm::GlobalObject::getComdat()
 ##
 
-proc getComdat*(v: ValueRef): ComdatRef {.importc: "LLVMGetComdat", dynlib: LLVMLib.}
-## *
+proc getComdat*(v: ValueRef): ComdatRef {.importc: "LLVMGetComdat",
+    dynlib: LLVMLib.}
+##
 ##  Assign the Comdat to the given global object.
 ##
 ##  @see llvm::GlobalObject::setComdat()
 ##
 
-proc setComdat*(v: ValueRef; c: ComdatRef) {.importc: "LLVMSetComdat", dynlib: LLVMLib.}
+proc setComdat*(v: ValueRef; c: ComdatRef) {.importc: "LLVMSetComdat",
+    dynlib: LLVMLib.}
 ##
 ##  Get the conflict resolution selection kind for the Comdat.
 ##
@@ -61,9 +71,6 @@ proc getComdatSelectionKind*(c: ComdatRef): ComdatSelectionKind {.
 
 proc setComdatSelectionKind*(c: ComdatRef; kind: ComdatSelectionKind) {.
     importc: "LLVMSetComdatSelectionKind", dynlib: LLVMLib.}
-## *
+##
 ##  @}
 ##
-
-## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
-## Error: expected ';'!!!

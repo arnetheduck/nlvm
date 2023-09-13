@@ -1,9 +1,9 @@
-LLVM_INC=../ext/llvm-16.0.0.src/include
+LLVM_INC=../ext/llvm-16.0.2.src/include
 
 C2NIM="../../c2nim/c2nim"
-C2NIMFLAGS="--nep1 --skipinclude --prefix:LLVM --dynlib:LLVMLib"
+C2NIMFLAGS="--nep1 --skipinclude --prefix:LLVM --dynlib:LLVMLib --def:LLVM_C_EXTERN_C_BEGIN= --def:LLVM_C_EXTERN_C_END= --stdints"
 
-HEADERS="BitReader.h BitWriter.h Comdat.h Core.h Error.h ExecutionEngine.h DebugInfo.h IRReader.h Linker.h LLJIT.h OrcEE.h Orc.h Target.h TargetMachine.h Support.h Types.h Transforms/PassManagerBuilder.h"
+HEADERS="BitReader.h BitWriter.h Comdat.h Core.h Error.h ExecutionEngine.h DebugInfo.h IRReader.h Linker.h LLJIT.h OrcEE.h Orc.h Target.h TargetMachine.h Support.h Types.h Transforms/PassBuilder.h Transforms/PassManagerBuilder.h"
 
 for a in $HEADERS; do
   OUT="llvm/${a%.h}.nim"
@@ -23,5 +23,6 @@ for a in $HEADERS; do
   # workaround for reserved keword
   sed -i -e 's/typeOf/typeOfX/' $OUT
 
-  sed -i -e 's/uint32T/uint32/' -e 's/uint64T/uint64/' -e "s/uintptrT/uint64/" $OUT
+  sed -i -e "s/uintptrT/uint/" $OUT
+
 done

@@ -16,18 +16,21 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_BITREADER_H [NewLine] # LLVM_C_BITREADER_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##
 ##  @defgroup LLVMCBitReader Bit Reader
 ##  @ingroup LLVMC
 ##
 ##  @{
-##   Builds a module from the bitcode in the specified memory buffer, returning a
+##
+##  Builds a module from the bitcode in the specified memory buffer, returning a
 ##    reference to the module via the OutModule parameter. Returns 0 on success.
 ##    Optionally returns a human-readable error message via OutMessage.
 ##
-##    This is deprecated. Use LLVMParseBitcode2. LLVMBool LLVMParseBitcode ( LLVMMemoryBufferRef MemBuf , LLVMModuleRef * OutModule , char * * OutMessage ) ;
-## Error: expected ';'!!!
+##    This is deprecated. Use LLVMParseBitcode2.
 
+proc parseBitcode*(memBuf: MemoryBufferRef; outModule: ptr ModuleRef;
+                   outMessage: cstringArray): Bool {.
+    importc: "LLVMParseBitcode", dynlib: LLVMLib.}
 ##  Builds a module from the bitcode in the specified memory buffer, returning a
 ##    reference to the module via the OutModule parameter. Returns 0 on success.
 
@@ -36,20 +39,20 @@ proc parseBitcode2*(memBuf: MemoryBufferRef; outModule: ptr ModuleRef): Bool {.
 ##  This is deprecated. Use LLVMParseBitcodeInContext2.
 
 proc parseBitcodeInContext*(contextRef: ContextRef; memBuf: MemoryBufferRef;
-                           outModule: ptr ModuleRef; outMessage: cstringArray): Bool {.
+                            outModule: ptr ModuleRef; outMessage: cstringArray): Bool {.
     importc: "LLVMParseBitcodeInContext", dynlib: LLVMLib.}
 proc parseBitcodeInContext2*(contextRef: ContextRef; memBuf: MemoryBufferRef;
-                            outModule: ptr ModuleRef): Bool {.
+                             outModule: ptr ModuleRef): Bool {.
     importc: "LLVMParseBitcodeInContext2", dynlib: LLVMLib.}
-## * Reads a module from the specified path, returning via the OutMP parameter
+##  Reads a module from the specified path, returning via the OutMP parameter
 ##     a module provider which performs lazy deserialization. Returns 0 on success.
 ##     Optionally returns a human-readable error message via OutMessage.
 ##     This is deprecated. Use LLVMGetBitcodeModuleInContext2.
 
 proc getBitcodeModuleInContext*(contextRef: ContextRef; memBuf: MemoryBufferRef;
-                               outM: ptr ModuleRef; outMessage: cstringArray): Bool {.
+                                outM: ptr ModuleRef; outMessage: cstringArray): Bool {.
     importc: "LLVMGetBitcodeModuleInContext", dynlib: LLVMLib.}
-## * Reads a module from the given memory buffer, returning via the OutMP
+##  Reads a module from the given memory buffer, returning via the OutMP
 ##  parameter a module provider which performs lazy deserialization.
 ##
 ##  Returns 0 on success.
@@ -57,19 +60,16 @@ proc getBitcodeModuleInContext*(contextRef: ContextRef; memBuf: MemoryBufferRef;
 ##  Takes ownership of \p MemBuf if (and only if) the module was read
 ##  successfully.
 
-proc getBitcodeModuleInContext2*(contextRef: ContextRef; memBuf: MemoryBufferRef;
-                                outM: ptr ModuleRef): Bool {.
+proc getBitcodeModuleInContext2*(contextRef: ContextRef;
+                                 memBuf: MemoryBufferRef; outM: ptr ModuleRef): Bool {.
     importc: "LLVMGetBitcodeModuleInContext2", dynlib: LLVMLib.}
 ##  This is deprecated. Use LLVMGetBitcodeModule2.
 
 proc getBitcodeModule*(memBuf: MemoryBufferRef; outM: ptr ModuleRef;
-                      outMessage: cstringArray): Bool {.
+                       outMessage: cstringArray): Bool {.
     importc: "LLVMGetBitcodeModule", dynlib: LLVMLib.}
 proc getBitcodeModule2*(memBuf: MemoryBufferRef; outM: ptr ModuleRef): Bool {.
     importc: "LLVMGetBitcodeModule2", dynlib: LLVMLib.}
-## *
+##
 ##  @}
 ##
-
-## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
-## Error: expected ';'!!!

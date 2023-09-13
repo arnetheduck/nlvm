@@ -16,30 +16,31 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_BITWRITER_H [NewLine] # LLVM_C_BITWRITER_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##
 ##  @defgroup LLVMCBitWriter Bit Writer
 ##  @ingroup LLVMC
 ##
 ##  @{
-##  ===-- Operations on modules ---------------------------------------------=== * Writes a module to the specified path. Returns 0 on success. int LLVMWriteBitcodeToFile ( LLVMModuleRef M , const char * Path ) ;
-## Error: expected ';'!!!
+##
+## ===-- Operations on modules ---------------------------------------------===
+##  Writes a module to the specified path. Returns 0 on success.
 
-## * Writes a module to an open file descriptor. Returns 0 on success.
+proc writeBitcodeToFile*(m: ModuleRef; path: cstring): cint {.
+    importc: "LLVMWriteBitcodeToFile", dynlib: LLVMLib.}
+##  Writes a module to an open file descriptor. Returns 0 on success.
 
-proc writeBitcodeToFD*(m: ModuleRef; fd: cint; shouldClose: cint; unbuffered: cint): cint {.
+proc writeBitcodeToFD*(m: ModuleRef; fd: cint; shouldClose: cint;
+                       unbuffered: cint): cint {.
     importc: "LLVMWriteBitcodeToFD", dynlib: LLVMLib.}
-## * Deprecated for LLVMWriteBitcodeToFD. Writes a module to an open file
+##  Deprecated for LLVMWriteBitcodeToFD. Writes a module to an open file
 ##     descriptor. Returns 0 on success. Closes the Handle.
 
 proc writeBitcodeToFileHandle*(m: ModuleRef; handle: cint): cint {.
     importc: "LLVMWriteBitcodeToFileHandle", dynlib: LLVMLib.}
-## * Writes a module to a new memory buffer and returns it.
+##  Writes a module to a new memory buffer and returns it.
 
 proc writeBitcodeToMemoryBuffer*(m: ModuleRef): MemoryBufferRef {.
     importc: "LLVMWriteBitcodeToMemoryBuffer", dynlib: LLVMLib.}
-## *
+##
 ##  @}
 ##
-
-## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
-## Error: expected ';'!!!

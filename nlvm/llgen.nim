@@ -179,6 +179,8 @@ type
     personalityFn: llvm.ValueRef
     landingPadTy: llvm.TypeRef
 
+    lto: LtoKind
+
   LLValue = object
     v: llvm.ValueRef
     lode: PNode # Origin node of this value
@@ -190,6 +192,11 @@ type
   TAssignmentFlags = set[TAssignmentFlag]
 
   FieldPath = tuple[structTy: llvm.TypeRef, index: int, fieldTy: llvm.TypeRef]
+
+  LtoKind = enum
+    None
+    # TODO Thin
+    Full
 
 template config(g: LLGen): untyped = g.graph.config
 template fileInfos(g: LLGen): untyped = g.config.m.fileInfos
@@ -1559,6 +1566,7 @@ proc getInitFunc(llm: LLModule): LLFunc =
       llm.init.ds = g.debugFunction(llm.sym, [], llm.init.f)
 
     llm.init.f.setLinkage(llvm.InternalLinkage)
+    nimSetFunctionAttributes(llm.init.f)
 
     llm.init.sections[secLastBody] = g.section(llm.init, secBody)
     discard llm.init.startBlock(nil, g.section(llm.init, secReturn))
@@ -2107,6 +2115,7 @@ proc genMarkerProc(g: LLGen, typ: PType, sig: SigHash): llvm.ValueRef =
 
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
+  nimSetFunctionAttributes(result)
 
   # Can't generate body yet - some magics might not yet exist
   g.markerBody.add((result, typ))
@@ -2124,6 +2133,7 @@ proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
 
   # Because we generate only one module, we can tag all functions internal
   result.setLinkage(llvm.InternalLinkage)
+  nimSetFunctionAttributes(result)
 
   let f = g.newLLFunc(result, nil)
 
@@ -2160,6 +2170,7 @@ proc genGcRegistrar(g: LLGen, sym: PSym, v: llvm.ValueRef) =
         registrar = g.m.addFunction(name, registrarType)
 
       registrar.setLinkage(llvm.InternalLinkage)
+      nimSetFunctionAttributes(registrar)
 
       let
         ctorsInit = llvm.constStructInContext(g.lc, [
@@ -3531,6 +3542,7 @@ proc genResetFunc(g: LLGen, typ: PType): llvm.ValueRef =
 
   # Because we generate only one module, we can tag all functions internal
   f.setLinkage(llvm.InternalLinkage)
+  nimSetFunctionAttributes(f)
 
   let llf = g.newLLFunc(f, nil)
 
@@ -3836,6 +3848,7 @@ proc genAssignFunc(g: LLGen, typ: PType): llvm.ValueRef =
 
   # Because we generate only one module, we can tag all functions internal
   f.setLinkage(llvm.InternalLinkage)
+  nimSetFunctionAttributes(f)
 
   let llf = g.newLLFunc(f, nil)
 
@@ -3962,6 +3975,8 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
   if g.genFakeImpl(s, f):
     f.setLinkage(llvm.InternalLinkage)
 
+  nimSetFunctionAttributes(f)
+
   result = LLValue(v: f, storage: s.loc.storage)
   g.symbols[s.id] = result
 
@@ -3986,7 +4001,11 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
 
   if sfImportc in s.flags: return
 
-  if sfExportc notin s.flags or sfCompilerProc in s.flags:
+  if result.v.getEnumAttributeAtIndex(
+      cast[AttributeIndex](AttributeFunctionIndex), attrAllocsize) != nil:
+    # TODO work around https://github.com/llvm/llvm-project/issues/66103
+    result.v.setLinkage(llvm.LinkOnceODRLinkage)
+  elif sfExportc notin s.flags or sfCompilerProc in s.flags:
     # Because we generate only one module, we can tag all functions internal,
     # except those that should be importable from c
     # compilerproc are marker exportc to get a stable name, but it doesn't seem
@@ -8723,7 +8742,9 @@ proc genNode(
 
   g.depth -= 1
 
-proc newLLGen(graph: ModuleGraph, idgen: IdGenerator, tgt: string, tm: TargetMachineRef): LLGen =
+proc newLLGen(
+    graph: ModuleGraph, idgen: IdGenerator, tgt: string, tm: TargetMachineRef,
+    lto: LtoKind): LLGen =
   let
     lc = llvm.getGlobalContext()
   # lc.contextSetOpaquePointers(0)
@@ -8765,6 +8786,8 @@ proc newLLGen(graph: ModuleGraph, idgen: IdGenerator, tgt: string, tm: TargetMac
     tgtExportLinkage:
       if graph.config.target.targetCPU == cpuWasm32: llvm.ExternalLinkage
       else: llvm.CommonLinkage,
+
+    lto: lto,
   )
 
   var g = result
@@ -8981,35 +9004,26 @@ proc loadBase(g: LLGen) =
     g.config.internalError("module link failed")
 
 proc runOptimizers(g: LLGen) =
-  if {optOptimizeSpeed, optOptimizeSize} * g.config.options == {}:
-    return
+  let
+    options = llvm.createPassBuilderOptions()
+    kind =
+      case g.lto
+      of LtoKind.None: "default"
+      # of LtoKind.Thin: "thinlto-pre-link"
+      of LtoKind.Full: "lto-pre-link"
+    level =
+      if optOptimizeSize in g.config.options: "<Os>"
+      elif optOptimizeSpeed in g.config.options: "<O3>"
+      else: "<O0>"
 
-  let pmb = llvm.passManagerBuilderCreate()
+    error = runPasses(g.m, kind & level, g.tm, options)
 
-  # See include/llvm/Analysis/InlineCost.h for inlining thresholds
-  if optOptimizeSize in g.config.options:
-    pmb.passManagerBuilderSetOptLevel(2)
-    pmb.passManagerBuilderSetSizeLevel(2)
-    pmb.passManagerBuilderUseInlinerWithThreshold(5)
-  else:
-    pmb.passManagerBuilderSetOptLevel(3)
-    pmb.passManagerBuilderSetSizeLevel(0)
-    pmb.passManagerBuilderUseInlinerWithThreshold(250)
+  if error != nil:
+    let err = getErrorMessage(error)
+    g.config.internalError($err)
+    disposeErrorMessage(err)
 
-  let fpm = g.m.createFunctionPassManagerForModule()
-  let mpm = llvm.createPassManager()
-
-  pmb.passManagerBuilderPopulateFunctionPassManager(fpm)
-  pmb.passManagerBuilderPopulateModulePassManager(mpm)
-
-  var f = g.m.getFirstFunction()
-  while f != nil:
-    discard fpm.runFunctionPassManager(f)
-    f = f.getNextFunction()
-  discard mpm.runPassManager(g.m)
-
-  fpm.disposePassManager()
-  mpm.disposePassManager()
+  disposePassBuilderOptions(options)
 
 proc writeOutput(g: LLGen, project: string) =
   let ext =
@@ -9026,7 +9040,7 @@ proc writeOutput(g: LLGen, project: string) =
 
   var err: cstring
   if optCompileOnly in g.config.globalOptions:
-    if g.m.printModuleToFile(outfile.string, cast[cstringArray](addr(err))) == llvm.True:
+    if g.m.printModuleToFile(outfile.string, cast[cstringArray](addr(err))) != 0:
       g.config.internalError($err)
     return
 
@@ -9036,10 +9050,16 @@ proc writeOutput(g: LLGen, project: string) =
     else:
       g.config.completeCFilePath(AbsoluteFile(project & ".o")).string
 
-  if llvm.targetMachineEmitToFile(g.tm, g.m, ofile, llvm.ObjectFile,
-    cast[cstringArray](addr(err))) == llvm.True:
-    g.config.internalError($err)
-    return
+  if g.lto != LtoKind.None:
+    # TODO thin lto mode which "probably" requires a separate optimiser pass
+    if g.m.writeBitcodeToFile(ofile) != 0:
+      g.config.internalError("Could not write output to " & ofile)
+      return
+  else:
+    if llvm.targetMachineEmitToFile(g.tm, g.m, ofile, llvm.ObjectFile,
+      cast[cstringArray](addr(err))) != 0:
+      g.config.internalError($err)
+      return
 
   if optNoLinking in g.config.globalOptions:
     return
@@ -9049,7 +9069,6 @@ proc writeOutput(g: LLGen, project: string) =
 
   g.config.addExternalFileToLink(ofile.AbsoluteFile)
 
-  # Linking is a horrible mess - let's reuse the c compiler for now
   lllink(g.config)
 
 proc genForwardedProcs(g: LLGen) =
@@ -9189,6 +9208,14 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
     graph.config.cLinkedLibs.add("crypto")
 
   if graph.backend == nil:
+    var lto =
+      if graph.config.useBuiltinLinker() and
+          {optOptimizeSize, optOptimizeSpeed} * graph.config.options != {}:
+        # TODO investigate thin LTO mode which is probably faster
+        LtoKind.Full
+      else:
+        LtoKind.None
+
     # Initialize LLVM
     initializeAllAsmPrinters()
     initializeAllTargets()
@@ -9201,6 +9228,28 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
         let c = v.normalize()
         if c.startsWith("--llvm-"):
           llvmArgs.add(c[6..^1])
+
+      # Hack: pass --passc flags to llvm - this doesn't capture flags put in
+      # {.passc: ....} in modules because these do not register in the AST
+      # ... and those from other compile option sources - this parsing might
+      # be removed down the line if a more ambitious parsing regime is
+      # implemented
+      for c in @[graph.config.compileOptions] & graph.config.compileOptionsCmd:
+        for part in parseCmdLine(c):
+          # Hack that translates common "clang" flags to their llvm equivalents
+          # - this needs updating eventually - it's neither complete nor sustainable
+          if part.len == 0:
+            continue
+
+          if part.startsWith("-flto"):
+            lto = LtoKind.Full
+          elif part.startsWith("-fno-lto"):
+            lto = LtoKind.None
+
+          if part.startsWith("-march="):
+            llvmArgs.add("-mcpu=" & part[7..^1])
+          else:
+            llvmArgs.add(part)
 
       if llvmArgs.len() > 1:
         let arr = allocCStringArray(llvmArgs)
@@ -9234,9 +9283,9 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
         if optOptimizeSpeed in graph.config.options: llvm.CodeGenLevelAggressive
         else: llvm.CodeGenLevelDefault
       tm = nimCreateTargetMachine(
-        tr, target, "", "", cgl, reloc, llvm.CodeModelDefault)
+        tr, target, cgl, reloc, llvm.CodeModelDefault)
       layout = tm.createTargetDataLayout()
-      g = newLLGen(graph, idgen, target, tm)
+      g = newLLGen(graph, idgen, target, tm, lto)
 
     g.m.setModuleDataLayout(layout)
     g.m.setTarget(target)

@@ -11,19 +11,21 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_SUPPORT_H [NewLine] # LLVM_C_SUPPORT_H [NewLine] # llvm-c/DataTypes.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN *
+##
 ##  @addtogroup LLVMCCore
 ##
 ##  @{
-##  *
+##
+##
 ##  This function permanently loads the dynamic library at the given path.
 ##  It is safe to call this function multiple times for the same library.
 ##
 ##  @see sys::DynamicLibrary::LoadLibraryPermanently()
-##  LLVMBool LLVMLoadLibraryPermanently ( const char * Filename ) ;
-## Error: expected ';'!!!
+##
 
-## *
+proc loadLibraryPermanently*(filename: cstring): Bool {.
+    importc: "LLVMLoadLibraryPermanently", dynlib: LLVMLib.}
+##
 ##  This function parses the given arguments using the LLVM command line parser.
 ##  Note that the only stable thing about this function is its signature; you
 ##  cannot rely on any particular set of command line arguments being interpreted
@@ -34,7 +36,7 @@
 
 proc parseCommandLineOptions*(argc: cint; argv: cstringArray; overview: cstring) {.
     importc: "LLVMParseCommandLineOptions", dynlib: LLVMLib.}
-## *
+##
 ##  This function will search through all previously loaded dynamic
 ##  libraries for the symbol \p symbolName. If it is found, the address of
 ##  that symbol is returned. If not, null is returned.
@@ -44,7 +46,7 @@ proc parseCommandLineOptions*(argc: cint; argv: cstringArray; overview: cstring)
 
 proc searchForAddressOfSymbol*(symbolName: cstring): pointer {.
     importc: "LLVMSearchForAddressOfSymbol", dynlib: LLVMLib.}
-## *
+##
 ##  This functions permanently adds the symbol \p symbolName with the
 ##  value \p symbolValue.  These symbols are searched before any
 ##  libraries.
@@ -54,9 +56,6 @@ proc searchForAddressOfSymbol*(symbolName: cstring): pointer {.
 
 proc addSymbol*(symbolName: cstring; symbolValue: pointer) {.
     importc: "LLVMAddSymbol", dynlib: LLVMLib.}
-## *
+##
 ##  @}
 ##
-
-## !!!Ignored construct:  LLVM_C_EXTERN_C_END # [NewLine]
-## Error: expected ';'!!!
