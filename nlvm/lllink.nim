@@ -275,13 +275,17 @@ proc linkWasm32(conf: ConfigRef) =
     rawMessage(conf, errGenerated, "linking failed")
     quit(1)
 
-proc lllink*(conf: ConfigRef) =
-  let builtinLinker =
-    optGenStaticLib notin conf.globalOptions and
+proc useBuiltinLinker*(conf: ConfigRef): bool =
+  optGenStaticLib notin conf.globalOptions and
     optGenGuiApp notin conf.globalOptions and
     optGenDynLib notin conf.globalOptions and
     conf.getConfigVar("nlvm.linker", "builtin") == "builtin" and
-    conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccCLang}
+    conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccCLang} and
+    conf.target.targetOS == osLinux and
+    conf.target.targetCPU == cpuAmd64
+
+proc lllink*(conf: ConfigRef) =
+  let builtinLinker = conf.useBuiltinLinker()
 
   if builtinLinker and conf.target.targetOS == osLinux and
       conf.target.targetCPU == cpuAmd64:

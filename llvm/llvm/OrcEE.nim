@@ -21,19 +21,17 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_ORCEE_H [NewLine] # LLVM_C_ORCEE_H [NewLine] # llvm-c/Error.h [NewLine] # llvm-c/ExecutionEngine.h [NewLine] # llvm-c/Orc.h [NewLine] # llvm-c/TargetMachine.h [NewLine] # llvm-c/Types.h [NewLine] LLVM_C_EXTERN_C_BEGIN typedef void * ( * LLVMMemoryManagerCreateContextCallback ) ( void * CtxCtx ) ;
-## Error: token expected: ; but got: [identifier]!!!
-
 type
+  MemoryManagerCreateContextCallback* = proc (ctxCtx: pointer): pointer
   MemoryManagerNotifyTerminatingCallback* = proc (ctxCtx: pointer)
 
-## *
+##
 ##  @defgroup LLVMCExecutionEngineORCEE ExecutionEngine-based ORC Utils
 ##  @ingroup LLVMCExecutionEngine
 ##
 ##  @{
 ##
-## *
+##
 ##  Create a RTDyldObjectLinkingLayer instance using the standard
 ##  SectionMemoryManager for memory management.
 ##
@@ -42,7 +40,7 @@ proc orcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager*(
     es: OrcExecutionSessionRef): OrcObjectLayerRef {.
     importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager",
     dynlib: LLVMLib.}
-## *
+##
 ##  Create a RTDyldObjectLinkingLayer instance using MCJIT-memory-manager-like
 ##  callbacks.
 ##
@@ -76,7 +74,7 @@ proc orcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks*(
     finalizeMemory: MemoryManagerFinalizeMemoryCallback;
     destroy: MemoryManagerDestroyCallback): OrcObjectLayerRef {.importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks",
     dynlib: LLVMLib.}
-## *
+##
 ##  Add the given listener to the given RTDyldObjectLinkingLayer.
 ##
 ##  Note: Layer must be an RTDyldObjectLinkingLayer instance or
@@ -87,9 +85,6 @@ proc orcRTDyldObjectLinkingLayerRegisterJITEventListener*(
     rTDyldObjLinkingLayer: OrcObjectLayerRef; listener: JITEventListenerRef) {.
     importc: "LLVMOrcRTDyldObjectLinkingLayerRegisterJITEventListener",
     dynlib: LLVMLib.}
-## *
+##
 ##  @}
 ##
-
-## !!!Ignored construct:  LLVM_C_EXTERN_C_END #  LLVM_C_ORCEE_H [NewLine]
-## Error: expected ';'!!!

@@ -74,6 +74,8 @@ type
   opaqueModuleFlagEntry{.pure, final.} = object
   OpaqueBinary{.pure, final.} = object
   OpaqueError{.pure, final.} = object
+  OpaquePassBuilderOptions{.pure, final.} = object
+
 
   ## Orc.nim
   OrcOpaqueExecutionSession{.pure, final.} = object
@@ -105,16 +107,6 @@ type
   OrcOpaqueLLJITBuilder{.pure, final.} = object
   OrcOpaqueLLJIT{.pure, final.} = object
 
-  OrcJITTargetAddress* = uint64
-
-  # Funny type names that came out of c2nim
-  int64T = int64
-  uint64T = uint64
-  uint8T = uint8
-
-  Bool* = cint
-  AttributeIndex* = cuint
-
   OpaqueTargetData{.pure, final.} = object
   OpaqueTargetLibraryInfotData{.pure, final.} = object
 
@@ -134,47 +126,8 @@ type
     CallBr = 67,                ##  Standard Unary Operators
     Freeze = 68                 ##  Atomic operators
 
-  DIFlags* {.size: sizeof(cint).} = enum
-    DIFlagZero = 0, DIFlagPrivate = 1, DIFlagProtected = 2, DIFlagPublic = 3,
-    DIFlagFwdDecl = 1 shl 2, DIFlagAppleBlock = 1 shl 3, DIFlagReservedBit4 = 1 shl 4,
-    DIFlagVirtual = 1 shl 5, DIFlagArtificial = 1 shl 6, DIFlagExplicit = 1 shl 7,
-    DIFlagPrototyped = 1 shl 8, DIFlagObjcClassComplete = 1 shl 9,
-    DIFlagObjectPointer = 1 shl 10, DIFlagVector = 1 shl 11,
-    DIFlagStaticMember = 1 shl 12, DIFlagLValueReference = 1 shl 13,
-    DIFlagRValueReference = 1 shl 14, DIFlagReserved = 1 shl 15,
-    DIFlagSingleInheritance = 1 shl 16, DIFlagMultipleInheritance = 2 shl 16,
-    DIFlagVirtualInheritance = 3 shl 16, DIFlagIntroducedVirtual = 1 shl 18,
-    DIFlagBitField = 1 shl 19, DIFlagNoReturn = 1 shl 20,
-    DIFlagTypePassByValue = 1 shl 22, DIFlagTypePassByReference = 1 shl 23,
-    DIFlagEnumClass = 1 shl 24,
-    DIFlagThunk = 1 shl 25, DIFlagNonTrivial = 1 shl 26, DIFlagBigEndian = 1 shl 27,
-    DIFlagLittleEndian = 1 shl 28,
-    #DIFlagIndirectVirtualBase = (1 shl 2) or (1 shl 5),
-    #DIFlagAccessibility = dIFlagPrivate or dIFlagProtected or dIFlagPublic, DIFlagPtrToMemberRep = dIFlagSingleInheritance or
-    #    dIFlagMultipleInheritance or dIFlagVirtualInheritance
-
-  DWARFTypeEncoding* = cuint
-  MetadataKind* = cuint
-
   ByteOrdering* {.size: sizeof(cint).} = enum
     BigEndian, LittleEndian
-
-  TargetMachineRef* = ptr OpaqueTargetMachine
-  PassManagerBuilderRef* = ptr OpaquePassManagerBuilder
-
-  ComdatSelectionKind* {.size: sizeof(cint).} = enum
-    AnyComdatSelectionKind,        ## The linker may choose any COMDAT.
-    ExactMatchComdatSelectionKind, ## The data referenced by the COMDAT must
-                                      ## be the same.
-    LargestComdatSelectionKind,    ## The linker will choose the largest
-                                      ## COMDAT.
-    NoDeduplicateComdatSelectionKind, ## No deduplication is performed.
-    SameSizeComdatSelectionKind ## The data referenced by the COMDAT must be
-                                    ## the same size.
-
-  ErrorRef* = ptr OpaqueError
-
-  MemoryManagerCreateContextCallback* = proc(ctxCtx: pointer): pointer {.cdecl, raises: [].}
 
 include llvm/Types
 include llvm/Support
@@ -189,14 +142,12 @@ include llvm/IRReader
 include llvm/Linker
 include llvm/Target
 include llvm/TargetMachine
+include llvm/Transforms/PassBuilder
 include llvm/Transforms/PassManagerBuilder
 
 include llvm/ExecutionEngine
 include llvm/Orc
 include llvm/OrcEE
-
-type OrcLLJITBuilderObjectLinkingLayerCreatorFunction* = proc(ctx: pointer, ES: OrcExecutionSessionRef, triple: cstring): OrcObjectLayerRef {.cdecl, raises: [].}
-
 include llvm/LLJIT
 
 include preprocessed
@@ -222,17 +173,10 @@ const
   DW_ATE_lo_user* = 0x80.cuint
   DW_ATE_hi_user* = 0xff.cuint
 
-proc parseIRInContext*(contextRef: ContextRef; memBuf: MemoryBufferRef;
-                      outM: ptr ModuleRef; outMessage: cstringArray): Bool {.
-    importc: "LLVMParseIRInContext", dynlib: LLVMLib.}
-
 proc getModuleDataLayout*(m: ModuleRef): TargetDataRef {.
     importc: "LLVMGetModuleDataLayout", dynlib: LLVMLib.}
 
 proc typeOfX*(val: ValueRef): TypeRef {.importc: "LLVMTypeOf", dynlib: LLVMLib.}
-
-proc passManagerBuilderCreate*(): PassManagerBuilderRef {.
-    importc: "LLVMPassManagerBuilderCreate", dynlib: LLVMLib.}
 
 template oaAddr(v: openArray): untyped =
   if v.len > 0: v[0].unsafeAddr else: nil
@@ -332,11 +276,12 @@ proc nimLLDLinkWasm*(args: openArray[string]): bool =
   nimLLDLinkWasm(argv, args.len.csize_t)
 
 
-proc nimCreateTargetMachine*(t: TargetRef; triple: cstring; cpu: cstring;
-                         features: cstring; level: CodeGenOptLevel;
+proc nimCreateTargetMachine*(t: TargetRef; triple: cstring; level: CodeGenOptLevel;
                          reloc: RelocMode; codeModel: CodeModel): TargetMachineRef {.
     importc: "LLVMNimCreateTargetMachine".}
 
+proc nimSetFunctionAttributes*(F: ValueRef) {.
+    importc: "LLVMNimSetFunctionAttributes".}
 
 # A few helpers to make things more smooth
 

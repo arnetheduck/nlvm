@@ -72,8 +72,7 @@ static LLVMTargetMachineRef wrap(const TargetMachine *P) {
 }
 
 extern "C" LLVMTargetMachineRef LLVMNimCreateTargetMachine(LLVMTargetRef T,
-        const char *TT, const char *CPU, const char *Features,
-        LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
+        const char *TT, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
         LLVMCodeModel CodeModel) {
   // This function is needed to register and use the common codegen flags -
   // in particular when using lld which doesn't support mixed `.ctors` and
@@ -124,6 +123,14 @@ extern "C" LLVMTargetMachineRef LLVMNimCreateTargetMachine(LLVMTargetRef T,
   }
 
   TargetOptions opt = codegen::InitTargetOptionsFromCodeGenFlags(Triple(TT));
-  return wrap(unwrap(T)->createTargetMachine(TT, CPU, Features, opt, RM, CM,
-                                             OL, JIT));
+  return wrap(unwrap(T)->createTargetMachine(TT, codegen::getCPUStr(),
+                                             codegen::getFeaturesStr(), opt, RM,
+                                             CM, OL, JIT));
+}
+
+extern "C" void LLVMNimSetFunctionAttributes(LLVMValueRef FV) {
+  auto F = unwrap<llvm::Function>(FV);
+
+  codegen::setFunctionAttributes(
+    codegen::getCPUStr(), codegen::getFeaturesStr(), *F);
 }
