@@ -198,6 +198,17 @@ type
     # TODO Thin
     Full
 
+  FieldMapper = object
+    ## Helper for mapping object field entries to LLVM struct elements
+    ## inserting padding where needed for proper alignment - the construct
+    ## depends on iterating over the nodes of the object definition in the
+    ## same order every time
+    packed: bool
+    element: int
+    offset: int
+    maxSize: int
+    maxAlign: int
+
 template config(g: LLGen): untyped = g.graph.config
 template fileInfos(g: LLGen): untyped = g.config.m.fileInfos
 template ptrBits(g: LLGen): untyped = g.m.getModuleDataLayout().pointerSize() * 8
@@ -1170,54 +1181,158 @@ proc debugFieldName(field: PSym, typ: PType): string =
   else:
     mangle(field.name.s)
 
-proc align(address, alignment: cuint): cuint =
+proc aligned(address, alignment: int): int =
   (address + (alignment - 1)) and not (alignment - 1)
+
+proc getBestSize(g: LLGen, typ: PType, ty: llvm.TypeRef): int =
+  ## Nim can't compute size of C-derived structs properly so we make a guess
+  ## which mostly works but might end up being wrong leading to memory
+  ## corruption
+  let v = g.config.getSize(typ).int
+  if v == szUnknownSize:
+    let dl = g.m.getModuleDataLayout()
+    dl.aBISizeOfType(ty).int
+  else:
+    v
+
+proc getBestAlign(g: LLGen, typ: PType, ty: llvm.TypeRef): int =
+  let v = g.config.getAlign(typ).int
+  if v == szUnknownSize:
+    let dl = g.m.getModuleDataLayout()
+    dl.aBIAlignmentOfType(ty).int
+  else:
+    v
+
+proc maxAlign(g: LLGen, n: PNode): int =
+  ## Largest best alignment for a type node
+  case n.kind
+  of nkRecList:
+    foldl((0..<n.len), max(a, g.maxAlign(n[b])), 1)
+  of nkRecCase:
+    let
+      tags = n[0].sym
+      tagAlign = g.getBestAlign(tags.typ, g.llType(tags.typ))
+
+    foldl((1..<n.len), max(a, g.maxAlign(n[b].lastSon)), tagAlign)
+  of nkSym:
+    let field = n.sym
+    if field.typ.isEmptyType(): 1
+    else: g.getBestAlign(field.typ, g.llType(field.typ))
+  else:
+    g.config.internalError(n.info, "maxAlign")
+    0
+
+proc addField(
+    g: LLGen, mapper: var FieldMapper, ty: llvm.TypeRef, size, align: int,
+    pad: proc(bytes: int) = nil): int =
+  let
+    dl = g.m.getModuleDataLayout()
+    abi = aligned(mapper.offset, int(dl.aBIAlignmentOfType(ty)))
+    align = if mapper.packed: 1 else: align
+    aligned = aligned(mapper.offset, align)
+
+  assert align == 1 or not mapper.packed
+
+  mapper.maxSize = max(mapper.maxSize, size)
+  mapper.maxAlign = max(mapper.maxAlign, align)
+  if aligned > abi:
+    # LLVM takes care of ABI alignment, no need to emit a pad
+    # TODO let's hope it doesn't use preferred alignment
+    if pad != nil:
+      pad(aligned - mapper.offset)
+    mapper.element += 1
+
+  mapper.offset = aligned + size
+
+  let elem = mapper.element
+  mapper.element += 1
+  elem
+
+proc addField(
+    g: LLGen, mapper: var FieldMapper, ty: llvm.TypeRef, typ: PType,
+    pad: proc(bytes: int) = nil): int =
+  let
+    size = g.getBestSize(typ, ty).int
+    align = if mapper.packed: 1 else: g.getBestAlign(typ, ty).int
+
+  g.addField(mapper, ty, size, align, pad)
+
+proc addField(
+    g: LLGen, mapper: var FieldMapper, ty: llvm.TypeRef, sym: PSym,
+    pad: proc(bytes: int) = nil): int =
+  let
+    size = g.getBestSize(sym.typ, ty).int
+    align =
+      if mapper.packed: 1
+      else: max(g.getBestAlign(sym.typ, ty).int, sym.alignment)
+
+  g.addField(mapper, ty, size, align, pad)
 
 func caseTypeName(t: llvm.TypeRef, tag: PSym, index: int): string =
   $t.getStructName() & "_" & tag.name.s & "_" & $index
 
 proc debugStructFields(
-    g: LLGen, dty: llvm.MetadataRef, elements: var seq[MetadataRef], n: PNode,
-    typ: PType, ty: llvm.TypeRef) =
+    g: LLGen, mapper: var FieldMapper, n: PNode, dty: llvm.MetadataRef,
+    members: var seq[MetadataRef], typ: PType, ty: llvm.TypeRef) =
   case n.kind
   of nkRecList:
     for child in n:
-      g.debugStructFields(dty, elements, child, typ, ty)
+      g.debugStructFields(mapper, child, dty, members, typ, ty)
   of nkRecCase:
     let
-      tag = n[0].sym
-      baseName = caseTypeName(ty, tag, 0)
-      base = g.lc.getTypeByName2(baseName)
-      (df, line) = g.debugGetLine(typ.sym)
-      bits = g.debugSize(base)
-      baseType = g.d.dIBuilderCreateStructType(df, baseName,
-        df, line, bits, 0, 0, nil, [], 0, nil, baseName)
+      tags = n[0].sym
 
-    var
-      baseFields: seq[MetadataRef]
+    block:
+      let
+        element = g.addField(mapper, g.llType(tags.typ), tags)
+        name = debugFieldName(tags, typ)
 
-    g.debugStructFields(baseType, baseFields, n[0], typ, base)
+        (df, line) = g.debugGetLine(tags)
+        member = g.d.dIBuilderCreateMemberType(
+          dty, name, df, line.cuint, g.debugSize(tags.typ), 0,
+          g.debugOffset(ty, element), 0, g.debugType(tags.typ))
 
-    g.d.nimDICompositeTypeSetTypeArray(
-      baseType, g.d.dIBuilderGetOrCreateArray(baseFields))
+      members.add(member)
 
-    let member = g.d.dIBuilderCreateMemberType(
-      baseType, baseName, df, line.cuint, bits,
-      0, g.debugOffset(ty, elements.len()), 0, baseType)
+    block:
+      let
+        storeName = caseTypeName(ty, tags, 0)
+        storeTy = g.lc.getTypeByName2(storeName)
+        (df, line) = g.debugGetLine(tags)
+        bits = g.debugSize(storeTy)
+        storeType = g.d.dIBuilderCreateStructType(df, storeName,
+          df, line, bits, 0, 0, nil, [], 0, nil, storeName)
 
-    elements.add(member)
+        maxAlign = foldl(1..<n.len, max(a, g.maxAlign(n[b].lastSon)), 1)
+        element = g.addField(
+          mapper, storeTy, g.m.getModuleDataLayout().aBISizeOfType(storeTy).int,
+          maxAlign)
+
+      var
+        storeFields: seq[MetadataRef]
+
+      g.d.nimDICompositeTypeSetTypeArray(
+        storeType, g.d.dIBuilderGetOrCreateArray(storeFields))
+
+      let member = g.d.dIBuilderCreateMemberType(
+        storeType, storeName, df, line.cuint, bits,
+        0, g.debugOffset(ty, element), 0, storeType)
+
+      members.add(member)
 
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
+
     let
+      element = g.addField(mapper, g.llType(field.typ), field)
       name = debugFieldName(field, typ)
       (df, line) = g.debugGetLine(field)
       member = g.d.dIBuilderCreateMemberType(
         dty, name, df, line.cuint, g.debugSize(field.typ), 0,
-        g.debugOffset(ty, elements.len()), 0, g.debugType(field.typ))
+        g.debugOffset(ty, element), 0, g.debugType(field.typ))
 
-    elements.add(member)
+    members.add(member)
   else: g.config.internalError(n.info, "debugStructFields")
 
 proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
@@ -1233,7 +1348,7 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
 
   let
     name = g.llName(typ, sig)
-    t = g.llType(typ)
+    ty = g.llType(typ)
     (df, line) = g.debugGetLine(typ.sym)
 
   # Create struct before setting body in case it's recursive
@@ -1243,11 +1358,11 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
   g.dstructs[sig] = result
 
   var
-    fields = newSeq[MetadataRef]()
-  if tfUnion in typ.flags and t.countStructElementTypes() > 0:
+    members = newSeq[MetadataRef]()
+  if tfUnion in typ.flags and ty.countStructElementTypes() > 0:
     let
       dl = g.m.getModuleDataLayout()
-      data = t.structGetTypeAtIndex(0)
+      data = ty.structGetTypeAtIndex(0)
       bytes = dl.aBISizeOfType(data)
       bits = bytes * 8
       at = g.d.dIBuilderCreateArrayType(bits, 0, g.dtypes[tyUInt8],
@@ -1255,29 +1370,36 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
       # TODO make actual union metadata instead
       member = g.d.dIBuilderCreateMemberType(
         result, "union", df, line, bits, 0, 0, 0, at)
-    fields.add(member)
+    members.add(member)
   else:
+    var mapper = FieldMapper(packed: tfPacked in typ.flags)
+
     if typ[0] != nil:
       let
-        super = typ[0].skipTypes(skipPtrs)
-        member = g.d.dIBuilderCreateMemberType(
-          result, "Sup", df, line, g.debugSize(super), 0, 0, 0,
-          g.debugType(super))
+        supTyp = typ[0].skipTypes(skipPtrs)
+      discard g.addField(mapper, g.llType(supTyp), supTyp)
 
-      fields.add(member)
+      let
+        member = g.d.dIBuilderCreateMemberType(
+          result, "Sup", df, line, g.debugSize(supTyp), 0, 0, 0,
+          g.debugType(supTyp))
+
+      members.add(member)
     elif typ.hasMTypeField():
+      discard g.addField(
+        mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
       let
         tnt = g.debugMagicType("TNimType")
         tntp = g.d.dIBuilderCreatePointerType(tnt, g.ptrBits, g.ptrBits, "")
         member = g.d.dIBuilderCreateMemberType(
           result, "m_type", df, line, g.ptrBits, g.ptrBits, 0, 0, tntp)
 
-      fields.add(member)
+      members.add(member)
 
-    g.debugStructFields(result, fields, typ.n, typ, t)
+    g.debugStructFields(mapper, typ.n, result, members, typ, ty)
 
   g.d.nimDICompositeTypeSetTypeArray(
-    result, g.d.dIBuilderGetOrCreateArray(fields))
+    result, g.d.dIBuilderGetOrCreateArray(members))
 
 proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
   if typ == nil:
@@ -1298,17 +1420,17 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
 
   g.dstructs[sig] = result
 
-  var elements = newSeq[MetadataRef]()
+  var members = newSeq[MetadataRef]()
   for field in typ.sons:
     let
       mline = if field.sym != nil: cuint field.sym.info.line else: line
       member = g.d.dIBuilderCreateMemberType(
-        result, "tup" & $elements.len(), df, mline, g.debugSize(field), 0,
-        g.debugOffset(ty, elements.len()), 0, g.debugType(field))
-    elements.add(member)
+        result, "tup" & $members.len(), df, mline, g.debugSize(field), 0,
+        g.debugOffset(ty, members.len()), 0, g.debugType(field))
+    members.add(member)
 
   g.d.nimDICompositeTypeSetTypeArray(
-    result, g.d.dIBuilderGetOrCreateArray(elements))
+    result, g.d.dIBuilderGetOrCreateArray(members))
 
 proc debugMagicType(g: LLGen, name: string): llvm.MetadataRef =
   g.debugType(g.graph.getCompilerProc(name).typ)
@@ -1608,34 +1730,35 @@ proc finalize(g: LLGen) =
           g.b.setCurrentDebugLocation2(dl)
         discard g.b.buildUnreachable()
 
-proc maxAlignment(dl: TargetDataRef, t: llvm.TypeRef): (culonglong, llvm.TypeRef) =
+proc maxABIAlignment(dl: TargetDataRef, t: llvm.TypeRef):
+    (culonglong, llvm.TypeRef) =
   case t.getTypeKind():
   of StructTypeKind:
     # Instead of returning the struct (whose alignment is based on its members),
     # we'll base maximum alignment on the members instead, which helps creating
     # efficient union stores
     if t.countStructElementTypes() == 0: # empty structs are possible
-      (culonglong dl.preferredAlignmentOfType(t), t)
+      (culonglong dl.aBIAlignmentOfType(t), t)
     else:
       var
-        (maxAlign, biggest) = dl.maxAlignment(t.structGetTypeAtIndex(0))
+        (maxAlign, biggest) = dl.maxABIAlignment(t.structGetTypeAtIndex(0))
       for i in cuint(1)..<t.countStructElementTypes():
         let
           member = t.structGetTypeAtIndex(i)
-          (align, max) = dl.maxAlignment(member)
+          (align, max) = dl.maxABIAlignment(member)
         if align > maxAlign or (align == maxAlign and
             # Use store size as tie breaker to get a nice "natural" large type
             dl.storeSizeOfType(max) > dl.storeSizeOfType(biggest)):
           biggest = max
           maxAlign = align
       if biggest == nil:
-        (culonglong dl.preferredAlignmentOfType(t), t)
+        (culonglong dl.aBIAlignmentOfType(t), t)
       else:
         (maxAlign, biggest)
   of ArrayTypeKind:
-    dl.maxAlignment(t.getElementType())
+    dl.maxABIAlignment(t.getElementType())
   else:
-    (culonglong dl.preferredAlignmentOfType(t), t)
+    (culonglong dl.aBIAlignmentOfType(t), t)
 
 proc unionStore(
     g: LLGen, fields: openArray[llvm.TypeRef]): seq[llvm.TypeRef] =
@@ -1648,8 +1771,8 @@ proc unionStore(
   ##   requirements - this ensures that the struct gets the correct "outer"
   ##   alignment
   var
-    biggest, mostAligned: TypeRef
-    maxSize, maxAlign: culonglong
+    mostAligned: TypeRef
+    maxSize, maxAlign, maxAlignSize: culonglong
 
   let dl = g.m.getModuleDataLayout()
   for field in fields:
@@ -1657,13 +1780,14 @@ proc unionStore(
     let bsize = dl.aBISizeOfType(field)
     if bsize > maxSize:
       maxSize = bsize
-      biggest = field
 
-    let (align, t) = dl.maxAlignment(field)
+    let
+      (align, t) = dl.maxABIAlignment(field)
 
-    if align > maxAlign:
+    if align > maxAlign or align == maxAlign and bsize > maxAlignSize:
       maxAlign = align
       mostAligned = t
+      maxAlignSize = bsize
 
   let
     mostAlignedSize = max(dl.aBISizeOfType(mostAligned), culonglong(1))
@@ -1683,45 +1807,79 @@ proc unionStore(
     @[head]
 
 proc addStructFields(
-    g: LLGen, elements: var seq[TypeRef], n: PNode, t: llvm.TypeRef) =
+    g: LLGen, elements: var seq[TypeRef], mapper: var FieldMapper,
+    n: PNode, ty: llvm.TypeRef) =
   p("addStructFields", n, g.depth)
   case n.kind
   of nkRecList:
     for child in n:
-      g.addStructFields(elements, child, t)
+      g.addStructFields(elements, mapper, child, ty)
   of nkRecCase:
     # In case objects ("tagged variants" or "tagged unions"), we'll create a
     # struct for every variant, then use a primitive blob type to reserve enough
     # memory based on the largest variant and the most aligned type
     let
-      tag = n[0].sym
+      tags = n[0].sym
+      tagTy = g.llType(tags.typ)
 
-    var branches: seq[llvm.TypeRef]
+    fillLoc(tags.loc, locField, n, tags.name.s.rope, OnUnknown)
+    let ep = addr elements
+    discard g.addField(mapper, tagTy, tags) do (pad: int):
+      ep[].add(llvm.arrayType(g.primitives[tyUInt8], cuint pad))
+    elements.add(tagTy)
+
+    var
+      branches: seq[llvm.TypeRef]
+      maxAlign = 1
+
     for i in 1..<n.len:
-      case n[i].kind
-      of nkOfBranch, nkElse:
-        var fields: seq[TypeRef]
-        let branchName = caseTypeName(t, tag, i)
-        # Add the tag to every variant for proper alignment
-        let branch = g.lc.structCreateNamed(branchName)
-        g.addStructFields(fields, n[0], branch)
-        g.addStructFields(fields, n[i].lastSon, branch)
-        branch.structSetBody(fields, llvm.False)
-        branches.add(branch)
-      else: g.config.internalError(n.info, "addStructFields")
+      assert n[i].kind in {nkOfBranch, nkElse}
+      let
+        branch = g.lc.structCreateNamed(caseTypeName(ty, tags, i))
+
+      var
+        recElements: seq[TypeRef]
+        recMapper = FieldMapper(packed: mapper.packed)
+      g.addStructFields(recElements, recMapper, n[i].lastSon, branch)
+
+      let
+        tailPad = aligned(
+          recMapper.maxSize, recMapper.maxAlign) - recMapper.maxSize
+
+        dl = g.m.getModuleDataLayout()
+        maxABIAlignment = foldl(
+          recElements, max(a, dl.maxABIAlignment(b)[0].int), 0)
+      if tailPad > maxABIAlignment:
+        elements.add(llvm.arrayType(g.primitives[tyUInt8], cuint tailPad))
+
+      branch.structSetBody(recElements, llvm.False)
+      branches.add(branch)
+
+      maxAlign = max(maxAlign, recMapper.maxAlign)
 
     let
-      baseName = caseTypeName(t, tag, 0)
-      base = g.lc.structCreateNamed(baseName)
-      baseFields = g.unionStore(branches)
+      storeName = caseTypeName(ty, tags, 0)
+      storeTy = g.lc.structCreateNamed(storeName)
+      storeFields = g.unionStore(branches)
+      dl = g.m.getModuleDataLayout()
+    storeTy.structSetBody(storeFields, llvm.False)
 
-    base.structSetBody(baseFields, llvm.False)
-    elements.add(base)
+    discard g.addField(
+        mapper, storeTy, dl.aBISizeOfType(storeTy).int, maxAlign) do (pad: int):
+      ep[].add(llvm.arrayType(g.primitives[tyUInt8], cuint pad))
+    elements.add(storeTy)
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
+
     fillLoc(field.loc, locField, n, field.name.s.rope, OnUnknown)
-    elements.add(g.llType(field.typ))
+
+    let fieldTy = g.llType(field.typ)
+    let ep = addr elements
+    discard g.addField(mapper, fieldTy, field) do (pad: int):
+      ep[].add(llvm.arrayType(g.primitives[tyUInt8], cuint pad))
+    elements.add(fieldTy)
+
   else: g.config.internalError(n.info, "addStructFields")
 
 proc headerType(g: LLGen, name: string): llvm.TypeRef =
@@ -1789,38 +1947,68 @@ proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
 
   p("llStructType " & $typ, typ, g.depth)
 
-  var fields = newSeq[TypeRef]()
+  var
+    elements = newSeq[TypeRef]()
+    mapper = FieldMapper(packed: tfPacked in typ.flags)
 
   if typ[0] != nil:
-    fields.add(g.llStructType(typ[0].skipTypes(skipPtrs), deep)) # Sup
-  elif typ.hasMTypeField():
-    fields.add(g.ptrTy) # ptr TNimType
+    let
+      supTyp = typ[0].skipTypes(skipPtrs)
+      supTy = g.llType(supTyp)
+    discard g.addField(mapper, supTy, supTyp)
+    elements.add(g.llStructType(supTyp, deep)) # Sup
 
-  g.addStructFields(fields, typ.n, result)
+  elif typ.hasMTypeField():
+    discard g.addField(mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
+    elements.add(g.ptrTy) # ptr TNimType
 
   let packed =
     if tfPacked in typ.flags: llvm.True
     else: llvm.False
 
-  if tfUnion in typ.flags and fields.len > 0:
-    result.structSetBody(g.unionStore(fields), packed)
-  elif fields.len > 0:
-    result.structSetBody(fields, packed)
+  g.addStructFields(elements, mapper, typ.n, result)
+
+  let
+    size = g.config.getSize(typ)
+    tailPad = size - mapper.offset
+    dl = g.m.getModuleDataLayout()
+    maxABIAlignment = foldl(elements, max(a, dl.maxABIAlignment(b)[0].int), 0)
+
+  if tailPad > maxABIAlignment:
+    elements.add(llvm.arrayType(g.primitives[tyUInt8], cuint tailPad))
+
+  if tfUnion in typ.flags and elements.len > 0:
+    result.structSetBody(g.unionStore(elements), packed)
+  elif elements.len > 0:
+    result.structSetBody(elements, packed)
   else:
     # cgen adds an empty dummy field in this case - is is needed for the memory
     # allocator to work correctly it seems - investigate
     result.structSetBody([g.primitives[tyUInt8]], packed)
 
-  let
-    dl = g.m.getModuleDataLayout()
-    nimSize = g.config.getSize(typ)
-  if nimSize != szUnknownSize:
-    let llvmSize = dl.aBISizeOfType(result)
-    if nimSize.culonglong != llvmSize:
+  if tfIncompleteStruct notin typ.flags:
+    let
+      nimSize = g.config.getSize(typ)
+      llvmSize = dl.aBISizeOfType(result)
+      tname =
+        if typ.sym != nil:
+          if typ.sym.owner != nil:
+            typ.sym.owner.name.s & "." & typ.sym.name.s
+          else:
+            typ.sym.name.s
+        else:
+          $typ
+      info = if typ.sym != nil: typ.sym.info else: TLineInfo()
+    if nimSize != szUnknownSize:
+      if nimSize.culonglong != llvmSize:
+        g.config.message(
+          info, warnUser,
+          "Nim and LLVM disagree about type size for " & tname & ": " &
+          $nimSize & " vs " & $llvmSize)
+    else:
       g.config.message(
-        TLineInfo(), warnUser,
-        "Nim and LLVM disagree about type size for " & $typ & ": " &
-        $nimSize & " vs " & $llvmSize)
+        info, hintUser,
+        "Using LLVM size on incomplete object - check ABI and mark with {.completeStruct.}: " & tname & " = " & $llvmSize)
 
 proc llTupleType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   if typ == nil:
@@ -1900,9 +2088,19 @@ template withRecCase(n: PNode, ty: llvm.TypeRef, v: llvm.ValueRef, body: untyped
   let
     tags = n[0].sym
     tagTy {.inject.} = g.llType(tags.typ)
-    branchGEP {.inject.} =
-      g.b.buildStructGEP2(ty, v, cuint start, g.nn("vari.branch", v))
-    tag = g.b.buildLoad2(tagTy, branchGEP) # branch always starts with tag
+    tagElement {.inject.} = g.addField(mapper, tagTy, tags)
+    tagGEP {.inject.} =
+      g.b.buildStructGEP2(ty, v, cuint tagElement, g.nn("vari.tag", v))
+    tag {.inject.} = g.b.buildLoad2(tagTy, tagGEP)
+
+  let
+    maxAlign = foldl(1..<n.len, max(a, g.maxAlign(n[b].lastSon)), 1)
+    storeTy = g.lc.getTypeByName2(caseTypeName(ty, tags, 0))
+    storeElement {.inject.} = g.addField(
+      mapper, storeTy, g.m.getModuleDataLayout().aBISizeOfType(storeTy).int,
+      maxAlign)
+    storeGEP {.inject.} =
+      g.b.buildStructGEP2(ty, v, cuint storeElement, g.nn("vari.branch", v))
     caseend = g.b.appendBasicBlockInContext(g.lc, g.nn("vari.tag.end", v))
 
   var hasElse = false
@@ -1946,6 +2144,9 @@ template withRecCase(n: PNode, ty: llvm.TypeRef, v: llvm.ValueRef, body: untyped
     let x = g.b.getInsertBlock()
     g.b.positionBuilderAtEnd(ctrue)
 
+    var
+      recMapper {.inject.} = FieldMapper(packed: mapper.packed)
+
     body
 
     discard g.b.buildBr(caseend)
@@ -1958,25 +2159,26 @@ template withRecCase(n: PNode, ty: llvm.TypeRef, v: llvm.ValueRef, body: untyped
 proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef)
 
 proc genMarkerFields(
-    g: LLGen, ty: llvm.TypeRef, n: PNode, v, op: llvm.ValueRef, start: var int) =
+    g: LLGen, mapper: var FieldMapper, n: PNode, ty: llvm.TypeRef,
+    v, op: llvm.ValueRef) =
   if n == nil: return
   case n.kind
   of nkRecList:
-    for s in n:
-      g.genMarkerFields(ty, s, v, op, start)
+    for child in n:
+      g.genMarkerFields(mapper, child, ty, v, op)
   of nkRecCase:
     withRecCase(n, ty, v):
-      var recStart = 1
-      g.genMarkerFields(branchTy, branch.lastSon, branchGEP, op, recStart)
-    inc(start)
+      g.genMarkerFields(
+        recMapper, branch.lastSon, branchTy, storeGEP, op)
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
 
     g.debugUpdateLoc(field)
-    let gep = g.b.buildStructGEP2(ty, v, cuint start, g.nn("mk", field))
+    let
+      element = g.addField(mapper, g.llType(field.typ), field)
+      gep = g.b.buildStructGEP2(ty, v, cuint element, g.nn("mk", field))
     g.genMarker(field.typ, gep, op)
-    inc(start)
   else: g.config.internalError(n.info, "genMarker()")
 
 proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
@@ -1999,16 +2201,18 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
       g.genMarker(typ[1], gep, op)
 
   of tyObject:
-    var start = 0
-    if typ[0] != nil:
-      g.genMarker(typ[0].skipTypes(skipPtrs), v, op)
-      start = 1 # Skip super type field
-    elif typ.hasMTypeField:
-      start = 1 # Skip m_type in inheritable root object
+    var mapper = FieldMapper(packed: tfPacked in typ.flags)
+    if typ[0] != nil: # Skip super type field
+      let
+        supTyp = typ[0].skipTypes(skipPtrs)
+      discard g.addField(mapper, g.llType(supTyp), supTyp)
+      g.genMarker(supTyp, v, op)
+    elif typ.hasMTypeField: # Skip m_type in inheritable root object
+      discard g.addField(mapper, ty, int(g.ptrBits div 8), int(g.ptrBits div 8))
 
     # TODO what if there's a pointer hiding in a union?
     if typ.n != nil and tfUnion notin typ.flags:
-      g.genMarkerFields(ty, typ.n, v, op, start)
+      g.genMarkerFields(mapper, typ.n, ty, v, op)
 
   of tyTuple:
     for i in 0..<typ.len:
@@ -2327,8 +2531,8 @@ proc genObjectNodeInfoInit(g: LLGen, typ: PType, n: PNode, suffix: string): llvm
 
   of nkRecCase:
     let
-      tag = n[0].sym
-      variants = g.config.lengthOrd(tag.typ).toInt # TODO Int128
+      tags = n[0].sym
+      variants = g.config.lengthOrd(tags.typ).toInt # TODO Int128
 
     var fields: seq[ValueRef]
     newSeq(fields, variants + 1)
@@ -2354,8 +2558,8 @@ proc genObjectNodeInfoInit(g: LLGen, typ: PType, n: PNode, suffix: string): llvm
         fields[i] = constNull(g.ptrTy) # ptr TNimNode
 
     result = g.constNimNodeCase(
-      g.constOffsetOf(typ, tag), g.genTypeInfo(tag.typ),
-      tag.name.s, variants, fields)
+      g.constOffsetOf(typ, tags), g.genTypeInfo(tags.typ),
+      tags.name.s, variants, fields)
 
   of nkSym:
     let field = n.sym
@@ -2772,40 +2976,53 @@ proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
   llvm.functionType(retType, argTypes, tfVarArgs in typ.flags)
 
 proc fieldIndexFields(
-    g: LLGen, ty: llvm.TypeRef, n: PNode, sym: PSym,
-    start: var int, union: bool): seq[FieldPath] =
+    g: LLGen, mapper: var FieldMapper, n: PNode,
+    ty: llvm.TypeRef, sym: PSym, union: bool): seq[FieldPath] =
   case n.kind
   of nkRecList:
-    for s in n:
-      result = g.fieldIndexFields(ty, s, sym, start, union)
+    for child in n:
+      result = g.fieldIndexFields(mapper, child, ty, sym, union)
       if result.len > 0: return
 
   of nkRecCase:
     assert not union, "case + union not supported"
     let
       tags = n[0].sym
+      tagTy = g.llType(tags.typ)
+      tagElement = g.addField(mapper, tagTy, tags)
+
     if tags.name.s == sym.name.s:
-       return @[FieldPath((ty, start, g.llType(tags.typ)))]
+       return @[FieldPath((ty, tagElement, tagTy))]
+
+    let
+      dl = g.m.getModuleDataLayout()
+      storeName = caseTypeName(ty, tags, 0)
+      storeTy = g.lc.getTypeByName2(storeName)
+      maxAlign = foldl(1..<n.len, max(a, g.maxAlign(n[b].lastSon)), 1)
+      storeElement = g.addField(
+        mapper, storeTy, dl.aBISizeOfType(storeTy).int, maxAlign)
 
     for j in 1..<n.len:
-      var recStart = 1 # don't count tag
+      var recMapper = FieldMapper(packed: mapper.packed)
       let
         variantTy = g.lc.getTypeByName2(caseTypeName(ty, tags, j))
         inRec = g.fieldIndexFields(
-          variantTy, n[j].lastSon, sym, recStart, false)
+          recMapper, n[j].lastSon, variantTy, sym, false)
       if inRec.len > 0:
-        return @[FieldPath((ty, start, variantTy))] & inRec
-    inc start
+        return @[FieldPath((ty, storeElement, variantTy))] & inRec
 
   of nkSym:
+    let field = n.sym
+    if field.typ.isEmptyType(): return @[]
+
+    let element = g.addField(mapper, g.llType(field.typ), field)
+
     if n.sym.name.s == sym.name.s:
       if union:
-        return @[FieldPath((ty, 0, g.llType(n.sym.typ)))]
+        return @[FieldPath((ty, 0, g.llType(field.typ)))]
 
-      return @[FieldPath((ty, start, nil))]
+      return @[FieldPath((ty, element, nil))]
 
-    let field = n.sym
-    if not field.typ.isEmptyType(): inc(start)
   else:
     g.config.internalError(n.info, "Unhandled field index")
   return @[]
@@ -2817,18 +3034,20 @@ proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[FieldPath] =
 
   assert typ.kind in {tyObject, tyTuple}, $typ
 
-  var start = 0
+  var mapper = FieldMapper(packed: tfPacked in typ.flags)
   if typ.kind != tyTuple:
     if typ[0] != nil:
       # Look in base types first
-      let s = g.fieldIndex(typ[0].skipTypes(skipPtrs), sym)
+      let supTyp = typ[0].skipTypes(skipPtrs)
+      discard g.addField(mapper, g.llType(supTyp), supTyp)
+      let s = g.fieldIndex(supTyp, sym)
       if s.len > 0:
         return @[FieldPath((ty, 0, nil))] & s
-      start = 1 # Skip super type field
-    elif typ.hasMTypeField:
-      start = 1 # Skip m_type in inheritable root object
+    elif typ.hasMTypeField: # Skip m_type in inheritable root object
+      discard g.addField(
+        mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
 
-  g.fieldIndexFields(ty, typ.n, sym, start, tfUnion in typ.flags)
+  g.fieldIndexFields(mapper, typ.n, ty, sym, tfUnion in typ.flags)
 
 proc rootIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
   let zero = g.gep0
@@ -2932,6 +3151,9 @@ proc genLocal(g: LLGen, n: PNode): LLValue =
     v = g.localAlloca(t, s.llName)
   g.debugVariable(s, v)
 
+  if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
+    v.setAlignment(cuint s.alignment)
+
   let lv = LLValue(v: v, lode: n, storage: s.loc.storage)
   g.symbols[s.id] = lv
   lv
@@ -2971,6 +3193,9 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
 
   if isConst:
     v.setGlobalConstant(llvm.True)
+
+  if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
+    v.setAlignment(cuint s.alignment)
 
   result = LLValue(v: v, lode: n, storage: s.loc.storage)
   g.symbols[s.id] = result
@@ -3252,24 +3477,25 @@ proc callCopysign(g: LLGen, a, b: llvm.ValueRef): llvm.ValueRef =
 proc genObjectInit(g: LLGen, typ: PType, v: llvm.ValueRef, setType: bool = true)
 
 proc genObjectInitFields(
-    g: LLGen, ty: llvm.TypeRef, n: PNode, v: llvm.ValueRef, start: var int) =
+    g: LLGen, mapper: var FieldMapper, n: PNode, ty: llvm.TypeRef,
+    v: llvm.ValueRef) =
   if n == nil: return
   case n.kind
   of nkRecList:
-    for s in n:
-      g.genObjectInitFields(ty, s, v, start)
+    for child in n:
+      g.genObjectInitFields(mapper, child, ty, v)
   of nkRecCase:
     withRecCase(n, ty, v):
-      var recStart = 1
-      g.genObjectInitFields(branchTy, branch.lastSon, branchGEP, recStart)
-    inc(start)
+      g.genObjectInitFields(recMapper, branch.lastSon, branchTy, storeGEP)
 
   of nkSym:
     let field = n.sym
+    if field.typ.isEmptyType(): return
+
+    let element = g.addField(mapper, g.llType(field.typ), field)
     if analyseObjectWithTypeField(field.typ) != frNone:
-      let gep = g.b.buildStructGEP2(ty, v, cuint start, g.nn("oi", field))
+      let gep = g.b.buildStructGEP2(ty, v, cuint element, g.nn("oi", field))
       g.genObjectInit(field.typ, gep)
-    inc(start)
   else:
      g.config.internalError(
       n.info, "Unexpected kind in genObjectInitFields: " & $n.kind)
@@ -3300,17 +3526,18 @@ proc genObjectInit(g: LLGen, typ: PType, v: llvm.ValueRef, setType: bool) =
       # `mtype` field always at beginning of object
       discard g.b.buildStore(ti, v)
 
-    var start = 0
-
+    var mapper = FieldMapper(packed: tfPacked in xtyp.flags)
     if xtyp[0] != nil:
-      let baseTyp = xtyp[0].skipTypes(skipPtrs)
-      g.genObjectInit(baseTyp, v, false)
-      start = 1 # Skip super type field
-    elif xtyp.hasMTypeField:
-      start = 1 # Skip m_type in inheritable root object
+      let
+        supTyp = xtyp[0].skipTypes(skipPtrs)
+      discard g.addField(mapper, g.llType(supTyp), supTyp)
+      g.genObjectInit(supTyp, v, false)
+    elif xtyp.hasMTypeField(): # Skip m_type in inheritable root object
+      discard g.addField(
+        mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
 
     if analyseObjectWithTypeField(xtyp) == frEmbedded:
-      g.genObjectInitFields(ty, xtyp.n, v, start)
+      g.genObjectInitFields(mapper, xtyp.n, ty, v)
 
     if isException(xtyp):
       let
@@ -3454,26 +3681,30 @@ proc genFakeImpl(g: LLGen, s: PSym, f: llvm.ValueRef): bool =
 proc callReset(g: LLGen, typ: PType, v: LLValue)
 
 proc genResetFields(
-    g: LLGen, ty: llvm.TypeRef, n: PNode, v: LLValue, start: var int) =
+    g: LLGen, mapper: var FieldMapper, n: PNode,  ty: llvm.TypeRef,
+    v: LLValue) =
   if n == nil: return
   case n.kind
   of nkRecList:
-    for s in n:
-      g.genResetFields(ty, s, v, start)
+    for child in n:
+      g.genResetFields(mapper, child, ty, v)
   of nkRecCase:
     withRecCase(n, ty, v.v):
-      var recStart = 1
-      g.genResetFields(branchTy, branch.lastSon, LLValue(v: branchGEP), recStart)
+      g.genResetFields(
+        recMapper, branch.lastSon, branchTy, LLValue(v: storeGEP))
 
-    g.buildStoreNull(tagTy, branchGEP)
-    inc(start)
+    g.buildStoreNull(tagTy, tagGEP)
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
+
     g.debugUpdateLoc(field)
-    let gep = g.b.buildStructGEP2(ty, v, cuint start, g.nn("reset", field))
+
+    let
+      element = g.addField(mapper, g.llType(field.typ), field)
+      gep = g.b.buildStructGEP2(ty, v, cuint element, g.nn("reset", field))
     g.callReset(field.typ, gep)
-    inc(start)
+
   else:
      g.config.internalError("Unexpected kind in genResetFields: " & $n.kind)
 
@@ -3495,15 +3726,17 @@ proc genReset(g: LLGen, typ: PType, v: LLValue) =
         g.callReset(et, LLValue(v: gep))
 
     of tyObject:
-      var start = 0
+      var mapper = FieldMapper(packed: tfPacked in typ.flags)
 
       if typ[0] != nil:
-        g.callReset(typ[0].skipTypes(skipPtrs), v)
-        start = 1 # Skip super type field
-      elif typ.hasMTypeField():
-        start = 1 # Skip m_type in inheritable root object
+        let supTyp = typ[0].skipTypes(skipPtrs)
+        discard g.addField(mapper, g.llType(supTyp), supTyp)
+        g.callReset(supTyp, v)
+      elif typ.hasMTypeField(): # Skip m_type in inheritable root object
+        discard g.addField(
+          mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
 
-      g.genResetFields(ty, typ.n, v, start)
+      g.genResetFields(mapper, typ.n, ty, v)
     of tyTuple:
       for i in 0..<typ.len:
         let gep = g.b.buildStructGEP2(ty, v, cuint i, g.nn("reset.field" & $i, v))
@@ -3589,44 +3822,43 @@ proc callAssign(
   g: LLGen, typ: PType, dest, src, shallow: llvm.ValueRef, checkType = true)
 
 proc genAssignFields(
-    g: LLGen, ty: llvm.TypeRef, n: PNode, dest, src, shallow: llvm.ValueRef,
-    start: var int) =
+    g: LLGen, mapper: var FieldMapper, n: PNode, ty: llvm.TypeRef,
+    dest, src, shallow: llvm.ValueRef) =
   if n == nil: return
   case n.kind
   of nkRecList:
-    for s in n:
-      g.genAssignFields(ty, s, dest, src, shallow, start)
+    for child in n:
+      g.genAssignFields(mapper, child, ty, dest, src, shallow)
   of nkRecCase:
     block: # Reset the destination which releases all held memory
-      var s = start
-      g.genResetFields(ty, n, LLValue(v: dest), s)
+      var resetMapper = mapper
+      g.genResetFields(resetMapper, n, ty, LLValue(v: dest))
 
     block: # Set field discriminator and copy fields
-      let
-        tags = n[0].sym
-        tagTy = g.llType(tags.typ)
-        srcTagGEP =
-          g.b.buildStructGEP2(ty, src, cuint start, g.nn("asgn.tags", src))
-        tag = g.b.buildLoad2(tagTy, srcTagGEP)
-        destTagGEP =
-          g.b.buildStructGEP2(ty, dest, cuint start, g.nn("asgn.tagd", dest))
-      discard g.b.buildStore(tag, destTagGEP)
-      block: # Copy fields
-        withRecCase(n, ty, src):
-          var recStart = 1
-          g.genAssignFields(
-            branchTy, branch.lastSon, destTagGEP, srcTagGEP, shallow, recStart)
+      withRecCase(n, ty, src):
+        let
+          destTagGEP = g.b.buildStructGEP2(
+            ty, dest, cuint tagElement, g.nn("asgn.tagd", dest))
+        discard g.b.buildStore(tag, destTagGEP)
 
-    inc(start)
+        let
+          destGEP = g.b.buildStructGEP2(
+            ty, dest, cuint storeElement, g.nn("vari.dest.branch", dest))
+
+        g.genAssignFields(
+          recMapper, branch.lastSon, branchTy, destGEP, storeGEP, shallow)
+
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
+
     g.debugUpdateLoc(field)
+
     let
-      gepd = g.b.buildStructGEP2(ty, dest, cuint start, g.nn("asgn.d", field))
-      geps = g.b.buildStructGEP2(ty, src, cuint start, g.nn("asgn.s", field))
+      element = g.addField(mapper, g.llType(field.typ), field)
+      gepd = g.b.buildStructGEP2(ty, dest, cuint element, g.nn("asgn.d", field))
+      geps = g.b.buildStructGEP2(ty, src, cuint element, g.nn("asgn.s", field))
     g.callAssign(field.typ, gepd, geps, shallow)
-    inc(start)
   else:
      g.config.internalError("Unexpected kind in genResetFields: " & $n.kind)
 
@@ -3698,15 +3930,17 @@ proc genAssign(g: LLGen, typ: PType, dest, src, shallow: llvm.ValueRef) =
         g.callAssign(et, gepd, geps, shallow, false)
 
     of tyObject:
-      var start = 0
+      var mapper = FieldMapper(packed: tfPacked in typ.flags)
 
-      if typ[0] != nil:
-        g.callAssign(typ[0].skipTypes(skipPtrs), dest, src, shallow, false)
-        start = 1 # Skip super type field
-      elif typ.hasMTypeField:
-        start = 1 # Skip m_type in inheritable root object
+      if typ[0] != nil: # Skip super type field
+        let supTyp = typ[0].skipTypes(skipPtrs)
+        discard g.addField(mapper, g.llType(supTyp), supTyp)
+        g.callAssign(supTyp, dest, src, shallow, false)
+      elif typ.hasMTypeField: # Skip m_type in inheritable root object
+        discard g.addField(
+          mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
 
-      g.genAssignFields(ty, typ.n, dest, src, shallow, start)
+      g.genAssignFields(mapper, typ.n, ty, dest, src, shallow)
 
     of tyTuple:
       for i in 0..<typ.len:
@@ -5162,43 +5396,57 @@ proc caseObjDefaultBranch(obj: PNode; branch: Int128): int =
   assert(false, "unreachable")
 
 proc genFakeConstInitializerFields(
-    g: LLGen, ty: llvm.TypeRef, n, constr: PNode, v: LLValue,
-    start: var int) =
+    g: LLGen, mapper: var FieldMapper, n: PNode, ty: llvm.TypeRef,
+    constr: PNode, v: LLValue) =
   if n == nil: return
   case n.kind
   of nkRecList:
-    for s in n:
-      g.genFakeConstInitializerFields(ty, s, constr, v, start)
+    for child in n:
+      g.genFakeConstInitializerFields(mapper, child, ty, constr, v)
   of nkRecCase:
-    var branch = Zero
+    var branchOrd = Zero
     if constr != nil:
       ## find kind value, default is zero if not specified
       for i in 1..<constr.len:
         if constr[i].kind == nkExprColonExpr:
           if constr[i][0].sym.name.id == n[0].sym.name.id:
-            branch = getOrdValue(constr[i][1])
+            branchOrd = getOrdValue(constr[i][1])
             break
         elif i == n[0].sym.position:
-          branch = getOrdValue(constr[i])
+          branchOrd = getOrdValue(constr[i])
           break
     let
-      selectedBranch = caseObjDefaultBranch(n, branch)
-      b = lastSon(n[selectedBranch])
+      selectedBranch = caseObjDefaultBranch(n, branchOrd)
+      branch = n[selectedBranch]
       tags = n[0].sym
       tagTy = g.llType(tags.typ)
-      branchTy = g.lc.getTypeByName2(caseTypeName(ty, tags, selectedBranch))
-      branchGEP = g.b.buildStructGEP2(ty, v, cuint start, g.nn("const.branch", v))
+      tagElement = g.addField(mapper, tagTy, tags)
+      tagGEP = g.b.buildStructGEP2(ty, v, cuint tagElement, g.nn("const.branch", v))
 
     discard g.b.buildStore(
-      constInt(tagTy, branch.toInt().culonglong, llvm.False), branchGEP.v)
+      constInt(tagTy, branchOrd.toInt().culonglong, llvm.False), tagGEP.v)
 
-    var recStart = 1
-    g.genFakeConstInitializerFields(branchTy, b, constr, branchGEP, recStart)
+    let
+      maxAlign = foldl(1..<n.len, max(a, g.maxAlign(n[b].lastSon)), 1)
+      storeTy = g.lc.getTypeByName2(caseTypeName(ty, tags, 0))
+      storeElement = g.addField(
+        mapper, storeTy, g.m.getModuleDataLayout().aBISizeOfType(storeTy).int,
+        maxAlign)
+      storeGEP = g.b.buildStructGEP2(
+        ty, v, cuint storeElement, g.nn("const.branch", v))
+      branchTy = g.lc.getTypeByName2(caseTypeName(ty, tags, selectedBranch))
 
-    inc(start)
+    var
+      recMapper = FieldMapper(packed: mapper.packed)
+    g.genFakeConstInitializerFields(
+      recMapper, branch.lastSon, branchTy, constr, storeGEP)
+
   of nkSym:
     let field = n.sym
     if field.typ.isEmptyType(): return
+
+    let element = g.addField(mapper, g.llType(field.typ), field)
+
     # TODO This will result in out-of-order execution of the init funcs - not
     #      ideal but...
     if constr != nil:
@@ -5215,10 +5463,9 @@ proc genFakeConstInitializerFields(
       if init != nil and init.kind != nkEmpty:
         g.debugUpdateLoc(field)
         let
-          fieldGEP = g.b.buildStructGEP2(ty, v, cuint start, g.nn("const", field))
+          fieldGEP = g.b.buildStructGEP2(ty, v, cuint element, g.nn("const", field))
 
         g.genFakeConstInitializer(field.typ, init, fieldGEP)
-    inc(start)
   else:
     g.config.internalError("Unexpected kind in genResetFields: " & $n.kind)
 
@@ -5232,21 +5479,25 @@ proc genFakeConstInitializer(g: LLGen, typ: PType, constr: PNode, v: LLValue) =
   case typ.kind
   of tyObject:
     let ty = g.llType(typ)
-    var start = 0
+    var
+      mapper = FieldMapper(packed: tfPacked in typ.flags)
 
     if typ[0] != nil:
-      g.genFakeConstInitializer(typ[0].skipTypes(skipPtrs), constr, v)
-      start = 1 # Skip super type field
-    elif typ.hasMTypeField:
-      start = 1 # Skip m_type in inheritable root object
+      let supTyp = typ[0].skipTypes(skipPtrs)
+      discard g.addField(mapper, g.llType(supTyp), supTyp)
+      g.genFakeConstInitializer(supTyp, constr, v)
+    elif typ.hasMTypeField: # Skip m_type in inheritable root object
+      discard g.addField(
+        mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
 
-    g.genFakeConstInitializerFields(ty, typ.n, constr, v, start)
+    g.genFakeConstInitializerFields(mapper, typ.n, ty, constr, v)
 
   of tyTuple:
     let ty = g.llType(typ)
-    var start = 0
+    var
+      mapper = FieldMapper(packed: tfPacked in typ.flags)
 
-    g.genFakeConstInitializerFields(ty, typ.n, constr, v, start)
+    g.genFakeConstInitializerFields(mapper, typ.n, ty, constr, v)
 
   of tyArray:
     if constr != nil:
@@ -5632,7 +5883,7 @@ proc rawGenNew(g: LLGen, dest: LLValue, sizeExpr: llvm.ValueRef, typ: PType) =
     lbt = g.llType(bt)
     dl = g.m.getModuleDataLayout()
     sizeExpr =
-      if sizeExpr == nil: g.constNimInt(dl.aBISizeOfType(lbt).int)
+      if sizeExpr == nil: g.constNimInt(g.getBestSize(bt, lbt))
       else: sizeExpr
 
   assert refType.kind == tyRef
