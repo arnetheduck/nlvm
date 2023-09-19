@@ -12,7 +12,7 @@
 
 # Nothing in here may raise
 {.push raises: [].}
-
+{.used.}
 import system/ansi_c
 import ./nlvm_unwind
 
