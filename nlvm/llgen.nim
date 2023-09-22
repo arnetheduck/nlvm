@@ -3830,9 +3830,11 @@ proc genAssignFields(
     for child in n:
       g.genAssignFields(mapper, child, ty, dest, src, shallow)
   of nkRecCase:
-    block: # Reset the destination which releases all held memory
-      var resetMapper = mapper
-      g.genResetFields(resetMapper, n, ty, LLValue(v: dest))
+    block: # Reset kind-specific fields of the destination
+      # TODO: we could skip this if tag is unchanged
+      var mapper = mapper
+      withRecCase(n, ty, dest):
+        g.genResetFields(recMapper, branch.lastSon, branchTy, LLValue(v: storeGEP))
 
     block: # Set field discriminator and copy fields
       withRecCase(n, ty, src):
@@ -7668,7 +7670,6 @@ proc genNodeObjConstr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
     else:
       g.callReset(typ, dest)
       dest
-
   for i in 1 ..< n.len:
     let
       s = n[i]
