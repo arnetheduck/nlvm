@@ -2,17 +2,10 @@
 
 [nlvm](https://github.com/arnetheduck/nlvm) (the nim-level virtual machine?)
 is an [LLVM-based](http://llvm.org) compiler for the [Nim](http://nim-lang.org)
-language.
+programming language.
 
 From Nim's point of view, it's a backend just like C or JavaScript - from
 LLVM's point of view, it's a language frontend that emits IR.
-
-When I started on this little project, I knew neither llvm nor Nim.
-Therefore, I'd specially like to thank the friendly folks at the #nim
-channel that never seemed to tire of my nooby questions.
-Also, thanks to all tutorial writers out there, on llvm, programming
-and other topics for providing such fine sources of copy-pa... er,
-inspiration!
 
 Questions, patches, improvement suggestions and reviews welcome. When
 you find bugs, feel free to fix them as well :)
@@ -23,24 +16,26 @@ Jacek Sieka (arnetheduck on gmail point com)
 
 # Features
 
-`nlvm` is generally at par with `nim` in terms of features, with the following
-notable differences:
+`nlvm` works as a drop-in replacement for `nim` with the following notable differences:
 
 * Fast compile times - no intermediate `C` compiler step
 * DWARF ("zero-cost") exception handling
 * High-quality `gdb`/`lldb` debug information with source stepping, type
   information etc
-* Smart code generation - compiler intrinsics for overflow checking,
-  smart constant initialization, etc
+* Smart code generation and optimisation
+  * LTO and whole-program optimisation out-of-the-box
+  * compiler-intrinsic guided optimisation for overflow checking, memory operations, exception handling
+  * heap allocation elision
+  * native constant initialization
 * Native `wasm32` support with no extra tooling
+* Native integrated fast linker (`lld`)
 * Just-in-time execution (`nim r`) using the LLVM [ORCv2 JIT](https://llvm.org/docs/ORCv2.html)
 
-Most things from `nim` work just fine (see notes below however!):
+Most things from `nim` work just fine (see the [porting guide](#porting-guide) below!):
 
 * the same standard library is used
 * similar command line options are supported (just change `nim` to `nlvm`!)
-* `importc` works without needing `C` header files - the declaration in the
-  `.nim` file needs to be accurate
+* `C` header files are not used - the declaration in the `.nim` file needs to be accurate
 
 Test coverage is not too bad either:
 
@@ -66,7 +61,7 @@ How you could contribute:
 `nlvm` does _not_:
 
 * understand `C` - as a consequence, `header`, `emit` and similar pragmas
-  will not work - neither will the fancy `importcpp`/`C++` features
+  will not work - neither will the fancy `importcpp`/`C++` features - see the [porting guide](#porting-guide) below!
 * support all nim compiler flags and features - do file bugs for anything
   useful that's missing
 
@@ -159,11 +154,11 @@ compatibility found library in `nlvm-lib/`.
 
 Generally, the `nim` compiler pipeline looks something like this:
 
-    nim --> c files --> IR --> object files --> executable
+    nim --> c files --> IR --> object files --> linker --> executable
 
 In `nlvm`, we remove one step and bunch all the code together:
 
-    nim --> IR --> single object file --> executable
+    nim --> single IR file --> built-in LTO linker --> executable
 
 Going straight to the IR means it's possible to express nim constructs more
 clearly, allowing `llvm` to understand the code better and thus do a better
@@ -171,11 +166,12 @@ job at optimization. It also helps keep compile times down, because the
 `c-to-IR` step can be avoided.
 
 The practical effect of generating a single object file is similar to
-`gcc -fwhole-program -flto` - it is expensive in terms of memory, but results
-in slightly smaller and faster binaries. Notably, the `IR-to-machine-code` step,
-including any optimizations, is repeated in full for each recompile.
+`clang -fwhole-program -flto` - it is a bit more expensive in terms of memory,
+but results in slightly smaller and faster binaries. Notably, the
+`IR-to-machine-code` step, including any optimizations, is repeated in full for
+each recompile.
 
-## Common issues
+## Porting guide
 
 ### dynlib
 
@@ -195,7 +191,7 @@ proc f() {. importc, dynlib: "mylib" .}
 proc f() {. importc .}
 ```
 
-### header and emit
+### {.header.}
 
 When `nim` compiles code, it will generate `c` code which may include other
 `c` code, from headers or directly via `emit` statements. This means `nim` has
@@ -238,8 +234,28 @@ var RTLD_NOW* {.importc: "RTLD_NOW", header: "<dlfcn.h>".}: cint
 # both nlvm and nim (note how these values often can be platform-specific):
 when defined(linux) and defined(amd64):
   const RTLD_NOW* = cint(2)
-
 ```
+
+### {.emit.}
+To deal with `emit`, the recommendation is to put the emitted code in a C file
+and `{.compile.}` it.
+
+```nim
+proc myEmittedFunction() {.importc.}
+{.compile: "myemits.c".}
+```
+
+```c
+void myEmittedFunction() {
+  /* ... */
+}
+```
+
+### {.asm.}
+
+Similar to `{.emit.}`, `{.asm.}` functions must be moved to a separate file and
+included in the compilation with `{.compile.}` - this works both with `.S` and
+`.c` files.
 
 ### wasm32 support
 
@@ -286,3 +302,9 @@ wasm2wat -l myfile.wasm
 * Happy to take patches for anything, including better platform support!
 * For development, it's convenient to build LLVM with assertions turned on -
   the API is pretty unforgiving
+* When I started on this little project, I knew neither llvm nor Nim.
+  Therefore, I'd specially like to thank the friendly folks at the #nim
+  channel that never seemed to tire of my nooby questions.
+  Also, thanks to all tutorial writers out there, on llvm, programming
+  and other topics for providing such fine sources of copy-pa... er,
+  inspiration!
