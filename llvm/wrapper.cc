@@ -52,11 +52,13 @@ extern "C" void LLVMNimSetMetadataGlobal(LLVMValueRef Global,
   unwrap<GlobalObject>(Global)->setMetadata(KindID, N);
 }
 
+LLD_HAS_DRIVER(elf)
 extern "C" bool LLVMNimLLDLinkElf(const char **args, size_t arg_count) {
   ArrayRef<const char *> array_ref_args(args, arg_count);
   return lld::elf::link(array_ref_args, llvm::outs(), llvm::errs(), false, false);
 }
 
+LLD_HAS_DRIVER(wasm)
 extern "C" bool LLVMNimLLDLinkWasm(const char **args, size_t arg_count) {
   ArrayRef<const char *> array_ref_args(args, arg_count);
   return lld::wasm::link(array_ref_args, llvm::outs(), llvm::errs(), false, false);

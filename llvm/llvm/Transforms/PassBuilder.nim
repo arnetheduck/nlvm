@@ -96,6 +96,9 @@ proc passBuilderOptionsSetCallGraphProfile*(options: PassBuilderOptionsRef;
 proc passBuilderOptionsSetMergeFunctions*(options: PassBuilderOptionsRef;
     mergeFunctions: Bool) {.importc: "LLVMPassBuilderOptionsSetMergeFunctions",
                             dynlib: LLVMLib.}
+proc passBuilderOptionsSetInlinerThreshold*(options: PassBuilderOptionsRef;
+    threshold: cint) {.importc: "LLVMPassBuilderOptionsSetInlinerThreshold",
+                       dynlib: LLVMLib.}
 ##
 ##  Dispose of a heap-allocated PassBuilderOptions instance
 ##

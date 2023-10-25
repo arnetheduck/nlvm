@@ -72,7 +72,8 @@ type
     DWARFSourceLanguageKotlin, DWARFSourceLanguageZig,
     DWARFSourceLanguageCrystal, DWARFSourceLanguageC_plusPlus17,
     DWARFSourceLanguageC_plusPlus20, DWARFSourceLanguageC17,
-    DWARFSourceLanguageFortran18, DWARFSourceLanguageAda2005, DWARFSourceLanguageAda2012, ##  Vendor extensions:
+    DWARFSourceLanguageFortran18, DWARFSourceLanguageAda2005,
+    DWARFSourceLanguageAda2012, DWARFSourceLanguageMojo, ##  Vendor extensions:
     DWARFSourceLanguageMipsAssembler, DWARFSourceLanguageGOOGLE_RenderScript,
     DWARFSourceLanguageBORLAND_Delphi
 
@@ -1124,6 +1125,12 @@ proc dIBuilderCreateGlobalVariableExpression*(builder: DIBuilderRef;
     linkLen: csize_t; file: MetadataRef; lineNo: cuint; ty: MetadataRef;
     localToUnit: Bool; expr: MetadataRef; decl: MetadataRef; alignInBits: uint32): MetadataRef {.
     importc: "LLVMDIBuilderCreateGlobalVariableExpression", dynlib: LLVMLib.}
+##
+##  Get the dwarf::Tag of a DINode
+##
+
+proc getDINodeTag*(md: MetadataRef): uint16 {.importc: "LLVMGetDINodeTag",
+    dynlib: LLVMLib.}
 ##
 ##  Retrieves the \c DIVariable associated with this global variable expression.
 ##  \param GVE    The global variable expression.
