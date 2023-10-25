@@ -5,7 +5,7 @@
 import strformat
 
 const
-  LLVMMaj = 16
+  LLVMMaj = 17
   LLVMMin = 0
   LLVMPat = 2
   LLVMVersion* = fmt"{LLVMMaj}.{LLVMMin}.{LLVMPat}"
@@ -59,11 +59,9 @@ type
   OpaqueBuilder{.pure, final.} = object
   OpaqueModuleProvider{.pure, final.} = object
   OpaquePassManager{.pure, final.} = object
-  OpaquePassRegistry{.pure, final.} = object
   OpaqueUse{.pure, final.} = object
   OpaqueDiagnosticInfo{.pure, final.} = object
   OpaqueTargetMachine{.pure, final.} = object
-  OpaquePassManagerBuilder{.pure, final.} = object
   OpaqueMetaData{.pure, final.} = object
   OpaqueDIBuilder{.pure, final.} = object
   target{.pure, final.} = object
@@ -143,7 +141,6 @@ include llvm/Linker
 include llvm/Target
 include llvm/TargetMachine
 include llvm/Transforms/PassBuilder
-include llvm/Transforms/PassManagerBuilder
 
 include llvm/ExecutionEngine
 include llvm/Orc

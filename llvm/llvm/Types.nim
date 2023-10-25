@@ -143,11 +143,6 @@ type
 type
   PassManagerRef* = ptr OpaquePassManager
 
-##  @see llvm::PassRegistry
-
-type
-  PassRegistryRef* = ptr OpaquePassRegistry
-
 ##
 ##  Used to get the users and usees of a Value.
 ##

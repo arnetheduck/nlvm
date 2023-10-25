@@ -290,9 +290,6 @@ type
 ##
 ##  @}
 ##
-
-proc initializeCore*(r: PassRegistryRef) {.importc: "LLVMInitializeCore",
-    dynlib: LLVMLib.}
 ##  Deallocate and destroy all ManagedStatic variables.
 ##     @see llvm::llvm_shutdown
 ##     @see ManagedStatic
@@ -392,14 +389,6 @@ proc contextShouldDiscardValueNames*(c: ContextRef): Bool {.
 
 proc contextSetDiscardValueNames*(c: ContextRef; `discard`: Bool) {.
     importc: "LLVMContextSetDiscardValueNames", dynlib: LLVMLib.}
-##
-##  Set whether the given context is in opaque pointer mode.
-##
-##  @see LLVMContext::setOpaquePointers()
-##
-
-proc contextSetOpaquePointers*(c: ContextRef; opaquePointers: Bool) {.
-    importc: "LLVMContextSetOpaquePointers", dynlib: LLVMLib.}
 ##
 ##  Destroy a context instance.
 ##
@@ -1316,8 +1305,6 @@ proc isLiteralStruct*(structTy: TypeRef): Bool {.importc: "LLVMIsLiteralStruct",
 ##
 ##  Obtain the element type of an array or vector type.
 ##
-##  This currently also works for pointer types, but this usage is deprecated.
-##
 ##  @see llvm::SequentialType::getElementType()
 ##
 
@@ -1345,11 +1332,36 @@ proc getNumContainedTypes*(tp: TypeRef): cuint {.
 ##  The created type will exist in the context that its element type
 ##  exists in.
 ##
+##  @deprecated LLVMArrayType is deprecated in favor of the API accurate
+##  LLVMArrayType2
 ##  @see llvm::ArrayType::get()
 ##
 
 proc arrayType*(elementType: TypeRef; elementCount: cuint): TypeRef {.
     importc: "LLVMArrayType", dynlib: LLVMLib.}
+##
+##  Create a fixed size array type that refers to a specific type.
+##
+##  The created type will exist in the context that its element type
+##  exists in.
+##
+##  @see llvm::ArrayType::get()
+##
+
+proc arrayType2*(elementType: TypeRef; elementCount: uint64): TypeRef {.
+    importc: "LLVMArrayType2", dynlib: LLVMLib.}
+##
+##  Obtain the length of an array type.
+##
+##  This only works on types that represent arrays.
+##
+##  @deprecated LLVMGetArrayLength is deprecated in favor of the API accurate
+##  LLVMGetArrayLength2
+##  @see llvm::ArrayType::getNumElements()
+##
+
+proc getArrayLength*(arrayTy: TypeRef): cuint {.importc: "LLVMGetArrayLength",
+    dynlib: LLVMLib.}
 ##
 ##  Obtain the length of an array type.
 ##
@@ -1358,8 +1370,8 @@ proc arrayType*(elementType: TypeRef; elementCount: cuint): TypeRef {.
 ##  @see llvm::ArrayType::getNumElements()
 ##
 
-proc getArrayLength*(arrayTy: TypeRef): cuint {.importc: "LLVMGetArrayLength",
-    dynlib: LLVMLib.}
+proc getArrayLength2*(arrayTy: TypeRef): uint64 {.
+    importc: "LLVMGetArrayLength2", dynlib: LLVMLib.}
 ##
 ##  Create a pointer type that points to a defined type.
 ##
@@ -1624,6 +1636,8 @@ template declare_Value_Cast*(name: untyped): untyped =
 ## !!!Ignored construct:  [NewLine] LLVM_FOR_EACH_VALUE_SUBCLASS ( LLVM_DECLARE_VALUE_CAST ) LLVMValueRef LLVMIsAMDNode ( LLVMValueRef Val ) ;
 ## Error: did not expect [NewLine]!!!
 
+proc isAValueAsMetadata*(val: ValueRef): ValueRef {.
+    importc: "LLVMIsAValueAsMetadata", dynlib: LLVMLib.}
 proc isAMDString*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDString",
     dynlib: LLVMLib.}
 ##  Deprecated: Use LLVMGetValueName2 instead.
@@ -1970,11 +1984,21 @@ proc constStruct*(constantVals: ptr ValueRef; count: cuint; packed: Bool): Value
 ##
 ##  Create a ConstantArray from values.
 ##
+##  @deprecated LLVMConstArray is deprecated in favor of the API accurate
+##  LLVMConstArray2
 ##  @see llvm::ConstantArray::get()
 ##
 
 proc constArray*(elementTy: TypeRef; constantVals: ptr ValueRef; length: cuint): ValueRef {.
     importc: "LLVMConstArray", dynlib: LLVMLib.}
+##
+##  Create a ConstantArray from values.
+##
+##  @see llvm::ConstantArray::get()
+##
+
+proc constArray2*(elementTy: TypeRef; constantVals: ptr ValueRef; length: uint64): ValueRef {.
+    importc: "LLVMConstArray2", dynlib: LLVMLib.}
 ##
 ##  Create a non-anonymous ConstantStruct from values.
 ##
@@ -2117,9 +2141,6 @@ proc constIntCast*(constantVal: ValueRef; toType: TypeRef; isSigned: Bool): Valu
     importc: "LLVMConstIntCast", dynlib: LLVMLib.}
 proc constFPCast*(constantVal: ValueRef; toType: TypeRef): ValueRef {.
     importc: "LLVMConstFPCast", dynlib: LLVMLib.}
-proc constSelect*(constantCondition: ValueRef; constantIfTrue: ValueRef;
-                  constantIfFalse: ValueRef): ValueRef {.
-    importc: "LLVMConstSelect", dynlib: LLVMLib.}
 proc constExtractElement*(vectorConstant: ValueRef; indexConstant: ValueRef): ValueRef {.
     importc: "LLVMConstExtractElement", dynlib: LLVMLib.}
 proc constInsertElement*(vectorConstant: ValueRef;
@@ -2866,6 +2887,15 @@ proc getMDNodeNumOperands*(v: ValueRef): cuint {.
 
 proc getMDNodeOperands*(v: ValueRef; dest: ptr ValueRef) {.
     importc: "LLVMGetMDNodeOperands", dynlib: LLVMLib.}
+##
+##  Replace an operand at a specific index in a llvm::MDNode value.
+##
+##  @see llvm::MDNode::replaceOperandWith()
+##
+
+proc replaceMDNodeOperandWith*(v: ValueRef; index: cuint;
+                               replacement: MetadataRef) {.
+    importc: "LLVMReplaceMDNodeOperandWith", dynlib: LLVMLib.}
 ##  Deprecated: Use LLVMMDStringInContext2 instead.
 
 proc mDStringInContext*(c: ContextRef; str: cstring; sLen: cuint): ValueRef {.
@@ -3918,6 +3948,16 @@ proc buildFNeg*(a1: BuilderRef; v: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildFNeg", dynlib: LLVMLib.}
 proc buildNot*(a1: BuilderRef; v: ValueRef; name: cstring): ValueRef {.
     importc: "LLVMBuildNot", dynlib: LLVMLib.}
+proc getNUW*(arithInst: ValueRef): Bool {.importc: "LLVMGetNUW", dynlib: LLVMLib.}
+proc setNUW*(arithInst: ValueRef; hasNUW: Bool) {.importc: "LLVMSetNUW",
+    dynlib: LLVMLib.}
+proc getNSW*(arithInst: ValueRef): Bool {.importc: "LLVMGetNSW", dynlib: LLVMLib.}
+proc setNSW*(arithInst: ValueRef; hasNSW: Bool) {.importc: "LLVMSetNSW",
+    dynlib: LLVMLib.}
+proc getExact*(divOrShrInst: ValueRef): Bool {.importc: "LLVMGetExact",
+    dynlib: LLVMLib.}
+proc setExact*(divOrShrInst: ValueRef; isExact: Bool) {.importc: "LLVMSetExact",
+    dynlib: LLVMLib.}
 ##  Memory
 
 proc buildMalloc*(a1: BuilderRef; ty: TypeRef; name: cstring): ValueRef {.
@@ -4122,8 +4162,8 @@ proc getUndefMaskElem*(): cint {.importc: "LLVMGetUndefMaskElem",
 ##  Get the mask value at position Elt in the mask of a ShuffleVector
 ##  instruction.
 ##
-##  \Returns the result of \c LLVMGetUndefMaskElem() if the mask value is undef
-##  at that position.
+##  \Returns the result of \c LLVMGetUndefMaskElem() if the mask value is
+##  poison at that position.
 ##
 
 proc getMaskValue*(shuffleVectorInst: ValueRef; elt: cuint): cint {.
@@ -4190,20 +4230,6 @@ proc getBufferSize*(memBuf: MemoryBufferRef): csize_t {.
     importc: "LLVMGetBufferSize", dynlib: LLVMLib.}
 proc disposeMemoryBuffer*(memBuf: MemoryBufferRef) {.
     importc: "LLVMDisposeMemoryBuffer", dynlib: LLVMLib.}
-##
-##  @}
-##
-##
-##  @defgroup LLVMCCorePassRegistry Pass Registry
-##  @ingroup LLVMCCore
-##
-##  @{
-##
-##  Return the global pass registry, for use with initialization functions.
-##     @see llvm::PassRegistry::getPassRegistry
-
-proc getGlobalPassRegistry*(): PassRegistryRef {.
-    importc: "LLVMGetGlobalPassRegistry", dynlib: LLVMLib.}
 ##
 ##  @}
 ##
