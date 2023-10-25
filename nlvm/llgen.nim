@@ -4237,7 +4237,11 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
 
   if sfImportc in s.flags: return
 
-  if sfExportc notin s.flags or sfCompilerProc in s.flags:
+  if result.v.getEnumAttributeAtIndex(
+      cast[AttributeIndex](AttributeFunctionIndex), attrAllocsize) != nil:
+    # TODO work around https://github.com/llvm/llvm-project/issues/66103
+    result.v.setLinkage(llvm.LinkOnceODRLinkage)
+  elif sfExportc notin s.flags or sfCompilerProc in s.flags:
     # Because we generate only one module, we can tag all functions internal,
     # except those that should be importable from c
     # compilerproc are marker exportc to get a stable name, but it doesn't seem
