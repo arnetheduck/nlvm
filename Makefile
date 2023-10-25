@@ -11,9 +11,9 @@ NIMFLAGS=--debuginfo --linedir:on
 
 NLVMFLAGS= --debuginfo --linedir:on
 
-LLVM_MAJ=17
-LLVM_MIN=0
-LLVM_PAT=2
+LLVM_MAJ:=$(shell cat llvm/llvm.version | cut -f1 -d.)
+LLVM_MIN:=$(shell cat llvm/llvm.version | cut -f2 -d.)
+LLVM_PAT:=$(shell cat llvm/llvm.version | cut -f3 -d.)
 
 LLVM_DIR=llvm-$(LLVM_MAJ).$(LLVM_MIN).$(LLVM_PAT).src
 

@@ -1,4 +1,4 @@
-LLVM_INC=../ext/llvm-17.0.2.src/include
+LLVM_INC=../ext/llvm-$(cat llvm.version).src/src/include
 
 C2NIM="../../c2nim/c2nim"
 C2NIMFLAGS="--nep1 --skipinclude --prefix:LLVM --dynlib:LLVMLib --def:LLVM_C_EXTERN_C_BEGIN= --def:LLVM_C_EXTERN_C_END= --stdints"

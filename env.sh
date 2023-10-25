@@ -3,7 +3,7 @@
 REL_PATH="$(dirname ${BASH_SOURCE[0]:-${(%):-%x}})"
 ABS_PATH="$(cd ${REL_PATH}; pwd)"
 
-export PATH=$ABS_PATH/Nim/bin:$PATH
+export PATH="$ABS_PATH/Nim/bin:$ABS_PATH/ext/llvm-$(cat $ABS_PATH/llvm/llvm.version).src/sha/bin:$PATH"
 
 if [[ $# == 1 && $1 == "bash" ]]; then
         # the only way to change PS1 in a child shell, apparently

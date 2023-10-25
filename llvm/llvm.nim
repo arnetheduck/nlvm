@@ -2,13 +2,13 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-import strformat
+import std/[os, strformat, strutils]
 
 const
-  LLVMMaj = 17
-  LLVMMin = 0
-  LLVMPat = 2
-  LLVMVersion* = fmt"{LLVMMaj}.{LLVMMin}.{LLVMPat}"
+  LLVMVersion* = staticRead(currentSourcePath.parentDir & "/llvm.version")
+  LLVMMaj = parseInt(LLVMVersion.split('.')[0])
+  LLVMMin = parseInt(LLVMVersion.split('.')[1])
+  LLVMPat = parseInt(LLVMVersion.split('.')[2])
   LLVMLib = fmt"libLLVM-{LLVMMaj}.so"
   LLVMRoot = fmt"../ext/llvm-{LLVMVersion}.src/"
   LLDRoot = fmt"../ext/lld-{LLVMVersion}.src/"
