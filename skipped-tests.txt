@@ -114,7 +114,6 @@ tests/nimdoc/t15916.nim c
 tests/nimdoc/t17615.nim c
 tests/nimdoc/trunnableexamples2.nim c
 tests/nimdoc/trunnableexamples.nim c
-tests/niminaction/Chapter3/various3.nim c
 tests/niminaction/Chapter7/Tweeter/src/createDatabase.nim c
 tests/niminaction/Chapter7/Tweeter/src/tweeter.nim c
 tests/niminaction/Chapter7/Tweeter/tests/database_test.nim c

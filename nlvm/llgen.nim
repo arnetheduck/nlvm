@@ -16,6 +16,7 @@ import
     aliases,
     ast,
     astalgo,
+    astmsgs,
     bitsets,
     cgmeth,
     ccgutils,
@@ -705,6 +706,23 @@ proc simplifyStr(s: string): string =
       result.add ".."
       break
 
+proc genStrLit(g: LLGen, ty: llvm.TypeRef, strVal: string): llvm.ValueRef =
+  let
+    lit = if strVal in g.strings:
+      g.strings[strVal]
+    else:
+      let
+        payload = g.constNimStringPayload(strVal)
+        lit = g.m.addPrivateConstant(
+          payload.typeOfX, g.nn(".str." & simplifyStr(strVal)))
+      lit.setInitializer(payload)
+      g.strings[strVal] = lit
+      lit
+  if optSeqDestructors in g.config.globalOptions:
+    constNamedStruct(ty, [g.constNimInt(strVal.len), lit])
+  else:
+    lit
+
 proc constCStringPtr(g: LLGen, val: string): llvm.ValueRef =
   g.cstrings.withValue(val, v) do:
     return v[]
@@ -821,33 +839,36 @@ proc buildBrFallthrough(b: llvm.BuilderRef, next: llvm.BasicBlockRef) =
     discard b.buildBr(next)
 
 proc buildSetMask(
-    g: LLGen, t: llvm.TypeRef, ix: llvm.ValueRef, size: BiggestInt):
+    g: LLGen, ty: llvm.TypeRef, ix: llvm.ValueRef, size: BiggestInt):
     llvm.ValueRef =
-  let mask =
-    case size
-    of 1: 7
-    of 2: 15
-    of 4: 31
-    of 8: 63
-    else: 7
+  let
+    mask =
+      case size
+      of 1: 7
+      of 2: 15
+      of 4: 31
+      of 8: 63
+      else: 7
+    ty = if size <= 8: ty else: g.int8Ty
   var shift = g.b.buildAnd(
     ix, constInt(ix.typeOfX(), mask.culonglong, llvm.False),
     g.nn("set.mask", ix))
-  if t != shift.typeOfX():
-    shift = g.buildTruncOrExt(shift, t, true)
+  if ty != shift.typeOfX():
+    shift = g.buildTruncOrExt(shift, ty, true)
 
-  g.b.buildShl(llvm.constInt(t, 1, llvm.False), shift, g.nn("set.pos", ix))
+  g.b.buildShl(llvm.constInt(ty, 1, llvm.False), shift, g.nn("set.pos", ix))
+
+proc buildSetGEP(
+    g: LLGen, ty: llvm.TypeRef, vx, ix: llvm.ValueRef): llvm.ValueRef =
+  let
+    idx = g.b.buildLShr(
+      ix, llvm.constInt(ix.typeOfX(), 3, llvm.False), g.nn("set.byte", ix))
+  g.b.buildInboundsGEP2(ty, vx, [g.gep0, idx], g.nn("set.gep", vx))
 
 proc buildSetGEPMask(
     g: LLGen, ty: llvm.TypeRef, vx, ix: llvm.ValueRef):
     tuple[gep, mask: llvm.ValueRef] =
-  let
-    idx = g.b.buildUDiv(
-      ix, llvm.constInt(ix.typeOfX(), 8, llvm.False), g.nn("set.byte", ix))
-    gep = g.b.buildInboundsGEP2(ty, vx, [g.gep0, idx], g.nn("set.gep", vx))
-    mask = g.buildSetMask(g.int8Ty, ix, 1)
-
-  (gep: gep, mask: mask)
+  (gep: g.buildSetGEP(ty, vx, ix), mask: g.buildSetMask(g.int8Ty, ix, 1))
 
 proc buildLoad2(
     b: BuilderRef, ty: llvm.TypeRef, v: llvm.ValueRef): llvm.ValueRef =
@@ -7511,22 +7532,9 @@ proc genNodeStrLit(g: LLGen, n: PNode, load: bool): LLValue =
       g.maybeConstPtr(n, constNull(ty), load)
     else:
       let
-        lit = if n.strVal in g.strings:
-          g.strings[n.strVal]
-        else:
-          let
-            payload = g.constNimStringPayload(n.strVal)
-            lit = g.m.addPrivateConstant(
-              payload.typeOfX, g.nn(".str." & simplifyStr(n.strVal)))
-          lit.setInitializer(payload)
-          g.strings[n.strVal] = lit
-          lit
-        v = if optSeqDestructors in g.config.globalOptions:
-          constNamedStruct(ty, [g.constNimInt(n.strVal.len), lit])
-        else:
-          lit
+        lit = g.genStrLit(ty, n.strVal)
 
-      g.maybeConstPtr(n, v, load)
+      g.maybeConstPtr(n, lit, load)
 
   of tyCstring:
     LLValue(v: g.constCStringPtr(n.strVal), lode: n, storage: OnStatic)
@@ -7630,6 +7638,41 @@ proc genNodePar(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   else:
     LLValue()
 
+proc genFieldCheck(g: LLGen, n: PNode, v: LLValue, field: PSym) =
+  let
+    typ = skipTypes(n[0][0].typ, abstractInst + tyUserTypeClasses)
+
+  for i in 1..<n.len:
+    var it = n[i]
+    let op = it[0].sym
+    if op.magic == mNot: it = it[1]
+
+    let
+      tags = it[2].skipConv.sym
+      tagTy = g.llType(tags.typ)
+      tagGEP = g.toGEP(v.v, g.fieldIndex(typ, tags), g.nn("fchck.tag.gep", tags))
+      tag = g.b.buildLoad2(tagTy, tagGEP)
+      uTyp = skipTypes(it[1].typ, abstractVar)
+      uTy = g.llType(uTyp)
+      uSize = getSize(g.config, uTyp)
+      u = if uSize <= 8:
+        g.genNode(it[1], true).v
+      else:
+        let
+          tmp = g.genNode(it[1], false).v
+          gep = g.buildSetGEP(uTy, tmp, tag)
+
+        g.b.buildLoad2(g.int8Ty, gep)
+      mask = g.buildSetMask(uTy, tag, uSize)
+      masked = g.b.buildAnd(u, mask, g.nn("masked", tag))
+      cmped = g.b.buildICmp(
+        llvm.IntEQ, masked, constNull(masked.typeOfX()), g.nn("cmp", tag))
+      notted =
+        if op.magic == mNot: g.b.buildNot(cmped, g.nn("not", cmped)) else: cmped
+      msg = g.config.genFieldDefect(field.name.s, tags)
+    g.callRaise(
+      notted, "raiseFieldError", [g.genStrLit(g.primitives[tyString], msg)])
+
 proc genNodeObjConstr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   ## Object construction - either a fresh instance or in-place depending on
   ## `dest`
@@ -7673,6 +7716,11 @@ proc genNodeObjConstr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   for i in 1 ..< n.len:
     let
       s = n[i]
+
+    if s.len == 3 and optFieldCheck in g.f.options:
+      g.genFieldCheck(s[2], v, s[0].sym)
+
+    let
       gep = LLValue(
         v: g.toGEP(v.v, g.fieldIndex(typ, s[0].sym), "objconstr"),
         lode: s[1],
@@ -7952,7 +8000,17 @@ proc genNodeDot(g: LLGen, n: PNode, load: bool): LLValue =
   g.maybeLoadValue(g.llType(n.typ), gep, load)
 
 proc genNodeCheckedField(g: LLGen, n: PNode, load: bool): LLValue =
-  g.genNode(n[0], load)
+  if optFieldCheck in g.config.options:
+    let
+      v = g.genNode(n[0][0], false)
+      typ = skipTypes(n[0][0].typ, abstractInst + tyUserTypeClasses)
+
+      gep = LLValue(v: g.toGEP(v.v, g.fieldIndex(typ, n[0][1].sym), "dot"), storage: v.storage)
+
+    g.genFieldCheck(n, v, n[0][1].sym)
+    g.maybeLoadValue(g.llType(n[0].typ), gep, load)
+  else:
+    g.genNode(n[0], load)
 
 proc genNodeDeref(g: LLGen, n: PNode, load: bool): LLValue =
   let
