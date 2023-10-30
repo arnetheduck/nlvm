@@ -299,6 +299,8 @@ nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:--no-entry --passc:-mattr=
 
 Passing `--passc:-mattr=help` will print available features (only works while compiling, for now!)
 
+To use functions from the environment (with `importc`), compile with `--passl:-Wl,--allow-undefined`.
+
 # Random notes
 
 * Upstream is pinned using a submodule - nlvm relies heavily on internals
