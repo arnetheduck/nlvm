@@ -259,14 +259,11 @@ included in the compilation with `{.compile.}` - this works both with `.S` and
 
 ### wasm32 support
 
-`wasm32` support is still very bare-bones, so you will need to do a bit of
-tinkering to get it to work.
+Use `--cpu:wasm32 --os:standalone --gc:none` to compile Nim to (barebones) WASM.
 
-Presently, the `wasm32-unknown-unknown` target is mapped to `--os:standalone`
-and `--cpu:wasm32` - this choice represents a very raw `wasm` engine with 32-bit
-little-endian integers and pointers - in the future, the `nim` standard library
-and `system.nim` will need to be updated to support WASM system interfaces like
-emscripten or WASI.
+You will need to provide a runtime (ie WASI) and use manual memory allocation as
+the garbage collector hasn't yet been ported to WASM and the Nim standard
+library lacks WASM / WASI support.
 
 To compile wasm files, you will thus need a `panicoverride.nim` - a minimal
 example looks like this and discards any errors:
@@ -290,6 +287,17 @@ proc adder*(v: int): int {.exportc.} =
 nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:--no-entry myfile.nim
 wasm2wat -l myfile.wasm
 ```
+
+Most WASM-compile code ends up needing WASM [extensions](https://webassembly.org/roadmap/) -
+in particular, the bulk memory extension is needed to process data.
+
+Extensions are enabled by passing `--passc:-mattr=+feature,+feature2`, for example:
+
+```sh
+nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:--no-entry --passc:-mattr=+bulk-memory
+```
+
+Passing `--passc:-mattr=help` will print available features (only works while compiling, for now!)
 
 # Random notes
 
