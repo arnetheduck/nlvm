@@ -14,6 +14,7 @@ tests/avr/thello.nim c
 tests/casestmt/t7699.nim c
 tests/ccgbugs2/tinefficient_const_table.nim c
 tests/ccgbugs/t10964.nim c
+tests/ccgbugs/t15428.nim c
 tests/ccgbugs/t16027.nim c
 tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445
 tests/ccgbugs/tassign_nil_strings.nim c
@@ -101,7 +102,6 @@ tests/misc/tinvalidarrayaccess2.nim c
 tests/misc/tinvalidarrayaccess.nim c
 tests/misc/tjoinable.nim c
 tests/misc/trunner.nim c
-tests/misc/trunner_special.nim c
 tests/misc/tsizeof3.nim c
 tests/misc/tsizeof.nim c
 tests/misc/tstrace.nim c
@@ -118,6 +118,7 @@ tests/niminaction/Chapter7/Tweeter/src/createDatabase.nim c
 tests/niminaction/Chapter7/Tweeter/src/tweeter.nim c
 tests/niminaction/Chapter7/Tweeter/tests/database_test.nim c
 tests/niminaction/Chapter8/sdl/sdl_test.nim c
+tests/objects/twhen1.nim c
 tests/osproc/treadlines.nim c
 tests/overflw/tdistinct_range.nim c
 tests/overload/t8829.nim c
