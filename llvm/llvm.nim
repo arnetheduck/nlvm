@@ -39,6 +39,7 @@ else:
 {.passC: "-I" & LLDRoot & "include".}
 
 {.passL: "-Wl,--as-needed".}
+{.passL: "-Wl,--export-dynamic".}
 {.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
 {.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
 
