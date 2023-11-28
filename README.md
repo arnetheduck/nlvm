@@ -29,7 +29,7 @@ Jacek Sieka (arnetheduck on gmail point com)
   * native constant initialization
 * Native `wasm32` support with no extra tooling
 * Native integrated fast linker (`lld`)
-* Just-in-time execution (`nim r`) using the LLVM [ORCv2 JIT](https://llvm.org/docs/ORCv2.html)
+* Just-in-time execution and REPL (`nlvm r`) using the LLVM [ORCv2 JIT](https://llvm.org/docs/ORCv2.html)
 
 Most things from `nim` work just fine (see the [porting guide](#porting-guide) below!):
 
@@ -300,6 +300,31 @@ nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:--no-entry --passc:-mattr=
 Passing `--passc:-mattr=help` will print available features (only works while compiling, for now!)
 
 To use functions from the environment (with `importc`), compile with `--passl:-Wl,--allow-undefined`.
+
+# REPL / running your code
+
+`nlvm` supports directly running Nim code using just-in-time compilation:
+
+```sh
+# Compile and run `myfile.nim` without creating a binary first
+nlvm r myfile.nim
+```
+
+This mode can also be used to run code directly from the standard input:
+
+```sh
+$ nlvm r
+.......................................................
+>>> log2(100.0)
+stdin(1, 1) Error: undeclared identifier: 'log2'
+candidates (edit distance, scope distance); see '--spellSuggest':
+ (2, 2): 'low' [proc declared in /home/arnetheduck/src/nlvm/Nim/lib/system.nim(1595, 6)]
+...
+>>> import math
+.....
+>>> log2(100.0)
+6.643856189774724: float64
+```
 
 # Random notes
 

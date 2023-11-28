@@ -115,7 +115,7 @@ func readUleb128(v: var pointer): uint64 =
 
   while true:
     let b = v.readBytes(uint8)
-    result = result or (cast[uint64](b and 0x7F) shl shift)
+    result = result or (uint64(b and 0x7F) shl shift)
     shift += 7
     if (b and 0x80) == 0:
       break
@@ -129,7 +129,7 @@ func readSleb128(v: var pointer): int64 =
 
   while true:
       b = v.readBytes(uint8)
-      res = res or (cast[uint64](b and 0x7F) shl shift)
+      res = res or (uint64(b and 0x7F) shl shift)
       shift += 7
       if (b and 0x80) == 0:
         break
@@ -153,14 +153,14 @@ proc readEncodedPointer(
   let p =
     case encoding and 0x0F
     of DW_EH_PE_absptr: v.readBytes(uint)
-    of DW_EH_PE_uleb128: cast[uint](v.readUleb128())
-    of DW_EH_PE_udata2: cast[uint](v.readBytes(uint16))
-    of DW_EH_PE_udata4: cast[uint](v.readBytes(uint32))
-    of DW_EH_PE_udata8: cast[uint](v.readBytes(uint64))
-    of DW_EH_PE_sleb128: cast[uint](v.readSleb128())
-    of DW_EH_PE_sdata2: cast[uint](v.readBytes(int16))
-    of DW_EH_PE_sdata4: cast[uint](v.readBytes(int32))
-    of DW_EH_PE_sdata8: cast[uint](v.readBytes(int64))
+    of DW_EH_PE_uleb128: uint(v.readUleb128())
+    of DW_EH_PE_udata2: uint(v.readBytes(uint16))
+    of DW_EH_PE_udata4: uint(v.readBytes(uint32))
+    of DW_EH_PE_udata8: uint(v.readBytes(uint64))
+    of DW_EH_PE_sleb128: uint(v.readSleb128())
+    of DW_EH_PE_sdata2: uint(v.readBytes(int16))
+    of DW_EH_PE_sdata4: uint(v.readBytes(int32))
+    of DW_EH_PE_sdata8: uint(v.readBytes(int64))
     else: c_abort()
 
   if p == 0: return nil
