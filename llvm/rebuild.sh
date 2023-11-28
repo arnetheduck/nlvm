@@ -1,9 +1,9 @@
-LLVM_INC=../ext/llvm-$(cat llvm.version).src/src/include
+LLVM_INC=../ext/llvm-$(cat llvm.version).src/include
 
 C2NIM="../../c2nim/c2nim"
 C2NIMFLAGS="--nep1 --skipinclude --prefix:LLVM --dynlib:LLVMLib --def:LLVM_C_EXTERN_C_BEGIN= --def:LLVM_C_EXTERN_C_END= --stdints"
 
-HEADERS="BitReader.h BitWriter.h Comdat.h Core.h Error.h ExecutionEngine.h DebugInfo.h IRReader.h Linker.h LLJIT.h OrcEE.h Orc.h Target.h TargetMachine.h Support.h Types.h Transforms/PassBuilder.h"
+HEADERS="Analysis.h BitReader.h BitWriter.h Comdat.h Core.h Error.h ExecutionEngine.h DebugInfo.h IRReader.h Linker.h LLJIT.h OrcEE.h Orc.h Target.h TargetMachine.h Support.h Types.h Transforms/PassBuilder.h"
 
 for a in $HEADERS; do
   OUT="llvm/${a%.h}.nim"

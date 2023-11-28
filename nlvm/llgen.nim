@@ -1,5 +1,5 @@
 # nlvm - llvm IR generator for Nim
-# Copyright (c) Jacek Sieka 2016-2022
+# Copyright (c) Jacek Sieka 2016-2023
 # See the LICENSE file for license info (doh!)
 
 import
@@ -8,6 +8,7 @@ import
     os,
     strutils,
     sequtils,
+    sets,
     tables
   ]
 
@@ -45,7 +46,6 @@ import
   llvm/llvm,
 
   lllink,
-  lljit,
   llplatform
 
 type
@@ -97,7 +97,6 @@ type
     g: LLGen
 
     sym: PSym # The symbol given in myOpen corresponding to the module
-    init: LLFunc
 
   LLGen = ref object of RootObj
     ## One LLGen per compile / project
@@ -109,6 +108,7 @@ type
     d: llvm.DIBuilderRef
     idgen: IdGenerator
 
+    init: LLFunc
     f: LLFunc
 
     # Cached types
@@ -156,7 +156,7 @@ type
     module: LLModule
 
     modules: seq[LLModule] # modules in position order
-    closedModules: seq[LLModule] # modules in the order they were closed
+    inits: seq[llvm.ValueRef] # init functions that main should call
 
     markerBody: seq[tuple[v: llvm.ValueRef, typ: PType]]  # Markers looking for a body
     forwardedProcs: seq[PSym] # Proc's looking for a body
@@ -181,6 +181,11 @@ type
     landingPadTy: llvm.TypeRef
 
     lto: LtoKind
+
+    orc: OrcLLJITRef
+    done: HashSet[int]
+      ## Symbols that we have emitted a definition for
+    round: int
 
   LLValue = object
     v: llvm.ValueRef
@@ -293,6 +298,23 @@ template int8Ty(g: LLGen): llvm.TypeRef = g.lc.int8TypeInContext()
 template int16Ty(g: LLGen): llvm.TypeRef = g.lc.int16TypeInContext()
 template int32Ty(g: LLGen): llvm.TypeRef = g.lc.int32TypeInContext()
 template int64Ty(g: LLGen): llvm.TypeRef = g.lc.int64TypeInContext()
+
+template interactive(g: LLGen): bool =
+  g.orc != nil
+
+template defaultFunctionLinkage(g: LLGen): Linkage =
+  # In interactive mode, we use linkonce linkage to allow sharing
+  # implementations as we'll pass the code to ORC in several LLVM modules
+  if g.interactive:
+    LinkOnceAnyLinkage
+  else:
+    InternalLinkage
+
+template defaultGlobalLinkage(g: LLGen): Linkage =
+  if g.interactive:
+    LinkOnceAnyLinkage
+  else:
+    PrivateLinkage
 
 proc newLLFunc(g: LLGen, f: llvm.ValueRef, sym: PSym): LLFunc =
   LLFunc(
@@ -1025,7 +1047,7 @@ proc debugOffset(g: LLGen, ty: llvm.TypeRef, element: int): uint32 =
 
 proc debugGetLine(g: LLGen, sym: PSym): (llvm.MetadataRef, cuint) =
   let
-    idx = if sym == nil: g.config. projectMainIdx else: sym.info.fileIndex
+    idx = if sym == nil: g.config.projectMainIdx else: sym.info.fileIndex
     line = if sym == nil: cuint 1 else: cuint sym.info.line
 
   if int(idx) in g.dfiles:
@@ -1692,29 +1714,70 @@ template preserve(v: typed, body: untyped): untyped =
   body
   v = old
 
-proc getInitFunc(llm: LLModule): LLFunc =
-  if llm.init == nil:
+proc addNimFunction(g: LLGen, name: cstring, ty: llvm.TypeRef): llvm.ValueRef =
+  let f = g.m.addFunction(name, ty)
+  nimSetFunctionAttributes(f)
+  f
+
+proc refFunction(
+    g: LLGen, v: llvm.ValueRef, name: cstring, ty: llvm.TypeRef): llvm.ValueRef =
+  # Reference a global potentially declared in a different module - `v` might
+  # not be valid at this point
+  if g.round > 0:
+    let tmp = g.m.getNamedFunction(name)
+    if tmp == nil:
+      let r = g.addNimFunction(name, ty)
+      # TODO copy attributes
+      # r.setLinkage(v.getLinkage())
+      r
+    else:
+      tmp
+  else:
+    v
+
+proc refGlobal(
+    g: LLGen, v: llvm.ValueRef, name: cstring, ty: llvm.TypeRef): llvm.ValueRef =
+  # Reference a global potentially declared in a different module - `v` might
+  # not be valid at this point
+  if g.round > 0:
+    let tmp = g.m.getNamedGlobal(name)
+    if tmp == nil:
+      let r = g.m.addGlobal(ty, name)
+      # TODO copy attributes
+      # r.setLinkage(v.getLinkage())
+      r
+    else:
+      tmp
+  else:
+    v
+
+proc refFunction(g: LLGen, v: LLValue, name: cstring, ty: llvm.TypeRef): LLValue =
+  LLValue(v: g.refFunction(v.v, name, ty), lode: v.lode, storage: v.storage)
+
+proc refGlobal(g: LLGen, v: LLValue, name: cstring, ty: llvm.TypeRef): LLValue =
+  LLValue(v: g.refGlobal(v.v, name, ty), lode: v.lode, storage: v.storage)
+
+proc getInitFunc(g: LLGen): LLFunc =
+  if g.init == nil:
     let
-      g = llm.g
       name =
-        if {sfSystemModule, sfMainModule} * llm.sym.flags == {}:
-          llm.sym.owner.name.s.mangle & "_" & llm.sym.name.s.mangle
+        if {sfSystemModule, sfMainModule} * g.module.sym.flags == {}:
+          g.module.sym.owner.name.s.mangle & "_" & g.module.sym.name.s.mangle
         else:
-          llm.sym.name.s.mangle
+          g.module.sym.name.s.mangle
 
     let initType = llvm.functionType(g.voidTy, [])
-    llm.init = g.newLLFunc(
-      g.m.addFunction("." & name & ".init", initType), nil)
+    g.init = g.newLLFunc(g.addNimFunction(
+      "." & name & ".init." & $g.round, initType), nil)
     if g.d != nil:
-      llm.init.ds = g.debugFunction(llm.sym, [], llm.init.f)
+      g.init.ds = g.debugFunction(g.module.sym, [], g.init.f)
 
-    llm.init.f.setLinkage(llvm.InternalLinkage)
-    nimSetFunctionAttributes(llm.init.f)
+    g.init.f.setLinkage(g.defaultFunctionLinkage())
 
-    llm.init.sections[secLastBody] = g.section(llm.init, secBody)
-    discard llm.init.startBlock(nil, g.section(llm.init, secReturn))
+    g.init.sections[secLastBody] = g.section(g.init, secBody)
+    discard g.init.startBlock(nil, g.section(g.init, secReturn))
 
-  llm.init
+  g.init
 
 proc finalize(g: LLGen) =
   let ret = g.section(g.f, secReturn)
@@ -2327,38 +2390,35 @@ proc genMarkerProc(g: LLGen, typ: PType, sig: SigHash): llvm.ValueRef =
   if g.config.selectedGC < gcMarkAndSweep:
     return
 
-  if sig in g.markers:
-    return g.markers[sig]
-
   let
     typ = typ.skipTypes(abstractInstOwned)
     name = "Marker_" & g.llName(typ, sig)
     ft = llvm.functionType(g.voidTy, [g.ptrTy, g.intTy], false)
 
-  result = g.m.addFunction(name, ft)
+  if sig in g.markers:
+    return g.refFunction(g.markers[sig], name, ft)
+
+  result = g.addNimFunction(name, ft)
   g.markers[sig] = result
 
-  # Because we generate only one module, we can tag all functions internal
-  result.setLinkage(llvm.InternalLinkage)
-  nimSetFunctionAttributes(result)
+  result.setLinkage(g.defaultFunctionLinkage())
 
   # Can't generate body yet - some magics might not yet exist
   g.markerBody.add((result, typ))
 
 proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
-  if sym.id in g.gmarkers:
-    return g.gmarkers[sym.id]
-
   let
     name = ".marker.g." & sym.llName
     ft = llvm.functionType(g.voidTy, @[], false)
 
-  result = g.m.addFunction(name, ft)
+  if sym.id in g.gmarkers:
+    return g.refFunction(g.gmarkers[sym.id], name, ft)
+
+
+  result = g.addNimFunction(name, ft)
   g.gmarkers[sym.id] = result
 
-  # Because we generate only one module, we can tag all functions internal
-  result.setLinkage(llvm.InternalLinkage)
-  nimSetFunctionAttributes(result)
+  result.setLinkage(g.defaultFunctionLinkage())
 
   let f = g.newLLFunc(result, nil)
 
@@ -2392,10 +2452,9 @@ proc genGcRegistrar(g: LLGen, sym: PSym, v: llvm.ValueRef) =
       let
         name = ".nlvm.registrar"
         registrarType = llvm.functionType(g.voidTy, @[], false)
-        registrar = g.m.addFunction(name, registrarType)
+        registrar = g.addNimFunction(name, registrarType)
 
-      registrar.setLinkage(llvm.InternalLinkage)
-      nimSetFunctionAttributes(registrar)
+      registrar.setLinkage(g.defaultFunctionLinkage())
 
       let
         ctorsInit = llvm.constStructInContext(g.lc, [
@@ -3150,7 +3209,7 @@ proc externGlobal(g: LLGen, s: PSym): LLValue =
   of "errno": LLValue(v: g.callErrno(""))
   of "h_errno": LLValue(v: g.callErrno("h_"))
   else:
-    if s.id in g.symbols:
+    if s.id in g.symbols and not g.interactive():
       g.symbols[s.id]
     elif (let v = g.m.getNamedGlobal(name); v != nil):
       let tmp = LLValue(v: v, storage: s.loc.storage)
@@ -3181,23 +3240,31 @@ proc genLocal(g: LLGen, n: PNode): LLValue =
 
 proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   let s = n.sym
+
   if s.id in g.symbols:
-    return g.symbols[s.id]
+    let
+      name = s.llName
+      t = g.llType(s.typ.skipTypes(abstractInst))
+
+    return g.refGlobal(g.symbols[s.id], name, t)
 
   if s.loc.k == locNone:
     fillLoc(
       s.loc, locGlobalVar, n, g.mangleName(s), if isConst: OnStatic else: OnHeap)
 
+  let
+    name = s.llName
+
   # Couldn't find by id - should we get by name also? this seems to happen for
   # stderr for example which turns up with two different id:s.. what a shame!
-  if (let v = g.m.getNamedGlobal(s.llName); v != nil):
+  if (let v = g.m.getNamedGlobal(name); v != nil):
     let tmp = LLValue(v: v, storage: s.loc.storage)
     g.symbols[s.id] = tmp
     return tmp
 
   let
     t = g.llType(s.typ.skipTypes(abstractInst))
-    v = g.m.addGlobal(t, s.llName)
+    v = g.m.addGlobal(t, name)
 
   if sfImportc in s.flags:
     v.setLinkage(llvm.ExternalLinkage)
@@ -3205,7 +3272,7 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
     v.setLinkage(g.tgtExportLinkage)
     v.setInitializer(llvm.constNull(t))
   else:
-    v.setLinkage(llvm.PrivateLinkage)
+    v.setLinkage(g.defaultGlobalLinkage())
     v.setInitializer(llvm.constNull(t))
 
   if sfThread in s.flags and optThreads in g.config.globalOptions:
@@ -3238,8 +3305,8 @@ proc getDeadBlock(g: LLGen): llvm.BasicBlockRef =
   # to collect such code and let it be optimized away..
 
   g.f.deadBlocks.add(
-    g.b.getInsertBlock().getBasicBlockParent().appendBasicBlock(
-      g.nn("dead", g.b.getInsertBlock().getLastInstruction()))
+    g.b.appendBasicBlockInContext(
+      g.lc, g.nn("dead", g.b.getInsertBlock().getLastInstruction()))
   )
 
   g.f.deadBlocks[^1]
@@ -3782,21 +3849,18 @@ proc genResetFunc(g: LLGen, typ: PType): llvm.ValueRef =
   let
     typ = skipTypes(typ, abstractInst)
     sig = hashType(typ, g.config)
-  g.resets.withValue(sig, reset) do:
-    return reset[]
-
-  let
     name = ".reset." & g.llname(typ, sig)
     ft = llvm.functionType(g.voidTy, [g.ptrTy], false) # g.llTyp(typ).pointerType
 
-  let f = g.m.addFunction(name, ft)
+  g.resets.withValue(sig, reset) do:
+    return g.refFunction(reset[], name, ft)
+
+  let f = g.addNimFunction(name, ft)
   g.resets[sig] = f
 
   f.getParam(0).setValueName("v")
 
-  # Because we generate only one module, we can tag all functions internal
-  f.setLinkage(llvm.InternalLinkage)
-  nimSetFunctionAttributes(f)
+  f.setLinkage(g.defaultFunctionLinkage())
 
   let llf = g.newLLFunc(f, nil)
 
@@ -4103,8 +4167,7 @@ proc genAssignFunc(g: LLGen, typ: PType): llvm.ValueRef =
   f.getParam(1).setValueName("src")
   f.getParam(2).setValueName("shallow")
 
-  # Because we generate only one module, we can tag all functions internal
-  f.setLinkage(llvm.InternalLinkage)
+  f.setLinkage(g.defaultFunctionLinkage())
   nimSetFunctionAttributes(f)
 
   let llf = g.newLLFunc(f, nil)
@@ -4155,28 +4218,17 @@ proc callAssign(
       fty = f.globalGetValueType()
     discard g.b.buildCall2(fty, f, [dest, src, shallow], "")
 
-proc genFunction(g: LLGen, s: PSym): LLValue =
-  if s.id in g.symbols: return g.symbols[s.id]
 
-  fillLoc(s.loc, locProc, s.ast[namePos], g.mangleName(s), OnStack)
+proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
+  ## Add a function prototype for a nim function to the given module
+  let
+    name = sym.llName
+    typ = sym.typ.skipTypes(abstractInst)
+    ty = g.llProcType(typ, typ.callConv == ccClosure)
 
-  let name = s.llName
+    f = g.addNimFunction(name, ty)
 
-  var s = s
-  # Some compiler proc's have two syms essentially, because of an importc trick
-  # in system.nim...
-  if sfImportc in s.flags:
-    result = LLValue(v: g.m.getNamedFunction(name))
-    if result.v != nil:
-      g.symbols[s.id] = result
-      return
-
-  let typ = s.typ.skipTypes(abstractInst)
-
-  let ft = g.llProcType(s.typ, typ.callConv == ccClosure)
-  let f = g.m.addFunction(name, ft)
-
-  if sfNoReturn in s.flags:
+  if sfNoReturn in sym.flags:
     f.addFuncAttribute(g.attrNoReturn)
 
   if typ.callConv == ccNoInline:
@@ -4186,7 +4238,7 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
   # https://github.com/nim-lang/Nim/issues/10625
   f.addFuncAttribute(g.attrNoOmitFP)
 
-  if s.name.s in [
+  if sym.name.s in [
       "sysFatal", "raiseOverflow", "raiseDivByZero", "raiseFloatInvalidOp",
       "raiseFloatOverflow", "raiseAssert", "raiseRangeErrorNoArgs",
       "raiseRangeErrorU", "raiseRangeErrorF", "raiseRangeErrorI",
@@ -4194,45 +4246,67 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
       "raiseFieldError", "nlvmRaise", "nlvmReraise"]:
     f.addFuncAttribute(g.attrCold)
 
-  if (s.originatingModule.name.s, s.name.s) in [
+  if (sym.originatingModule.name.s, sym.name.s) in [
         ("system", "quit"),
         ("ansi_c", "c_abort")]:
       f.addFuncAttribute(g.attrNoUnwind)
 
-  if s.originatingModule.name.s == "system":
-    if s.name.s in ["allocImpl", "allocSharedImpl"]:
+  if sym.originatingModule.name.s == "system" and
+      g.config.selectedGC notin {gcRegions}:
+    if sym.name.s in ["allocImpl", "allocSharedImpl"]:
       f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
       f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindUninitialized),)
       f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)),)
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
-    elif s.name.s in ["alloc0Impl", "allocShared0Impl"]:
+    elif sym.name.s in ["alloc0Impl", "allocShared0Impl"]:
       f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
       f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindZeroed),)
       f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)),)
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
-    elif s.name.s in ["alloc0", "newObj", "newObjRC1", "rawAlloc0", "allocShared0"]:
+    elif sym.name.s in ["alloc0", "newObj", "newObjRC1", "rawAlloc0", "allocShared0"]:
       f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
       f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindZeroed),)
       f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1)),)
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
-    elif s.name.s in ["alloc", "rawAlloc", "newObjNoInit", "rawNewObj", "rawAlloc", "allocShared"]:
+    elif sym.name.s in ["alloc", "rawAlloc", "newObjNoInit", "rawNewObj", "rawAlloc", "allocShared"]:
       f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
       f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindUninitialized),)
       f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1)),)
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16))
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
+
+  f
+
+proc genFunction(g: LLGen, s: PSym): LLValue =
+  if s.id in g.symbols:
+    let
+      name = s.llName
+      typ = s.typ.skipTypes(abstractInst)
+      ty = g.llProcType(typ, typ.callConv == ccClosure)
+    return g.refFunction(g.symbols[s.id], name, ty)
+
+  fillLoc(s.loc, locProc, s.ast[namePos], g.mangleName(s), OnStack)
+  let name = s.llName
+
+  # Some compiler proc's have two syms essentially, because of an importc trick
+  # in system.nim...
+  if sfImportc in s.flags:
+    result = LLValue(v: g.m.getNamedFunction(name))
+    if result.v != nil:
+      g.symbols[s.id] = result
+      return
+
+  let f = g.addNimFunction(s)
 
   if g.genFakeImpl(s, f):
-    f.setLinkage(llvm.InternalLinkage)
-
-  nimSetFunctionAttributes(f)
+    f.setLinkage(g.defaultFunctionLinkage())
 
   result = LLValue(v: f, storage: s.loc.storage)
   g.symbols[s.id] = result
@@ -4258,6 +4332,11 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
 
   if sfImportc in s.flags: return
 
+  if s.id in g.done:
+    # The body was added in a module that was already passed to orc
+    return
+  g.done.incl s.id
+
   if result.v.getEnumAttributeAtIndex(
       cast[AttributeIndex](AttributeFunctionIndex), attrAllocsize) != nil:
     # TODO work around https://github.com/llvm/llvm-project/issues/66103
@@ -4268,19 +4347,13 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
     # compilerproc are marker exportc to get a stable name, but it doesn't seem
     # they need to be exported to C - this might change if we start supporting
     # dll:s
-    result.v.setLinkage(llvm.InternalLinkage)
+    result.v.setLinkage(g.defaultFunctionLinkage())
 
   let
     typ = s.typ.skipTypes(abstractInst)
     f = g.newLLFunc(result.v, s)
 
-  # Although we only generate one LLVM module, we must use the correct Nim
-  # module context when generating function context so that global init order is
-  # preserved - this gets tricky in particular when dealing with inline modules
-  # which we ignore for now
-  let module = g.modules[s.getModule().position]
-
-  g.withModule(module): g.withFunc(f):
+  g.withFunc(f):
     var ret: (llvm.TypeRef, llvm.ValueRef)
 
     discard g.f.startBlock(s.ast, g.section(f, secReturn))
@@ -5542,10 +5615,15 @@ proc genFakeConstInitializer(g: LLGen, typ: PType, constr: PNode, v: LLValue) =
     g.genAssignment(v, bx, typ, {})
 
 proc genConst(g: LLGen, n: PNode): LLValue =
-  let sym = n.sym
-  if sym.id in g.symbols: return g.symbols[sym.id]
+  let
+    sym = n.sym
+    init = sym.ast
 
-  let init = sym.ast
+  if sym.id in g.symbols:
+    let
+      name = sym.llName
+      ty = g.llType(sym.typ)
+    return g.refGlobal(g.symbols[sym.id], name, ty)
 
   if init.isDeepConstExprLL():
     result = g.genGlobal(n, true)
@@ -5566,7 +5644,7 @@ proc genConst(g: LLGen, n: PNode): LLValue =
     g.registerGcRoot(sym, result.v)
 
     # Initialize global in init function
-    let initFunc = g.module.getInitFunc()
+    let initFunc = g.getInitFunc()
 
     if initFunc.sections[secLastPreinit] == nil:
       initFunc.sections[secLastPreinit] = g.section(initFunc, secPreinit)
@@ -5584,10 +5662,7 @@ proc genConst(g: LLGen, n: PNode): LLValue =
 
         initFunc.sections[secLastPreinit] = g.b.getInsertBlock()
         g.f.nestedTryStmts = nts
-
   else:
-    if sym.id in g.symbols: return g.symbols[sym.id]
-
     let ty = g.llType(sym.typ)
     result = LLValue(
       v: g.localAlloca(ty, sym.llName), storage: OnStack)
@@ -5644,7 +5719,7 @@ proc genSingleVar(g: LLGen, v: PSym, vn, value: PNode) =
       if value.kind != nkEmpty and sfPure in v.flags:
         # Globals marked {.global.} get an `sfPure` flag and are initialized
         # before other globals
-        let initFunc = g.module.getInitFunc()
+        let initFunc = g.getInitFunc()
 
         if initFunc.sections[secLastPreinit] == nil:
           initFunc.sections[secLastPreinit] = g.section(initFunc, secPreinit)
@@ -8291,7 +8366,7 @@ proc genNodeAsgn(g: LLGen, n: PNode) =
   g.genAsgn(n, false)
 
 proc genNodeFastAsgn(g: LLGen, n: PNode) =
-  g.genAsgn(n, g.f != g.module.init)
+  g.genAsgn(n, g.f != g.init)
 
 proc genNodeProcDef(g: LLGen, n: PNode) =
   if n.sons[genericParamsPos].kind != nkEmpty: return
@@ -9053,15 +9128,38 @@ proc genNode(
   g.depth -= 1
 
 proc newLLGen(
-    graph: ModuleGraph, idgen: IdGenerator, tgt: string, tm: TargetMachineRef,
+    graph: ModuleGraph, idgen: IdGenerator, target: string, tm: TargetMachineRef,
     lto: LtoKind): LLGen =
   let
     lc = llvm.getGlobalContext()
-  # lc.contextSetOpaquePointers(0)
-  let
+
     name = graph.config.m.fileInfos[graph.config.projectMainIdx.int].shortName
     intType = llvm.intTypeInContext(lc, graph.config.target.intSize.cuint * 8)
     charType = llvm.int8TypeInContext(lc)
+
+  var orc: OrcLLJITRef
+
+  if optWasNimscript in graph.config.globalOptions:
+    block MakeJIT:
+      let err = orcCreateLLJIT(addr orc, nil)
+      if not err.isNil:
+        graph.config.internalError($err.getErrorMessage)
+
+    let mainJD = orcLLJITGetMainJITDylib(orc)
+
+    block MakeResolver:
+      # Resolve symbols in the currently running process - this is a lazy way of
+      # making the JIT find the C library and anything else in the nlvm binary.
+      var processSymbolsGenerator: OrcDefinitionGeneratorRef
+      let err = orcCreateDynamicLibrarySearchGeneratorForProcess(
+        addr processSymbolsGenerator,
+        orcLLJITGetGlobalPrefix(orc),
+        nil, nil
+      )
+      if not err.isNil:
+        graph.config.internalError($err.getErrorMessage)
+
+      orcJITDylibAddGenerator(mainJD, processSymbolsGenerator)
 
   result = LLGen(
     graph: graph,
@@ -9098,9 +9196,13 @@ proc newLLGen(
       else: llvm.CommonLinkage,
 
     lto: lto,
+    orc: orc
   )
 
   var g = result
+
+  g.m.setModuleDataLayout(tm.createTargetDataLayout())
+  g.m.setTarget(target)
 
   block:
     proc s(t: TTypeKind, v: llvm.TypeRef) =
@@ -9268,18 +9370,10 @@ proc genMain(g: LLGen) =
         cmdCount.setInitializer(llvm.constNull(cmdCount.globalGetValueType()))
         discard g.b.buildStore(main.getParam(0), cmdCount)
 
-      for m in g.closedModules: # First the system module
-        if sfSystemModule notin m.sym.flags: continue
+      for init in g.inits:
+        discard g.b.buildCall2(init.globalGetValueType(), init, [], "")
 
-        if m.init != nil:
-          discard g.b.buildCall2(m.init.f.globalGetValueType(), m.init.f, [], "")
-        break
-
-      for m in g.closedModules: # then the others
-        if sfSystemModule in m.sym.flags: continue
-
-        if m.init != nil:
-          discard g.b.buildCall2(m.init.f.globalGetValueType(), m.init.f, [], "")
+      g.inits.reset()
 
     g.withBlock(g.section(f, secReturn)):
       if g.d != nil:
@@ -9384,13 +9478,15 @@ proc writeOutput(g: LLGen, project: string) =
 proc genForwardedProcs(g: LLGen) =
   # Forward declared proc:s lack bodies when first encountered, so they're given
   # a second pass here
-  # Note: ``genProcNoForward`` may add to ``forwardedProcs``
+  # Note: ``genFunctionWithBody`` may add to ``forwardedProcs``
+  var todo: seq[PSym]
   while g.forwardedProcs.len > 0:
     let
       prc = g.forwardedProcs.pop()
 
     if sfForward in prc.flags:
-      g.config.internalError(prc.info, "still forwarded: " & prc.name.s)
+      todo.add prc
+      continue
 
     let
       ms = getModule(prc)
@@ -9399,54 +9495,133 @@ proc genForwardedProcs(g: LLGen) =
     g.withModule(m):
       discard g.genFunctionWithBody(prc)
 
+  g.forwardedProcs = todo
+
+proc runModule(g: LLGen, m: llvm.ModuleRef, fcns: openArray[string]) =
+  let mainJD = orcLLJITGetMainJITDylib(g.orc)
+
+  var tsCtx = orcCreateNewThreadSafeContext()
+  let tsm = orcCreateNewThreadSafeModule(m, tsCtx)
+
+  orcDisposeThreadSafeContext(tsCtx)
+  let err = orcLLJITAddLLVMIRModule(g.orc, mainJD, tsm)
+  if not err.isNil:
+    g.config.internalError($err.getErrorMessage)
+    orcDisposeThreadSafeModule(tsm)
+
+  for name in fcns:
+    var main: OrcJITTargetAddress
+    let err = orcLLJITLookup(g.orc, addr main, name)
+    if not err.isNil:
+      g.config.internalError($err.getErrorMessage)
+    cast[proc() {.cdecl.}](main)()
+
+proc myProcess(b: PPassContext, n: PNode): PNode =
+  let
+    m = LLModule(b)
+    g = m.g
+
+  if g.config.skipCodegen(n) and not g.interactive(): return n
+
+  p("Process", n, 0)
+  var
+    transformedN = transformStmt(g.graph, g.idgen, m.sym, n)
+  if sfInjectDestructors in m.sym.flags:
+    transformedN = injectDestructorCalls(g.graph, g.idgen, m.sym, transformedN)
+
+  g.withModule(m): g.withFunc(g.getInitFunc()):
+    # Process the code with any top-level stuff going to the init func
+    g.b.positionBuilderAtEnd(g.section(g.f, secLastBody))
+    g.debugUpdateLoc(n)
+
+    g.f.options = g.config.options
+    g.genNode(transformedN)
+    g.f.sections[secLastBody] = g.b.getInsertBlock()
+
+  if g.interactive() and
+      g.init.sections[secBody].getFirstInstruction() != nil and
+      m.sym.name.s == "stdin":
+    # When we've reached the stdin module, it means we're processing the
+    # prompt line - every time there's some new "top-level" code, we'll flush it
+    # to orc
+    g.withModule(m): g.withFunc(g.init):
+      g.withBlock(g.section(g.init, secReturn)):
+        discard g.b.buildRetVoid()
+      g.finalize()
+      g.inits.add(g.init.f)
+
+      g.init = nil
+
+    g.loadBase()
+
+    let
+      inits = g.inits.mapIt($it.getValueName())
+      lm = g.m
+      lc = lm.getModuleDataLayout()
+
+    # When the llvm module ownership is transferred to ORC, all cached values
+    # become invalid
+    g.inits.reset()
+    g.nodeInfos.reset()
+    g.typeInfos.reset()
+    g.typeInfosV2.reset()
+    g.strings.reset()
+    g.cstrings.reset()
+
+    g.round += 1
+    g.m = moduleCreateWithNameInContext(
+      cstring("." & m.sym.name.s & ".m." & $g.round), g.lc)
+
+    g.m.setModuleDataLayout(lc)
+    # g.m.setTarget(tmpm.getTarget())
+
+    g.runModule(lm, inits)
+
+  n
+
 proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   if b == nil: return n
 
-  if {optGenStaticLib, optGenDynLib, optNoMain} * graph.config.globalOptions == {}:
-    for i in countdown(high(graph.globalDestructors), 0):
-      n.add graph.globalDestructors[i]
-
-  if graph.config.skipCodegen(n): return n
-
   let
-    pc = LLModule(b)
-    g = pc.g
+    m = LLModule(b)
+    g = m.g
+    s = m.sym
 
-  p("Close", n, 0)
-
-  g.closedModules.add(pc)
-
-  g.withModule(pc): g.withFunc(pc.getInitFunc()):
-    if g.f.ds != nil:
-      let dl = g.lc.dIBuilderCreateDebugLocation(1, 1, g.f.ds, nil)
-      g.b.setCurrentDebugLocation2(dl)
-
-    g.withBlock(g.section(g.f, secLastBody)):
-      g.debugUpdateLoc(n)
-      g.genNode(n)
-    g.f.sections[secLastBody] = g.b.getInsertBlock()
-
-    g.withBlock(g.section(pc.init, secReturn)):
-      discard g.b.buildRetVoid()
-
-  let s = pc.sym
   if sfCompileToCpp in s.flags:
     g.config.internalError("Compile-to-c++ not supported (did you use importcpp?)")
 
-  if sfMainModule notin s.flags:
-    return n
+  if sfMainModule in s.flags:
+    if {optGenStaticLib, optGenDynLib, optNoMain} * graph.config.globalOptions == {}:
+      for i in countdown(high(graph.globalDestructors), 0):
+        n.add graph.globalDestructors[i]
 
-  g.withModule(pc):
-    let disp = generateMethodDispatchers(graph)
-    for x in disp:
-      discard g.genFunctionWithBody(x.sym)
+  if graph.config.skipCodegen(n) and not g.interactive(): return n
+
+  p("Close", n, 0)
+
+  result = myProcess(b, n)
 
   g.genForwardedProcs()
 
-  for m in g.closedModules:
-    if m.init != nil:
-      g.withFunc(m.init):
-        g.finalize()
+  if g.init != nil:
+    g.withModule(m): g.withFunc(g.init):
+      g.withBlock(g.section(g.init, secReturn)):
+        discard g.b.buildRetVoid()
+      g.finalize()
+
+    if sfSystemModule in s.flags:
+      g.inits.insert(g.init.f, 0)
+    else:
+      g.inits.add(g.init.f)
+    g.init = nil
+
+  if sfMainModule notin s.flags:
+    return
+
+  g.withModule(m):
+    let disp = generateMethodDispatchers(graph)
+    for x in disp:
+      discard g.genFunctionWithBody(x.sym)
 
   g.genMain()
 
@@ -9473,34 +9648,10 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     g.d = nil
 
   if optWasNimscript in g.config.globalOptions:
-    runModule(g.config, g.tm, g.m)
+    g.runModule(g.m, ["main"])
   else:
     g.writeOutput(changeFileExt(g.config.projectFull, "").string)
     g.m.disposeModule()
-
-  n
-
-proc myProcess(b: PPassContext, n: PNode): PNode =
-  let pc = LLModule(b)
-  let g = pc.g
-
-  if g.config.skipCodegen(n): return n
-
-  p("Process", n, 0)
-  var
-    transformedN = transformStmt(g.graph, g.idgen, pc.sym, n)
-  if sfInjectDestructors in pc.sym.flags:
-    transformedN = injectDestructorCalls(g.graph, g.idgen, pc.sym, transformedN)
-
-  g.withModule(pc): g.withFunc(pc.getInitFunc()):
-    g.b.positionBuilderAtEnd(g.section(g.f, secLastBody))
-    g.debugUpdateLoc(n)
-
-    g.f.options = g.config.options
-    g.genNode(transformedN)
-    g.f.sections[secLastBody] = g.b.getInsertBlock()
-
-  n
 
 proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
   # In the C generator, a separate C file is generated for every module,
@@ -9571,7 +9722,7 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
     # around in some tutorials so leave it around for now - perhaps it makes
     # sense to try to translate classic target triples to nim targets?
 
-    let target =
+    let target = normalizeTargetTriple(
       if graph.config.existsConfigVar("nlvm.target"):
         let
           tmp = graph.config.getConfigVar("nlvm.target")
@@ -9581,6 +9732,7 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
       else:
         toTriple(
           graph.config.target.targetCPU, graph.config.target.targetOS)
+    )
 
     var tr: llvm.TargetRef
     discard getTargetFromTriple(target, addr(tr), nil)
@@ -9594,11 +9746,7 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
         else: llvm.CodeGenLevelDefault
       tm = nimCreateTargetMachine(
         tr, target, cgl, reloc, llvm.CodeModelDefault)
-      layout = tm.createTargetDataLayout()
       g = newLLGen(graph, idgen, target, tm, lto)
-
-    g.m.setModuleDataLayout(layout)
-    g.m.setTarget(target)
 
     graph.backend = g
 

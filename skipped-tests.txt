@@ -40,7 +40,6 @@ tests/coroutines/twait.nim c --gc:refc
 tests/cpp/t10148.nim c
 tests/cpp/texportc.nim c
 tests/destructor/texceptions.nim c
-tests/destructor/tglobaldestructor.nim c
 tests/destructor/turn_destroy_into_finalizer.nim c
 tests/destructor/tv2_raise.nim c
 tests/dll/client.nim c  -d:release --gc:boehm --threads:on
@@ -55,7 +54,6 @@ tests/dll/visibility.nim c
 tests/dll/visibility.nim c  -d:release
 tests/dll/visibility.nim c  -d:release --gc:boehm
 tests/dll/visibility.nim c  --gc:boehm
-tests/effects/tdiagnostic_messages.nim c
 tests/effects/tstrict_funcs_imports.nim c
 tests/errmsgs/t14444.nim c --hints:off
 tests/errmsgs/tcall_with_default_arg.nim c
@@ -80,7 +78,6 @@ tests/ic/thallo_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/ic/timports_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/import_in_config/tmain.nim c
 tests/iter/tshallowcopy_closures.nim c
 tests/lent/tbasic_lent_check.nim c
 tests/let/timportc.nim c

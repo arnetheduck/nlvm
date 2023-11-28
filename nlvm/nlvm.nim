@@ -3,16 +3,20 @@
 # See the LICENSE file for license info (doh!)
 
 import
-  browsers,
-  sequtils,
-  strutils,
-  times,
-  os
+  std/[
+    browsers,
+    sequtils,
+    parseopt,
+    strutils,
+    times,
+    os
+  ]
 
-import llgen, llvm/llvm
+import "."/llgen, llvm/llvm
 
 import
   compiler/[
+    ast,
     cmdlinehelper,
     commands,
     condsyms,
@@ -30,9 +34,7 @@ import
     pathutils,
     platform,
     sem
-  ],
-  parseopt
-
+  ]
 proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
   registerPass g, semPass
@@ -207,6 +209,34 @@ proc commandCheck(graph: ModuleGraph) =
   semanticPasses(graph)  # use an empty backend for semantic checking only
   modules.compileProject(graph)
 
+proc interactivePasses(graph: ModuleGraph) =
+  initDefines(graph.config.symbols)
+  # defineSymbol(graph.config.symbols, "nimscript")
+  incl graph.config.globalOptions, optWasNimscript
+
+  registerPass(graph, verbosePass)
+  registerPass(graph, semPass)
+  registerPass(graph, llgen.llgenPass)
+
+proc commandInteractive(graph: ModuleGraph) =
+  graph.config.setErrorMaxHighMaybe
+  # TODO: gc unsupported as of yet
+  graph.config.selectedGC = gcNone
+
+  defineSymbol(graph.config.symbols, "nogc")
+  defineSymbol(graph.config.symbols, "useMalloc")
+
+  interactivePasses(graph)
+  compileSystemModule(graph)
+  if graph.config.commandArgs.len > 0:
+    discard graph.compileModule(fileInfoIdx(graph.config, graph.config.projectFull), {})
+  else:
+    var m = graph.makeStdinModule()
+    incl(m.flags, sfMainModule)
+    var idgen = IdGenerator(module: m.itemId.module, symId: m.itemId.item, typeId: 0)
+    let s = llStreamOpenStdIn(onPrompt = proc() = flushDot(graph.config))
+    processModule(graph, m, idgen, s)
+
 proc mainCommand*(graph: ModuleGraph) =
   let conf = graph.config
 
@@ -245,7 +275,8 @@ proc mainCommand*(graph: ModuleGraph) =
 
   of cmdCrun, cmdTcc:
     if not fileExists(conf.projectFull):
-      rawMessage(conf, errGenerated, "file does not exist: " & conf.projectFull.string)
+      conf.cmd = cmdInteractive
+      commandInteractive(graph)
     elif conf.projectFull.string.endsWith(".nim"):
       conf.cmd = cmdCrun
 
@@ -259,6 +290,7 @@ proc mainCommand*(graph: ModuleGraph) =
       commandCompile(graph)
     elif not conf.projectFull.string.endsWith(".nims"):
       rawMessage(conf, errGenerated, "not a NimScript file: " & conf.projectFull.string)
+  of cmdInteractive: commandInteractive(graph)
   of cmdNimscript:
     if conf.projectIsCmd or conf.projectIsStdin: discard
     elif not fileExists(conf.projectFull):

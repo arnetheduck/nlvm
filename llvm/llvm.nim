@@ -131,6 +131,7 @@ type
 include llvm/Types
 include llvm/Support
 
+include llvm/Analysis
 include llvm/Comdat
 include llvm/Core
 include llvm/DebugInfo
@@ -443,3 +444,7 @@ proc appendBasicBlockInContext*(
     f = pre.getBasicBlockParent()
   appendBasicBlockInContext(c, f, name)
 
+proc normalizeTargetTriple*(s: string): string =
+  let tmp = normalizeTargetTriple(cstring(s))
+  result = $tmp
+  disposeMessage(tmp)
