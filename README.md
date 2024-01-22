@@ -195,7 +195,7 @@ proc f() {. importc .}
 
 When `nim` compiles code, it will generate `c` code which may include other
 `c` code, from headers or directly via `emit` statements. This means `nim` has
-direct access do symbols declared in the `c` file, which can be both a feature
+direct access to symbols declared in the `c` file, which can be both a feature
 and a problem.
 
 In `nlvm`, `{.header.}` directives are ignored - `nlvm` looks strictly at
