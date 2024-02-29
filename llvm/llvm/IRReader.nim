@@ -27,9 +27,13 @@
 ##  @see llvm::ParseIR()
 ##
 
-proc parseIRInContext*(contextRef: ContextRef; memBuf: MemoryBufferRef;
-                       outM: ptr ModuleRef; outMessage: cstringArray): Bool {.
-    importc: "LLVMParseIRInContext", dynlib: LLVMLib.}
+proc parseIRInContext*(
+  contextRef: ContextRef,
+  memBuf: MemoryBufferRef,
+  outM: ptr ModuleRef,
+  outMessage: cstringArray,
+): Bool {.importc: "LLVMParseIRInContext", dynlib: LLVMLib.}
+
 ##
 ##  @}
 ##

@@ -34,23 +34,20 @@
 ##  Represents an address in the executor process.
 ##
 
-type
-  OrcJITTargetAddress* = uint64
+type OrcJITTargetAddress* = uint64
 
 ##
 ##  Represents an address in the executor process.
 ##
 
-type
-  OrcExecutorAddress* = uint64
+type OrcExecutorAddress* = uint64
 
 ##
 ##  Represents generic linkage flags for a symbol definition.
 ##
 
-type
-  JITSymbolGenericFlags* {.size: sizeof(cint).} = enum
-    JITSymbolGenericFlagsNone = 0
+type JITSymbolGenericFlags* {.size: sizeof(cint).} = enum
+  JITSymbolGenericFlagsNone = 0
 
 const
   JITSymbolGenericFlagsExported = JITSymbolGenericFlagsNone
@@ -62,156 +59,130 @@ const
 ##  Represents target specific flags for a symbol definition.
 ##
 
-type
-  JITSymbolTargetFlags* = uint8
+type JITSymbolTargetFlags* = uint8
 
 ##
 ##  Represents the linkage flags for a symbol definition.
 ##
 
-type
-  JITSymbolFlags* {.bycopy.} = object
-    genericFlags*: uint8
-    targetFlags*: uint8
-
+type JITSymbolFlags* {.bycopy.} = object
+  genericFlags*: uint8
+  targetFlags*: uint8
 
 ##
 ##  Represents an evaluated symbol address and flags.
 ##
 
-type
-  JITEvaluatedSymbol* {.bycopy.} = object
-    address*: OrcExecutorAddress
-    flags*: JITSymbolFlags
-
+type JITEvaluatedSymbol* {.bycopy.} = object
+  address*: OrcExecutorAddress
+  flags*: JITSymbolFlags
 
 ##
 ##  A reference to an orc::ExecutionSession instance.
 ##
 
-type
-  OrcExecutionSessionRef* = ptr OrcOpaqueExecutionSession
+type OrcExecutionSessionRef* = ptr OrcOpaqueExecutionSession
 
 ##
 ##  Error reporter function.
 ##
 
-type
-  OrcErrorReporterFunction* = proc (ctx: pointer; err: ErrorRef)
+type OrcErrorReporterFunction* = proc(ctx: pointer, err: ErrorRef)
 
 ##
 ##  A reference to an orc::SymbolStringPool.
 ##
 
-type
-  OrcSymbolStringPoolRef* = ptr OrcOpaqueSymbolStringPool
+type OrcSymbolStringPoolRef* = ptr OrcOpaqueSymbolStringPool
 
 ##
 ##  A reference to an orc::SymbolStringPool table entry.
 ##
 
-type
-  OrcSymbolStringPoolEntryRef* = ptr OrcOpaqueSymbolStringPoolEntry
+type OrcSymbolStringPoolEntryRef* = ptr OrcOpaqueSymbolStringPoolEntry
 
 ##
 ##  Represents a pair of a symbol name and LLVMJITSymbolFlags.
 ##
 
-type
-  OrcCSymbolFlagsMapPair* {.bycopy.} = object
-    name*: OrcSymbolStringPoolEntryRef
-    flags*: JITSymbolFlags
-
+type OrcCSymbolFlagsMapPair* {.bycopy.} = object
+  name*: OrcSymbolStringPoolEntryRef
+  flags*: JITSymbolFlags
 
 ##
 ##  Represents a list of (SymbolStringPtr, JITSymbolFlags) pairs that can be used
 ##  to construct a SymbolFlagsMap.
 ##
 
-type
-  OrcCSymbolFlagsMapPairs* = ptr OrcCSymbolFlagsMapPair
+type OrcCSymbolFlagsMapPairs* = ptr OrcCSymbolFlagsMapPair
 
 ##
 ##  Represents a pair of a symbol name and an evaluated symbol.
 ##
 
-type
-  OrcCSymbolMapPair* {.bycopy.} = object
-    name*: OrcSymbolStringPoolEntryRef
-    sym*: JITEvaluatedSymbol
-
+type OrcCSymbolMapPair* {.bycopy.} = object
+  name*: OrcSymbolStringPoolEntryRef
+  sym*: JITEvaluatedSymbol
 
 ##
 ##  Represents a list of (SymbolStringPtr, JITEvaluatedSymbol) pairs that can be
 ##  used to construct a SymbolMap.
 ##
 
-type
-  OrcCSymbolMapPairs* = ptr OrcCSymbolMapPair
+type OrcCSymbolMapPairs* = ptr OrcCSymbolMapPair
 
 ##
 ##  Represents a SymbolAliasMapEntry
 ##
 
-type
-  OrcCSymbolAliasMapEntry* {.bycopy.} = object
-    name*: OrcSymbolStringPoolEntryRef
-    flags*: JITSymbolFlags
-
+type OrcCSymbolAliasMapEntry* {.bycopy.} = object
+  name*: OrcSymbolStringPoolEntryRef
+  flags*: JITSymbolFlags
 
 ##
 ##  Represents a pair of a symbol name and SymbolAliasMapEntry.
 ##
 
-type
-  OrcCSymbolAliasMapPair* {.bycopy.} = object
-    name*: OrcSymbolStringPoolEntryRef
-    entry*: OrcCSymbolAliasMapEntry
-
+type OrcCSymbolAliasMapPair* {.bycopy.} = object
+  name*: OrcSymbolStringPoolEntryRef
+  entry*: OrcCSymbolAliasMapEntry
 
 ##
 ##  Represents a list of (SymbolStringPtr, (SymbolStringPtr, JITSymbolFlags))
 ##  pairs that can be used to construct a SymbolFlagsMap.
 ##
 
-type
-  OrcCSymbolAliasMapPairs* = ptr OrcCSymbolAliasMapPair
+type OrcCSymbolAliasMapPairs* = ptr OrcCSymbolAliasMapPair
 
 ##
 ##  A reference to an orc::JITDylib instance.
 ##
 
-type
-  OrcJITDylibRef* = ptr OrcOpaqueJITDylib
+type OrcJITDylibRef* = ptr OrcOpaqueJITDylib
 
 ##
 ##  Represents a list of LLVMOrcSymbolStringPoolEntryRef and the associated
 ##  length.
 ##
 
-type
-  OrcCSymbolsList* {.bycopy.} = object
-    symbols*: ptr OrcSymbolStringPoolEntryRef
-    length*: csize_t
-
+type OrcCSymbolsList* {.bycopy.} = object
+  symbols*: ptr OrcSymbolStringPoolEntryRef
+  length*: csize_t
 
 ##
 ##  Represents a pair of a JITDylib and LLVMOrcCSymbolsList.
 ##
 
-type
-  OrcCDependenceMapPair* {.bycopy.} = object
-    jd*: OrcJITDylibRef
-    names*: OrcCSymbolsList
-
+type OrcCDependenceMapPair* {.bycopy.} = object
+  jd*: OrcJITDylibRef
+  names*: OrcCSymbolsList
 
 ##
 ##  Represents a list of (JITDylibRef, (LLVMOrcSymbolStringPoolEntryRef*,
 ##  size_t)) pairs that can be used to construct a SymbolDependenceMap.
 ##
 
-type
-  OrcCDependenceMapPairs* = ptr OrcCDependenceMapPair
+type OrcCDependenceMapPairs* = ptr OrcCDependenceMapPair
 
 ##
 ##  Lookup kind. This can be used by definition generators when deciding whether
@@ -220,10 +191,9 @@ type
 ##  This enum should be kept in sync with llvm::orc::LookupKind.
 ##
 
-type
-  OrcLookupKind* {.size: sizeof(cint).} = enum
-    OrcLookupKindStatic, OrcLookupKindDLSym
-
+type OrcLookupKind* {.size: sizeof(cint).} = enum
+  OrcLookupKindStatic
+  OrcLookupKindDLSym
 
 ##
 ##  JITDylib lookup flags. This can be used by definition generators when
@@ -232,21 +202,17 @@ type
 ##  This enum should be kept in sync with llvm::orc::JITDylibLookupFlags.
 ##
 
-type
-  OrcJITDylibLookupFlags* {.size: sizeof(cint).} = enum
-    OrcJITDylibLookupFlagsMatchExportedSymbolsOnly,
-    OrcJITDylibLookupFlagsMatchAllSymbols
-
+type OrcJITDylibLookupFlags* {.size: sizeof(cint).} = enum
+  OrcJITDylibLookupFlagsMatchExportedSymbolsOnly
+  OrcJITDylibLookupFlagsMatchAllSymbols
 
 ##
 ##  An element type for a JITDylib search order.
 ##
 
-type
-  OrcCJITDylibSearchOrderElement* {.bycopy.} = object
-    jd*: OrcJITDylibRef
-    jDLookupFlags*: OrcJITDylibLookupFlags
-
+type OrcCJITDylibSearchOrderElement* {.bycopy.} = object
+  jd*: OrcJITDylibRef
+  jDLookupFlags*: OrcJITDylibLookupFlags
 
 ##
 ##  A JITDylib search order.
@@ -255,29 +221,24 @@ type
 ##  field.
 ##
 
-type
-  OrcCJITDylibSearchOrder* = ptr OrcCJITDylibSearchOrderElement
+type OrcCJITDylibSearchOrder* = ptr OrcCJITDylibSearchOrderElement
 
 ##
 ##  Symbol lookup flags for lookup sets. This should be kept in sync with
 ##  llvm::orc::SymbolLookupFlags.
 ##
 
-type
-  OrcSymbolLookupFlags* {.size: sizeof(cint).} = enum
-    OrcSymbolLookupFlagsRequiredSymbol,
-    OrcSymbolLookupFlagsWeaklyReferencedSymbol
-
+type OrcSymbolLookupFlags* {.size: sizeof(cint).} = enum
+  OrcSymbolLookupFlagsRequiredSymbol
+  OrcSymbolLookupFlagsWeaklyReferencedSymbol
 
 ##
 ##  An element type for a symbol lookup set.
 ##
 
-type
-  OrcCLookupSetElement* {.bycopy.} = object
-    name*: OrcSymbolStringPoolEntryRef
-    lookupFlags*: OrcSymbolLookupFlags
-
+type OrcCLookupSetElement* {.bycopy.} = object
+  name*: OrcSymbolStringPoolEntryRef
+  lookupFlags*: OrcSymbolLookupFlags
 
 ##
 ##  A set of symbols to look up / generate.
@@ -291,15 +252,13 @@ type
 ##  responsible for managing lifetime or retain counts.
 ##
 
-type
-  OrcCLookupSet* = ptr OrcCLookupSetElement
+type OrcCLookupSet* = ptr OrcCLookupSetElement
 
 ##
 ##  A reference to a uniquely owned orc::MaterializationUnit instance.
 ##
 
-type
-  OrcMaterializationUnitRef* = ptr OrcOpaqueMaterializationUnit
+type OrcMaterializationUnitRef* = ptr OrcOpaqueMaterializationUnit
 
 ##
 ##  A reference to a uniquely owned orc::MaterializationResponsibility instance.
@@ -307,8 +266,7 @@ type
 ##  Ownership must be passed to a lower-level layer in a JIT stack.
 ##
 
-type
-  OrcMaterializationResponsibilityRef* = ptr OrcOpaqueMaterializationResponsibility
+type OrcMaterializationResponsibilityRef* = ptr OrcOpaqueMaterializationResponsibility
 
 ##
 ##  A MaterializationUnit materialize callback.
@@ -321,9 +279,8 @@ type
 ##  callback will NOT be called.
 ##
 
-type
-  OrcMaterializationUnitMaterializeFunction* = proc (ctx: pointer;
-      mr: OrcMaterializationResponsibilityRef)
+type OrcMaterializationUnitMaterializeFunction* =
+  proc(ctx: pointer, mr: OrcMaterializationResponsibilityRef)
 
 ##
 ##  A MaterializationUnit discard callback.
@@ -332,9 +289,8 @@ type
 ##  not be disposed of or released.
 ##
 
-type
-  OrcMaterializationUnitDiscardFunction* = proc (ctx: pointer;
-      jd: OrcJITDylibRef; symbol: OrcSymbolStringPoolEntryRef)
+type OrcMaterializationUnitDiscardFunction* =
+  proc(ctx: pointer, jd: OrcJITDylibRef, symbol: OrcSymbolStringPoolEntryRef)
 
 ##
 ##  A MaterializationUnit destruction callback.
@@ -344,22 +300,19 @@ type
 ##  opportunity for the underlying program representation to be destroyed.
 ##
 
-type
-  OrcMaterializationUnitDestroyFunction* = proc (ctx: pointer)
+type OrcMaterializationUnitDestroyFunction* = proc(ctx: pointer)
 
 ##
 ##  A reference to an orc::ResourceTracker instance.
 ##
 
-type
-  OrcResourceTrackerRef* = ptr OrcOpaqueResourceTracker
+type OrcResourceTrackerRef* = ptr OrcOpaqueResourceTracker
 
 ##
 ##  A reference to an orc::DefinitionGenerator.
 ##
 
-type
-  OrcDefinitionGeneratorRef* = ptr OrcOpaqueDefinitionGenerator
+type OrcDefinitionGeneratorRef* = ptr OrcOpaqueDefinitionGenerator
 
 ##
 ##  An opaque lookup state object. Instances of this type can be captured to
@@ -374,8 +327,7 @@ type
 ##  destruction).
 ##
 
-type
-  OrcLookupStateRef* = ptr OrcOpaqueLookupState
+type OrcLookupStateRef* = ptr OrcOpaqueLookupState
 
 ##
 ##  A custom generator function. This can be used to create a custom generator
@@ -411,12 +363,16 @@ type
 ##  be found in JD already (the set of generation candidates).
 ##
 
-type
-  OrcCAPIDefinitionGeneratorTryToGenerateFunction* = proc (
-      generatorObj: OrcDefinitionGeneratorRef; ctx: pointer;
-      lookupState: ptr OrcLookupStateRef; kind: OrcLookupKind;
-      jd: OrcJITDylibRef; jDLookupFlags: OrcJITDylibLookupFlags;
-      lookupSet: OrcCLookupSet; lookupSetSize: csize_t): ErrorRef
+type OrcCAPIDefinitionGeneratorTryToGenerateFunction* = proc(
+  generatorObj: OrcDefinitionGeneratorRef,
+  ctx: pointer,
+  lookupState: ptr OrcLookupStateRef,
+  kind: OrcLookupKind,
+  jd: OrcJITDylibRef,
+  jDLookupFlags: OrcJITDylibLookupFlags,
+  lookupSet: OrcCLookupSet,
+  lookupSetSize: csize_t,
+): ErrorRef
 
 ##
 ##  Disposer for a custom generator.
@@ -425,65 +381,56 @@ type
 ##  is destroyed.
 ##
 
-type
-  OrcDisposeCAPIDefinitionGeneratorFunction* = proc (ctx: pointer)
+type OrcDisposeCAPIDefinitionGeneratorFunction* = proc(ctx: pointer)
 
 ##
 ##  Predicate function for SymbolStringPoolEntries.
 ##
 
-type
-  OrcSymbolPredicate* = proc (ctx: pointer; sym: OrcSymbolStringPoolEntryRef): cint
+type OrcSymbolPredicate* = proc(ctx: pointer, sym: OrcSymbolStringPoolEntryRef): cint
 
 ##
 ##  A reference to an orc::ThreadSafeContext instance.
 ##
 
-type
-  OrcThreadSafeContextRef* = ptr OrcOpaqueThreadSafeContext
+type OrcThreadSafeContextRef* = ptr OrcOpaqueThreadSafeContext
 
 ##
 ##  A reference to an orc::ThreadSafeModule instance.
 ##
 
-type
-  OrcThreadSafeModuleRef* = ptr OrcOpaqueThreadSafeModule
+type OrcThreadSafeModuleRef* = ptr OrcOpaqueThreadSafeModule
 
 ##
 ##  A function for inspecting/mutating IR modules, suitable for use with
 ##  LLVMOrcThreadSafeModuleWithModuleDo.
 ##
 
-type
-  OrcGenericIRModuleOperationFunction* = proc (ctx: pointer; m: ModuleRef): ErrorRef
+type OrcGenericIRModuleOperationFunction* = proc(ctx: pointer, m: ModuleRef): ErrorRef
 
 ##
 ##  A reference to an orc::JITTargetMachineBuilder instance.
 ##
 
-type
-  OrcJITTargetMachineBuilderRef* = ptr OrcOpaqueJITTargetMachineBuilder
+type OrcJITTargetMachineBuilderRef* = ptr OrcOpaqueJITTargetMachineBuilder
 
 ##
 ##  A reference to an orc::ObjectLayer instance.
 ##
 
-type
-  OrcObjectLayerRef* = ptr OrcOpaqueObjectLayer
+type OrcObjectLayerRef* = ptr OrcOpaqueObjectLayer
 
 ##
 ##  A reference to an orc::ObjectLinkingLayer instance.
 ##
 
-type
-  OrcObjectLinkingLayerRef* = ptr OrcOpaqueObjectLinkingLayer
+type OrcObjectLinkingLayerRef* = ptr OrcOpaqueObjectLinkingLayer
 
 ##
 ##  A reference to an orc::IRTransformLayer instance.
 ##
 
-type
-  OrcIRTransformLayerRef* = ptr OrcOpaqueIRTransformLayer
+type OrcIRTransformLayerRef* = ptr OrcOpaqueIRTransformLayer
 
 ##
 ##  A function for applying transformations as part of an transform layer.
@@ -501,17 +448,17 @@ type
 ##  layer.
 ##
 
-type
-  OrcIRTransformLayerTransformFunction* = proc (ctx: pointer;
-      modInOut: ptr OrcThreadSafeModuleRef;
-      mr: OrcMaterializationResponsibilityRef): ErrorRef
+type OrcIRTransformLayerTransformFunction* = proc(
+  ctx: pointer,
+  modInOut: ptr OrcThreadSafeModuleRef,
+  mr: OrcMaterializationResponsibilityRef,
+): ErrorRef
 
 ##
 ##  A reference to an orc::ObjectTransformLayer instance.
 ##
 
-type
-  OrcObjectTransformLayerRef* = ptr OrcOpaqueObjectTransformLayer
+type OrcObjectTransformLayerRef* = ptr OrcOpaqueObjectTransformLayer
 
 ##
 ##  A function for applying transformations to an object file buffer.
@@ -527,23 +474,20 @@ type
 ##  buffer should be disposed of and set to null.
 ##
 
-type
-  OrcObjectTransformLayerTransformFunction* = proc (ctx: pointer;
-      objInOut: ptr MemoryBufferRef): ErrorRef
+type OrcObjectTransformLayerTransformFunction* =
+  proc(ctx: pointer, objInOut: ptr MemoryBufferRef): ErrorRef
 
 ##
 ##  A reference to an orc::IndirectStubsManager instance.
 ##
 
-type
-  OrcIndirectStubsManagerRef* = ptr OrcOpaqueIndirectStubsManager
+type OrcIndirectStubsManagerRef* = ptr OrcOpaqueIndirectStubsManager
 
 ##
 ##  A reference to an orc::LazyCallThroughManager instance.
 ##
 
-type
-  OrcLazyCallThroughManagerRef* = ptr OrcOpaqueLazyCallThroughManager
+type OrcLazyCallThroughManagerRef* = ptr OrcOpaqueLazyCallThroughManager
 
 ##
 ##  A reference to an orc::DumpObjects object.
@@ -552,8 +496,7 @@ type
 ##  ObjectTransformLayer transform.
 ##
 
-type
-  OrcDumpObjectsRef* = ptr OrcOpaqueDumpObjects
+type OrcDumpObjectsRef* = ptr OrcOpaqueDumpObjects
 
 ##
 ##  Attach a custom error reporter function to the ExecutionSession.
@@ -565,9 +508,10 @@ type
 ##  FailureToMaterialize error instead).
 ##
 
-proc orcExecutionSessionSetErrorReporter*(es: OrcExecutionSessionRef;
-    reportError: OrcErrorReporterFunction; ctx: pointer) {.
-    importc: "LLVMOrcExecutionSessionSetErrorReporter", dynlib: LLVMLib.}
+proc orcExecutionSessionSetErrorReporter*(
+  es: OrcExecutionSessionRef, reportError: OrcErrorReporterFunction, ctx: pointer
+) {.importc: "LLVMOrcExecutionSessionSetErrorReporter", dynlib: LLVMLib.}
+
 ##
 ##  Return a reference to the SymbolStringPool for an ExecutionSession.
 ##
@@ -575,8 +519,12 @@ proc orcExecutionSessionSetErrorReporter*(es: OrcExecutionSessionRef;
 ##  not required to free the pool.
 ##
 
-proc orcExecutionSessionGetSymbolStringPool*(es: OrcExecutionSessionRef): OrcSymbolStringPoolRef {.
-    importc: "LLVMOrcExecutionSessionGetSymbolStringPool", dynlib: LLVMLib.}
+proc orcExecutionSessionGetSymbolStringPool*(
+  es: OrcExecutionSessionRef
+): OrcSymbolStringPoolRef {.
+  importc: "LLVMOrcExecutionSessionGetSymbolStringPool", dynlib: LLVMLib
+.}
+
 ##
 ##  Clear all unreferenced symbol string pool entries.
 ##
@@ -588,8 +536,10 @@ proc orcExecutionSessionGetSymbolStringPool*(es: OrcExecutionSessionRef): OrcSym
 ##  closing a JITDylib.
 ##
 
-proc orcSymbolStringPoolClearDeadEntries*(ssp: OrcSymbolStringPoolRef) {.
-    importc: "LLVMOrcSymbolStringPoolClearDeadEntries", dynlib: LLVMLib.}
+proc orcSymbolStringPoolClearDeadEntries*(
+  ssp: OrcSymbolStringPoolRef
+) {.importc: "LLVMOrcSymbolStringPoolClearDeadEntries", dynlib: LLVMLib.}
+
 ##
 ##  Intern a string in the ExecutionSession's SymbolStringPool and return a
 ##  reference to it. This increments the ref-count of the pool entry, and the
@@ -603,8 +553,12 @@ proc orcSymbolStringPoolClearDeadEntries*(ssp: OrcSymbolStringPoolRef) {.
 ##  Note that this function does not perform linker-mangling on the string.
 ##
 
-proc orcExecutionSessionIntern*(es: OrcExecutionSessionRef; name: cstring): OrcSymbolStringPoolEntryRef {.
-    importc: "LLVMOrcExecutionSessionIntern", dynlib: LLVMLib.}
+proc orcExecutionSessionIntern*(
+  es: OrcExecutionSessionRef, name: cstring
+): OrcSymbolStringPoolEntryRef {.
+  importc: "LLVMOrcExecutionSessionIntern", dynlib: LLVMLib
+.}
+
 ##
 ##  Callback type for ExecutionSession lookups.
 ##
@@ -620,9 +574,8 @@ proc orcExecutionSessionIntern*(es: OrcExecutionSessionRef; name: cstring): OrcS
 ##  names that they wish to hold after the function returns.
 ##
 
-type
-  OrcExecutionSessionLookupHandleResultFunction* = proc (err: ErrorRef;
-      result: OrcCSymbolMapPairs; numPairs: csize_t; ctx: pointer)
+type OrcExecutionSessionLookupHandleResultFunction* =
+  proc(err: ErrorRef, result: OrcCSymbolMapPairs, numPairs: csize_t, ctx: pointer)
 
 ##
 ##  Look up symbols in an execution session.
@@ -653,67 +606,87 @@ type
 ##  THIS API IS EXPERIMENTAL AND LIKELY TO CHANGE IN THE NEAR FUTURE!
 ##
 
-proc orcExecutionSessionLookup*(es: OrcExecutionSessionRef; k: OrcLookupKind;
-                                searchOrder: OrcCJITDylibSearchOrder;
-                                searchOrderSize: csize_t;
-                                symbols: OrcCLookupSet; symbolsSize: csize_t;
-    handleResult: OrcExecutionSessionLookupHandleResultFunction; ctx: pointer) {.
-    importc: "LLVMOrcExecutionSessionLookup", dynlib: LLVMLib.}
+proc orcExecutionSessionLookup*(
+  es: OrcExecutionSessionRef,
+  k: OrcLookupKind,
+  searchOrder: OrcCJITDylibSearchOrder,
+  searchOrderSize: csize_t,
+  symbols: OrcCLookupSet,
+  symbolsSize: csize_t,
+  handleResult: OrcExecutionSessionLookupHandleResultFunction,
+  ctx: pointer,
+) {.importc: "LLVMOrcExecutionSessionLookup", dynlib: LLVMLib.}
+
 ##
 ##  Increments the ref-count for a SymbolStringPool entry.
 ##
 
-proc orcRetainSymbolStringPoolEntry*(s: OrcSymbolStringPoolEntryRef) {.
-    importc: "LLVMOrcRetainSymbolStringPoolEntry", dynlib: LLVMLib.}
+proc orcRetainSymbolStringPoolEntry*(
+  s: OrcSymbolStringPoolEntryRef
+) {.importc: "LLVMOrcRetainSymbolStringPoolEntry", dynlib: LLVMLib.}
+
 ##
 ##  Reduces the ref-count for of a SymbolStringPool entry.
 ##
 
-proc orcReleaseSymbolStringPoolEntry*(s: OrcSymbolStringPoolEntryRef) {.
-    importc: "LLVMOrcReleaseSymbolStringPoolEntry", dynlib: LLVMLib.}
+proc orcReleaseSymbolStringPoolEntry*(
+  s: OrcSymbolStringPoolEntryRef
+) {.importc: "LLVMOrcReleaseSymbolStringPoolEntry", dynlib: LLVMLib.}
+
 ##
 ##  Return the c-string for the given symbol. This string will remain valid until
 ##  the entry is freed (once all LLVMOrcSymbolStringPoolEntryRefs have been
 ##  released).
 ##
 
-proc orcSymbolStringPoolEntryStr*(s: OrcSymbolStringPoolEntryRef): cstring {.
-    importc: "LLVMOrcSymbolStringPoolEntryStr", dynlib: LLVMLib.}
+proc orcSymbolStringPoolEntryStr*(
+  s: OrcSymbolStringPoolEntryRef
+): cstring {.importc: "LLVMOrcSymbolStringPoolEntryStr", dynlib: LLVMLib.}
+
 ##
 ##  Reduces the ref-count of a ResourceTracker.
 ##
 
-proc orcReleaseResourceTracker*(rt: OrcResourceTrackerRef) {.
-    importc: "LLVMOrcReleaseResourceTracker", dynlib: LLVMLib.}
+proc orcReleaseResourceTracker*(
+  rt: OrcResourceTrackerRef
+) {.importc: "LLVMOrcReleaseResourceTracker", dynlib: LLVMLib.}
+
 ##
 ##  Transfers tracking of all resources associated with resource tracker SrcRT
 ##  to resource tracker DstRT.
 ##
 
-proc orcResourceTrackerTransferTo*(srcRT: OrcResourceTrackerRef;
-                                   dstRT: OrcResourceTrackerRef) {.
-    importc: "LLVMOrcResourceTrackerTransferTo", dynlib: LLVMLib.}
+proc orcResourceTrackerTransferTo*(
+  srcRT: OrcResourceTrackerRef, dstRT: OrcResourceTrackerRef
+) {.importc: "LLVMOrcResourceTrackerTransferTo", dynlib: LLVMLib.}
+
 ##
 ##  Remove all resources associated with the given tracker. See
 ##  ResourceTracker::remove().
 ##
 
-proc orcResourceTrackerRemove*(rt: OrcResourceTrackerRef): ErrorRef {.
-    importc: "LLVMOrcResourceTrackerRemove", dynlib: LLVMLib.}
+proc orcResourceTrackerRemove*(
+  rt: OrcResourceTrackerRef
+): ErrorRef {.importc: "LLVMOrcResourceTrackerRemove", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of a JITDylib::DefinitionGenerator. This should only be called if
 ##  ownership has not been passed to a JITDylib (e.g. because some error
 ##  prevented the client from calling LLVMOrcJITDylibAddGenerator).
 ##
 
-proc orcDisposeDefinitionGenerator*(dg: OrcDefinitionGeneratorRef) {.
-    importc: "LLVMOrcDisposeDefinitionGenerator", dynlib: LLVMLib.}
+proc orcDisposeDefinitionGenerator*(
+  dg: OrcDefinitionGeneratorRef
+) {.importc: "LLVMOrcDisposeDefinitionGenerator", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of a MaterializationUnit.
 ##
 
-proc orcDisposeMaterializationUnit*(mu: OrcMaterializationUnitRef) {.
-    importc: "LLVMOrcDisposeMaterializationUnit", dynlib: LLVMLib.}
+proc orcDisposeMaterializationUnit*(
+  mu: OrcMaterializationUnitRef
+) {.importc: "LLVMOrcDisposeMaterializationUnit", dynlib: LLVMLib.}
+
 ##
 ##  Create a custom MaterializationUnit.
 ##
@@ -748,13 +721,19 @@ proc orcDisposeMaterializationUnit*(mu: OrcMaterializationUnitRef) {.
 ##  of it by calling LLVMOrcDisposeMaterializationUnit.
 ##
 
-proc orcCreateCustomMaterializationUnit*(name: cstring; ctx: pointer;
-    syms: OrcCSymbolFlagsMapPairs; numSyms: csize_t;
-    initSym: OrcSymbolStringPoolEntryRef;
-    materialize: OrcMaterializationUnitMaterializeFunction;
-    `discard`: OrcMaterializationUnitDiscardFunction;
-    destroy: OrcMaterializationUnitDestroyFunction): OrcMaterializationUnitRef {.
-    importc: "LLVMOrcCreateCustomMaterializationUnit", dynlib: LLVMLib.}
+proc orcCreateCustomMaterializationUnit*(
+  name: cstring,
+  ctx: pointer,
+  syms: OrcCSymbolFlagsMapPairs,
+  numSyms: csize_t,
+  initSym: OrcSymbolStringPoolEntryRef,
+  materialize: OrcMaterializationUnitMaterializeFunction,
+  `discard`: OrcMaterializationUnitDiscardFunction,
+  destroy: OrcMaterializationUnitDestroyFunction,
+): OrcMaterializationUnitRef {.
+  importc: "LLVMOrcCreateCustomMaterializationUnit", dynlib: LLVMLib
+.}
+
 ##
 ##  Create a MaterializationUnit to define the given symbols as pointing to
 ##  the corresponding raw addresses.
@@ -777,8 +756,10 @@ proc orcCreateCustomMaterializationUnit*(name: cstring; ctx: pointer;
 ##  must explicitly retain each of the elements for themselves.
 ##
 
-proc orcAbsoluteSymbols*(syms: OrcCSymbolMapPairs; numPairs: csize_t): OrcMaterializationUnitRef {.
-    importc: "LLVMOrcAbsoluteSymbols", dynlib: LLVMLib.}
+proc orcAbsoluteSymbols*(
+  syms: OrcCSymbolMapPairs, numPairs: csize_t
+): OrcMaterializationUnitRef {.importc: "LLVMOrcAbsoluteSymbols", dynlib: LLVMLib.}
+
 ##
 ##  Create a MaterializationUnit to define lazy re-expots. These are callable
 ##  entry points that call through to the given symbols.
@@ -801,12 +782,14 @@ proc orcAbsoluteSymbols*(syms: OrcCSymbolMapPairs; numPairs: csize_t): OrcMateri
 ##  must explicitly retain each of the elements for themselves.
 ##
 
-proc orcLazyReexports*(lctm: OrcLazyCallThroughManagerRef;
-                       ism: OrcIndirectStubsManagerRef;
-                       sourceRef: OrcJITDylibRef;
-                       callableAliases: OrcCSymbolAliasMapPairs;
-                       numPairs: csize_t): OrcMaterializationUnitRef {.
-    importc: "LLVMOrcLazyReexports", dynlib: LLVMLib.}
+proc orcLazyReexports*(
+  lctm: OrcLazyCallThroughManagerRef,
+  ism: OrcIndirectStubsManagerRef,
+  sourceRef: OrcJITDylibRef,
+  callableAliases: OrcCSymbolAliasMapPairs,
+  numPairs: csize_t,
+): OrcMaterializationUnitRef {.importc: "LLVMOrcLazyReexports", dynlib: LLVMLib.}
+
 ##  TODO: ImplSymbolMad SrcJDLoc
 ##
 ##  Disposes of the passed MaterializationResponsibility object.
@@ -819,24 +802,29 @@ proc orcLazyReexports*(lctm: OrcLazyCallThroughManagerRef;
 ##
 
 proc orcDisposeMaterializationResponsibility*(
-    mr: OrcMaterializationResponsibilityRef) {.
-    importc: "LLVMOrcDisposeMaterializationResponsibility", dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef
+) {.importc: "LLVMOrcDisposeMaterializationResponsibility", dynlib: LLVMLib.}
+
 ##
 ##  Returns the target JITDylib that these symbols are being materialized into.
 ##
 
 proc orcMaterializationResponsibilityGetTargetDylib*(
-    mr: OrcMaterializationResponsibilityRef): OrcJITDylibRef {.
-    importc: "LLVMOrcMaterializationResponsibilityGetTargetDylib",
-    dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef
+): OrcJITDylibRef {.
+  importc: "LLVMOrcMaterializationResponsibilityGetTargetDylib", dynlib: LLVMLib
+.}
+
 ##
 ##  Returns the ExecutionSession for this MaterializationResponsibility.
 ##
 
 proc orcMaterializationResponsibilityGetExecutionSession*(
-    mr: OrcMaterializationResponsibilityRef): OrcExecutionSessionRef {.
-    importc: "LLVMOrcMaterializationResponsibilityGetExecutionSession",
-    dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef
+): OrcExecutionSessionRef {.
+  importc: "LLVMOrcMaterializationResponsibilityGetExecutionSession", dynlib: LLVMLib
+.}
+
 ##
 ##  Returns the symbol flags map for this responsibility instance.
 ##
@@ -849,16 +837,21 @@ proc orcMaterializationResponsibilityGetExecutionSession*(
 ##
 
 proc orcMaterializationResponsibilityGetSymbols*(
-    mr: OrcMaterializationResponsibilityRef; numPairs: ptr csize_t): OrcCSymbolFlagsMapPairs {.
-    importc: "LLVMOrcMaterializationResponsibilityGetSymbols", dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef, numPairs: ptr csize_t
+): OrcCSymbolFlagsMapPairs {.
+  importc: "LLVMOrcMaterializationResponsibilityGetSymbols", dynlib: LLVMLib
+.}
+
 ##
 ##  Disposes of the passed LLVMOrcCSymbolFlagsMap.
 ##
 ##  Does not release the entries themselves.
 ##
 
-proc orcDisposeCSymbolFlagsMap*(pairs: OrcCSymbolFlagsMapPairs) {.
-    importc: "LLVMOrcDisposeCSymbolFlagsMap", dynlib: LLVMLib.}
+proc orcDisposeCSymbolFlagsMap*(
+  pairs: OrcCSymbolFlagsMapPairs
+) {.importc: "LLVMOrcDisposeCSymbolFlagsMap", dynlib: LLVMLib.}
+
 ##
 ##  Returns the initialization pseudo-symbol, if any. This symbol will also
 ##  be present in the SymbolFlagsMap for this MaterializationResponsibility
@@ -869,9 +862,11 @@ proc orcDisposeCSymbolFlagsMap*(pairs: OrcCSymbolFlagsMapPairs) {.
 ##
 
 proc orcMaterializationResponsibilityGetInitializerSymbol*(
-    mr: OrcMaterializationResponsibilityRef): OrcSymbolStringPoolEntryRef {.
-    importc: "LLVMOrcMaterializationResponsibilityGetInitializerSymbol",
-    dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef
+): OrcSymbolStringPoolEntryRef {.
+  importc: "LLVMOrcMaterializationResponsibilityGetInitializerSymbol", dynlib: LLVMLib
+.}
+
 ##
 ##  Returns the names of any symbols covered by this
 ##  MaterializationResponsibility object that have queries pending. This
@@ -880,17 +875,21 @@ proc orcMaterializationResponsibilityGetInitializerSymbol*(
 ##
 
 proc orcMaterializationResponsibilityGetRequestedSymbols*(
-    mr: OrcMaterializationResponsibilityRef; numSymbols: ptr csize_t): ptr OrcSymbolStringPoolEntryRef {.
-    importc: "LLVMOrcMaterializationResponsibilityGetRequestedSymbols",
-    dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef, numSymbols: ptr csize_t
+): ptr OrcSymbolStringPoolEntryRef {.
+  importc: "LLVMOrcMaterializationResponsibilityGetRequestedSymbols", dynlib: LLVMLib
+.}
+
 ##
 ##  Disposes of the passed LLVMOrcSymbolStringPoolEntryRef* .
 ##
 ##  Does not release the symbols themselves.
 ##
 
-proc orcDisposeSymbols*(symbols: ptr OrcSymbolStringPoolEntryRef) {.
-    importc: "LLVMOrcDisposeSymbols", dynlib: LLVMLib.}
+proc orcDisposeSymbols*(
+  symbols: ptr OrcSymbolStringPoolEntryRef
+) {.importc: "LLVMOrcDisposeSymbols", dynlib: LLVMLib.}
+
 ##
 ##  Notifies the target JITDylib that the given symbols have been resolved.
 ##  This will update the given symbols' addresses in the JITDylib, and notify
@@ -909,9 +908,13 @@ proc orcDisposeSymbols*(symbols: ptr OrcSymbolStringPoolEntryRef) {.
 ##
 
 proc orcMaterializationResponsibilityNotifyResolved*(
-    mr: OrcMaterializationResponsibilityRef; symbols: OrcCSymbolMapPairs;
-    numPairs: csize_t): ErrorRef {.importc: "LLVMOrcMaterializationResponsibilityNotifyResolved",
-                                   dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef,
+  symbols: OrcCSymbolMapPairs,
+  numPairs: csize_t,
+): ErrorRef {.
+  importc: "LLVMOrcMaterializationResponsibilityNotifyResolved", dynlib: LLVMLib
+.}
+
 ##
 ##  Notifies the target JITDylib (and any pending queries on that JITDylib)
 ##  that all symbols covered by this MaterializationResponsibility instance
@@ -927,9 +930,11 @@ proc orcMaterializationResponsibilityNotifyResolved*(
 ##
 
 proc orcMaterializationResponsibilityNotifyEmitted*(
-    mr: OrcMaterializationResponsibilityRef): ErrorRef {.
-    importc: "LLVMOrcMaterializationResponsibilityNotifyEmitted",
-    dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef
+): ErrorRef {.
+  importc: "LLVMOrcMaterializationResponsibilityNotifyEmitted", dynlib: LLVMLib
+.}
+
 ##
 ##  Attempt to claim responsibility for new definitions. This method can be
 ##  used to claim responsibility for symbols that are added to a
@@ -945,9 +950,13 @@ proc orcMaterializationResponsibilityNotifyEmitted*(
 ##
 
 proc orcMaterializationResponsibilityDefineMaterializing*(
-    mr: OrcMaterializationResponsibilityRef; pairs: OrcCSymbolFlagsMapPairs;
-    numPairs: csize_t): ErrorRef {.importc: "LLVMOrcMaterializationResponsibilityDefineMaterializing",
-                                   dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef,
+  pairs: OrcCSymbolFlagsMapPairs,
+  numPairs: csize_t,
+): ErrorRef {.
+  importc: "LLVMOrcMaterializationResponsibilityDefineMaterializing", dynlib: LLVMLib
+.}
+
 ##
 ##  Notify all not-yet-emitted covered by this MaterializationResponsibility
 ##  instance that an error has occurred.
@@ -957,9 +966,11 @@ proc orcMaterializationResponsibilityDefineMaterializing*(
 ##
 
 proc orcMaterializationResponsibilityFailMaterialization*(
-    mr: OrcMaterializationResponsibilityRef) {.
-    importc: "LLVMOrcMaterializationResponsibilityFailMaterialization",
-    dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef
+) {.
+  importc: "LLVMOrcMaterializationResponsibilityFailMaterialization", dynlib: LLVMLib
+.}
+
 ##
 ##  Transfers responsibility to the given MaterializationUnit for all
 ##  symbols defined by that MaterializationUnit. This allows
@@ -969,8 +980,9 @@ proc orcMaterializationResponsibilityFailMaterialization*(
 ##
 
 proc orcMaterializationResponsibilityReplace*(
-    mr: OrcMaterializationResponsibilityRef; mu: OrcMaterializationUnitRef): ErrorRef {.
-    importc: "LLVMOrcMaterializationResponsibilityReplace", dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef, mu: OrcMaterializationUnitRef
+): ErrorRef {.importc: "LLVMOrcMaterializationResponsibilityReplace", dynlib: LLVMLib.}
+
 ##
 ##  Delegates responsibility for the given symbols to the returned
 ##  materialization responsibility. Useful for breaking up work between
@@ -981,10 +993,12 @@ proc orcMaterializationResponsibilityReplace*(
 ##
 
 proc orcMaterializationResponsibilityDelegate*(
-    mr: OrcMaterializationResponsibilityRef;
-    symbols: ptr OrcSymbolStringPoolEntryRef; numSymbols: csize_t;
-    result: ptr OrcMaterializationResponsibilityRef): ErrorRef {.
-    importc: "LLVMOrcMaterializationResponsibilityDelegate", dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef,
+  symbols: ptr OrcSymbolStringPoolEntryRef,
+  numSymbols: csize_t,
+  result: ptr OrcMaterializationResponsibilityRef,
+): ErrorRef {.importc: "LLVMOrcMaterializationResponsibilityDelegate", dynlib: LLVMLib.}
+
 ##
 ##  Adds dependencies to a symbol that the MaterializationResponsibility is
 ##  responsible for.
@@ -1005,10 +1019,12 @@ proc orcMaterializationResponsibilityDelegate*(
 ##
 
 proc orcMaterializationResponsibilityAddDependencies*(
-    mr: OrcMaterializationResponsibilityRef; name: OrcSymbolStringPoolEntryRef;
-    dependencies: OrcCDependenceMapPairs; numPairs: csize_t) {.
-    importc: "LLVMOrcMaterializationResponsibilityAddDependencies",
-    dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef,
+  name: OrcSymbolStringPoolEntryRef,
+  dependencies: OrcCDependenceMapPairs,
+  numPairs: csize_t,
+) {.importc: "LLVMOrcMaterializationResponsibilityAddDependencies", dynlib: LLVMLib.}
+
 ##
 ##  Adds dependencies to all symbols that the MaterializationResponsibility is
 ##  responsible for. See LLVMOrcMaterializationResponsibilityAddDependencies for
@@ -1016,10 +1032,13 @@ proc orcMaterializationResponsibilityAddDependencies*(
 ##
 
 proc orcMaterializationResponsibilityAddDependenciesForAll*(
-    mr: OrcMaterializationResponsibilityRef;
-    dependencies: OrcCDependenceMapPairs; numPairs: csize_t) {.
-    importc: "LLVMOrcMaterializationResponsibilityAddDependenciesForAll",
-    dynlib: LLVMLib.}
+  mr: OrcMaterializationResponsibilityRef,
+  dependencies: OrcCDependenceMapPairs,
+  numPairs: csize_t,
+) {.
+  importc: "LLVMOrcMaterializationResponsibilityAddDependenciesForAll", dynlib: LLVMLib
+.}
+
 ##
 ##  Create a "bare" JITDylib.
 ##
@@ -1030,9 +1049,12 @@ proc orcMaterializationResponsibilityAddDependenciesForAll*(
 ##  created JITDylib. The client is responsible for all configuration.
 ##
 
-proc orcExecutionSessionCreateBareJITDylib*(es: OrcExecutionSessionRef;
-    name: cstring): OrcJITDylibRef {.importc: "LLVMOrcExecutionSessionCreateBareJITDylib",
-                                     dynlib: LLVMLib.}
+proc orcExecutionSessionCreateBareJITDylib*(
+  es: OrcExecutionSessionRef, name: cstring
+): OrcJITDylibRef {.
+  importc: "LLVMOrcExecutionSessionCreateBareJITDylib", dynlib: LLVMLib
+.}
+
 ##
 ##  Create a JITDylib.
 ##
@@ -1046,34 +1068,45 @@ proc orcExecutionSessionCreateBareJITDylib*(es: OrcExecutionSessionRef;
 ##  always return success.
 ##
 
-proc orcExecutionSessionCreateJITDylib*(es: OrcExecutionSessionRef;
-                                        result: ptr OrcJITDylibRef;
-                                        name: cstring): ErrorRef {.
-    importc: "LLVMOrcExecutionSessionCreateJITDylib", dynlib: LLVMLib.}
+proc orcExecutionSessionCreateJITDylib*(
+  es: OrcExecutionSessionRef, result: ptr OrcJITDylibRef, name: cstring
+): ErrorRef {.importc: "LLVMOrcExecutionSessionCreateJITDylib", dynlib: LLVMLib.}
+
 ##
 ##  Returns the JITDylib with the given name, or NULL if no such JITDylib
 ##  exists.
 ##
 
-proc orcExecutionSessionGetJITDylibByName*(es: OrcExecutionSessionRef;
-    name: cstring): OrcJITDylibRef {.importc: "LLVMOrcExecutionSessionGetJITDylibByName",
-                                     dynlib: LLVMLib.}
+proc orcExecutionSessionGetJITDylibByName*(
+  es: OrcExecutionSessionRef, name: cstring
+): OrcJITDylibRef {.
+  importc: "LLVMOrcExecutionSessionGetJITDylibByName", dynlib: LLVMLib
+.}
+
 ##
 ##  Return a reference to a newly created resource tracker associated with JD.
 ##  The tracker is returned with an initial ref-count of 1, and must be released
 ##  with LLVMOrcReleaseResourceTracker when no longer needed.
 ##
 
-proc orcJITDylibCreateResourceTracker*(jd: OrcJITDylibRef): OrcResourceTrackerRef {.
-    importc: "LLVMOrcJITDylibCreateResourceTracker", dynlib: LLVMLib.}
+proc orcJITDylibCreateResourceTracker*(
+  jd: OrcJITDylibRef
+): OrcResourceTrackerRef {.
+  importc: "LLVMOrcJITDylibCreateResourceTracker", dynlib: LLVMLib
+.}
+
 ##
 ##  Return a reference to the default resource tracker for the given JITDylib.
 ##  This operation will increase the retain count of the tracker: Clients should
 ##  call LLVMOrcReleaseResourceTracker when the result is no longer needed.
 ##
 
-proc orcJITDylibGetDefaultResourceTracker*(jd: OrcJITDylibRef): OrcResourceTrackerRef {.
-    importc: "LLVMOrcJITDylibGetDefaultResourceTracker", dynlib: LLVMLib.}
+proc orcJITDylibGetDefaultResourceTracker*(
+  jd: OrcJITDylibRef
+): OrcResourceTrackerRef {.
+  importc: "LLVMOrcJITDylibGetDefaultResourceTracker", dynlib: LLVMLib
+.}
+
 ##
 ##  Add the given MaterializationUnit to the given JITDylib.
 ##
@@ -1082,15 +1115,19 @@ proc orcJITDylibGetDefaultResourceTracker*(jd: OrcJITDylibRef): OrcResourceTrack
 ##  call LLVMOrcDisposeMaterializationUnit to destroy it.
 ##
 
-proc orcJITDylibDefine*(jd: OrcJITDylibRef; mu: OrcMaterializationUnitRef): ErrorRef {.
-    importc: "LLVMOrcJITDylibDefine", dynlib: LLVMLib.}
+proc orcJITDylibDefine*(
+  jd: OrcJITDylibRef, mu: OrcMaterializationUnitRef
+): ErrorRef {.importc: "LLVMOrcJITDylibDefine", dynlib: LLVMLib.}
+
 ##
 ##  Calls remove on all trackers associated with this JITDylib, see
 ##  JITDylib::clear().
 ##
 
-proc orcJITDylibClear*(jd: OrcJITDylibRef): ErrorRef {.
-    importc: "LLVMOrcJITDylibClear", dynlib: LLVMLib.}
+proc orcJITDylibClear*(
+  jd: OrcJITDylibRef
+): ErrorRef {.importc: "LLVMOrcJITDylibClear", dynlib: LLVMLib.}
+
 ##
 ##  Add a DefinitionGenerator to the given JITDylib.
 ##
@@ -1098,8 +1135,10 @@ proc orcJITDylibClear*(jd: OrcJITDylibRef): ErrorRef {.
 ##  longer responsible for managing its memory.
 ##
 
-proc orcJITDylibAddGenerator*(jd: OrcJITDylibRef; dg: OrcDefinitionGeneratorRef) {.
-    importc: "LLVMOrcJITDylibAddGenerator", dynlib: LLVMLib.}
+proc orcJITDylibAddGenerator*(
+  jd: OrcJITDylibRef, dg: OrcDefinitionGeneratorRef
+) {.importc: "LLVMOrcJITDylibAddGenerator", dynlib: LLVMLib.}
+
 ##
 ##  Create a custom generator.
 ##
@@ -1115,16 +1154,22 @@ proc orcJITDylibAddGenerator*(jd: OrcJITDylibRef; dg: OrcDefinitionGeneratorRef)
 ##
 
 proc orcCreateCustomCAPIDefinitionGenerator*(
-    f: OrcCAPIDefinitionGeneratorTryToGenerateFunction; ctx: pointer;
-    dispose: OrcDisposeCAPIDefinitionGeneratorFunction): OrcDefinitionGeneratorRef {.
-    importc: "LLVMOrcCreateCustomCAPIDefinitionGenerator", dynlib: LLVMLib.}
+  f: OrcCAPIDefinitionGeneratorTryToGenerateFunction,
+  ctx: pointer,
+  dispose: OrcDisposeCAPIDefinitionGeneratorFunction,
+): OrcDefinitionGeneratorRef {.
+  importc: "LLVMOrcCreateCustomCAPIDefinitionGenerator", dynlib: LLVMLib
+.}
+
 ##
 ##  Continue a lookup that was suspended in a generator (see
 ##  LLVMOrcCAPIDefinitionGeneratorTryToGenerateFunction).
 ##
 
-proc orcLookupStateContinueLookup*(s: OrcLookupStateRef; err: ErrorRef) {.
-    importc: "LLVMOrcLookupStateContinueLookup", dynlib: LLVMLib.}
+proc orcLookupStateContinueLookup*(
+  s: OrcLookupStateRef, err: ErrorRef
+) {.importc: "LLVMOrcLookupStateContinueLookup", dynlib: LLVMLib.}
+
 ##
 ##  Get a DynamicLibrarySearchGenerator that will reflect process symbols into
 ##  the JITDylib. On success the resulting generator is owned by the client.
@@ -1145,10 +1190,14 @@ proc orcLookupStateContinueLookup*(s: OrcLookupStateRef; err: ErrorRef) {.
 ##
 
 proc orcCreateDynamicLibrarySearchGeneratorForProcess*(
-    result: ptr OrcDefinitionGeneratorRef; globalPrefx: char;
-    filter: OrcSymbolPredicate; filterCtx: pointer): ErrorRef {.
-    importc: "LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess",
-    dynlib: LLVMLib.}
+  result: ptr OrcDefinitionGeneratorRef,
+  globalPrefx: char,
+  filter: OrcSymbolPredicate,
+  filterCtx: pointer,
+): ErrorRef {.
+  importc: "LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess", dynlib: LLVMLib
+.}
+
 ##
 ##  Get a LLVMOrcCreateDynamicLibararySearchGeneratorForPath that will reflect
 ##  library symbols into the JITDylib. On success the resulting generator is
@@ -1172,10 +1221,15 @@ proc orcCreateDynamicLibrarySearchGeneratorForProcess*(
 ##
 
 proc orcCreateDynamicLibrarySearchGeneratorForPath*(
-    result: ptr OrcDefinitionGeneratorRef; fileName: cstring;
-    globalPrefix: char; filter: OrcSymbolPredicate; filterCtx: pointer): ErrorRef {.
-    importc: "LLVMOrcCreateDynamicLibrarySearchGeneratorForPath",
-    dynlib: LLVMLib.}
+  result: ptr OrcDefinitionGeneratorRef,
+  fileName: cstring,
+  globalPrefix: char,
+  filter: OrcSymbolPredicate,
+  filterCtx: pointer,
+): ErrorRef {.
+  importc: "LLVMOrcCreateDynamicLibrarySearchGeneratorForPath", dynlib: LLVMLib
+.}
+
 ##
 ##  Get a LLVMOrcCreateStaticLibrarySearchGeneratorForPath that will reflect
 ##  static library symbols into the JITDylib. On success the resulting
@@ -1192,9 +1246,14 @@ proc orcCreateDynamicLibrarySearchGeneratorForPath*(
 ##
 
 proc orcCreateStaticLibrarySearchGeneratorForPath*(
-    result: ptr OrcDefinitionGeneratorRef; objLayer: OrcObjectLayerRef;
-    fileName: cstring; targetTriple: cstring): ErrorRef {.
-    importc: "LLVMOrcCreateStaticLibrarySearchGeneratorForPath", dynlib: LLVMLib.}
+  result: ptr OrcDefinitionGeneratorRef,
+  objLayer: OrcObjectLayerRef,
+  fileName: cstring,
+  targetTriple: cstring,
+): ErrorRef {.
+  importc: "LLVMOrcCreateStaticLibrarySearchGeneratorForPath", dynlib: LLVMLib
+.}
+
 ##
 ##  Create a ThreadSafeContext containing a new LLVMContext.
 ##
@@ -1205,19 +1264,25 @@ proc orcCreateStaticLibrarySearchGeneratorForPath*(
 ##
 
 proc orcCreateNewThreadSafeContext*(): OrcThreadSafeContextRef {.
-    importc: "LLVMOrcCreateNewThreadSafeContext", dynlib: LLVMLib.}
+  importc: "LLVMOrcCreateNewThreadSafeContext", dynlib: LLVMLib
+.}
+
 ##
 ##  Get a reference to the wrapped LLVMContext.
 ##
 
-proc orcThreadSafeContextGetContext*(tSCtx: OrcThreadSafeContextRef): ContextRef {.
-    importc: "LLVMOrcThreadSafeContextGetContext", dynlib: LLVMLib.}
+proc orcThreadSafeContextGetContext*(
+  tSCtx: OrcThreadSafeContextRef
+): ContextRef {.importc: "LLVMOrcThreadSafeContextGetContext", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of a ThreadSafeContext.
 ##
 
-proc orcDisposeThreadSafeContext*(tSCtx: OrcThreadSafeContextRef) {.
-    importc: "LLVMOrcDisposeThreadSafeContext", dynlib: LLVMLib.}
+proc orcDisposeThreadSafeContext*(
+  tSCtx: OrcThreadSafeContextRef
+) {.importc: "LLVMOrcDisposeThreadSafeContext", dynlib: LLVMLib.}
+
 ##
 ##  Create a ThreadSafeModule wrapper around the given LLVM module. This takes
 ##  ownership of the M argument which should not be disposed of or referenced
@@ -1229,24 +1294,30 @@ proc orcDisposeThreadSafeContext*(tSCtx: OrcThreadSafeContextRef) {.
 ##  should call LLVMOrcDisposeThreadSafeModule to dispose of it.
 ##
 
-proc orcCreateNewThreadSafeModule*(m: ModuleRef; tSCtx: OrcThreadSafeContextRef): OrcThreadSafeModuleRef {.
-    importc: "LLVMOrcCreateNewThreadSafeModule", dynlib: LLVMLib.}
+proc orcCreateNewThreadSafeModule*(
+  m: ModuleRef, tSCtx: OrcThreadSafeContextRef
+): OrcThreadSafeModuleRef {.
+  importc: "LLVMOrcCreateNewThreadSafeModule", dynlib: LLVMLib
+.}
+
 ##
 ##  Dispose of a ThreadSafeModule. This should only be called if ownership has
 ##  not been passed to LLJIT (e.g. because some error prevented the client from
 ##  adding this to the JIT).
 ##
 
-proc orcDisposeThreadSafeModule*(tsm: OrcThreadSafeModuleRef) {.
-    importc: "LLVMOrcDisposeThreadSafeModule", dynlib: LLVMLib.}
+proc orcDisposeThreadSafeModule*(
+  tsm: OrcThreadSafeModuleRef
+) {.importc: "LLVMOrcDisposeThreadSafeModule", dynlib: LLVMLib.}
+
 ##
 ##  Apply the given function to the module contained in this ThreadSafeModule.
 ##
 
-proc orcThreadSafeModuleWithModuleDo*(tsm: OrcThreadSafeModuleRef;
-                                      f: OrcGenericIRModuleOperationFunction;
-                                      ctx: pointer): ErrorRef {.
-    importc: "LLVMOrcThreadSafeModuleWithModuleDo", dynlib: LLVMLib.}
+proc orcThreadSafeModuleWithModuleDo*(
+  tsm: OrcThreadSafeModuleRef, f: OrcGenericIRModuleOperationFunction, ctx: pointer
+): ErrorRef {.importc: "LLVMOrcThreadSafeModuleWithModuleDo", dynlib: LLVMLib.}
+
 ##
 ##  Create a JITTargetMachineBuilder by detecting the host.
 ##
@@ -1257,8 +1328,9 @@ proc orcThreadSafeModuleWithModuleDo*(tsm: OrcThreadSafeModuleRef;
 ##
 
 proc orcJITTargetMachineBuilderDetectHost*(
-    result: ptr OrcJITTargetMachineBuilderRef): ErrorRef {.
-    importc: "LLVMOrcJITTargetMachineBuilderDetectHost", dynlib: LLVMLib.}
+  result: ptr OrcJITTargetMachineBuilderRef
+): ErrorRef {.importc: "LLVMOrcJITTargetMachineBuilderDetectHost", dynlib: LLVMLib.}
+
 ##
 ##  Create a JITTargetMachineBuilder from the given TargetMachine template.
 ##
@@ -1269,15 +1341,20 @@ proc orcJITTargetMachineBuilderDetectHost*(
 ##  LLVMOrcDisposeJITTargetMachineBuilder.
 ##
 
-proc orcJITTargetMachineBuilderCreateFromTargetMachine*(tm: TargetMachineRef): OrcJITTargetMachineBuilderRef {.
-    importc: "LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine",
-    dynlib: LLVMLib.}
+proc orcJITTargetMachineBuilderCreateFromTargetMachine*(
+  tm: TargetMachineRef
+): OrcJITTargetMachineBuilderRef {.
+  importc: "LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine", dynlib: LLVMLib
+.}
+
 ##
 ##  Dispose of a JITTargetMachineBuilder.
 ##
 
-proc orcDisposeJITTargetMachineBuilder*(jtmb: OrcJITTargetMachineBuilderRef) {.
-    importc: "LLVMOrcDisposeJITTargetMachineBuilder", dynlib: LLVMLib.}
+proc orcDisposeJITTargetMachineBuilder*(
+  jtmb: OrcJITTargetMachineBuilderRef
+) {.importc: "LLVMOrcDisposeJITTargetMachineBuilder", dynlib: LLVMLib.}
+
 ##
 ##  Returns the target triple for the given JITTargetMachineBuilder as a string.
 ##
@@ -1286,16 +1363,18 @@ proc orcDisposeJITTargetMachineBuilder*(jtmb: OrcJITTargetMachineBuilderRef) {.
 ##
 
 proc orcJITTargetMachineBuilderGetTargetTriple*(
-    jtmb: OrcJITTargetMachineBuilderRef): cstring {.
-    importc: "LLVMOrcJITTargetMachineBuilderGetTargetTriple", dynlib: LLVMLib.}
+  jtmb: OrcJITTargetMachineBuilderRef
+): cstring {.importc: "LLVMOrcJITTargetMachineBuilderGetTargetTriple", dynlib: LLVMLib.}
+
 ##
 ##  Sets the target triple for the given JITTargetMachineBuilder to the given
 ##  string.
 ##
 
 proc orcJITTargetMachineBuilderSetTargetTriple*(
-    jtmb: OrcJITTargetMachineBuilderRef; targetTriple: cstring) {.
-    importc: "LLVMOrcJITTargetMachineBuilderSetTargetTriple", dynlib: LLVMLib.}
+  jtmb: OrcJITTargetMachineBuilderRef, targetTriple: cstring
+) {.importc: "LLVMOrcJITTargetMachineBuilderSetTargetTriple", dynlib: LLVMLib.}
+
 ##
 ##  Add an object to an ObjectLayer to the given JITDylib.
 ##
@@ -1308,9 +1387,10 @@ proc orcJITTargetMachineBuilderSetTargetTriple*(
 ##  JITDylib's default ResourceTracker.
 ##
 
-proc orcObjectLayerAddObjectFile*(objLayer: OrcObjectLayerRef;
-                                  jd: OrcJITDylibRef; objBuffer: MemoryBufferRef): ErrorRef {.
-    importc: "LLVMOrcObjectLayerAddObjectFile", dynlib: LLVMLib.}
+proc orcObjectLayerAddObjectFile*(
+  objLayer: OrcObjectLayerRef, jd: OrcJITDylibRef, objBuffer: MemoryBufferRef
+): ErrorRef {.importc: "LLVMOrcObjectLayerAddObjectFile", dynlib: LLVMLib.}
+
 ##
 ##  Add an object to an ObjectLayer using the given ResourceTracker.
 ##
@@ -1323,10 +1403,10 @@ proc orcObjectLayerAddObjectFile*(objLayer: OrcObjectLayerRef;
 ##  ResourceTracker RT.
 ##
 
-proc orcObjectLayerAddObjectFileWithRT*(objLayer: OrcObjectLayerRef;
-                                        rt: OrcResourceTrackerRef;
-                                        objBuffer: MemoryBufferRef): ErrorRef {.
-    importc: "LLVMOrcObjectLayerAddObjectFileWithRT", dynlib: LLVMLib.}
+proc orcObjectLayerAddObjectFileWithRT*(
+  objLayer: OrcObjectLayerRef, rt: OrcResourceTrackerRef, objBuffer: MemoryBufferRef
+): ErrorRef {.importc: "LLVMOrcObjectLayerAddObjectFileWithRT", dynlib: LLVMLib.}
+
 ##
 ##  Emit an object buffer to an ObjectLayer.
 ##
@@ -1334,36 +1414,47 @@ proc orcObjectLayerAddObjectFileWithRT*(objLayer: OrcObjectLayerRef;
 ##  function. The client is not responsible for cleanup.
 ##
 
-proc orcObjectLayerEmit*(objLayer: OrcObjectLayerRef;
-                         r: OrcMaterializationResponsibilityRef;
-                         objBuffer: MemoryBufferRef) {.
-    importc: "LLVMOrcObjectLayerEmit", dynlib: LLVMLib.}
+proc orcObjectLayerEmit*(
+  objLayer: OrcObjectLayerRef,
+  r: OrcMaterializationResponsibilityRef,
+  objBuffer: MemoryBufferRef,
+) {.importc: "LLVMOrcObjectLayerEmit", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of an ObjectLayer.
 ##
 
-proc orcDisposeObjectLayer*(objLayer: OrcObjectLayerRef) {.
-    importc: "LLVMOrcDisposeObjectLayer", dynlib: LLVMLib.}
-proc orcIRTransformLayerEmit*(iRTransformLayer: OrcIRTransformLayerRef;
-                              mr: OrcMaterializationResponsibilityRef;
-                              tsm: OrcThreadSafeModuleRef) {.
-    importc: "LLVMOrcIRTransformLayerEmit", dynlib: LLVMLib.}
+proc orcDisposeObjectLayer*(
+  objLayer: OrcObjectLayerRef
+) {.importc: "LLVMOrcDisposeObjectLayer", dynlib: LLVMLib.}
+
+proc orcIRTransformLayerEmit*(
+  iRTransformLayer: OrcIRTransformLayerRef,
+  mr: OrcMaterializationResponsibilityRef,
+  tsm: OrcThreadSafeModuleRef,
+) {.importc: "LLVMOrcIRTransformLayerEmit", dynlib: LLVMLib.}
+
 ##
 ##  Set the transform function of the provided transform layer, passing through a
 ##  pointer to user provided context.
 ##
 
-proc orcIRTransformLayerSetTransform*(iRTransformLayer: OrcIRTransformLayerRef;
-    transformFunction: OrcIRTransformLayerTransformFunction; ctx: pointer) {.
-    importc: "LLVMOrcIRTransformLayerSetTransform", dynlib: LLVMLib.}
+proc orcIRTransformLayerSetTransform*(
+  iRTransformLayer: OrcIRTransformLayerRef,
+  transformFunction: OrcIRTransformLayerTransformFunction,
+  ctx: pointer,
+) {.importc: "LLVMOrcIRTransformLayerSetTransform", dynlib: LLVMLib.}
+
 ##
 ##  Set the transform function on an LLVMOrcObjectTransformLayer.
 ##
 
 proc orcObjectTransformLayerSetTransform*(
-    objTransformLayer: OrcObjectTransformLayerRef;
-    transformFunction: OrcObjectTransformLayerTransformFunction; ctx: pointer) {.
-    importc: "LLVMOrcObjectTransformLayerSetTransform", dynlib: LLVMLib.}
+  objTransformLayer: OrcObjectTransformLayerRef,
+  transformFunction: OrcObjectTransformLayerTransformFunction,
+  ctx: pointer,
+) {.importc: "LLVMOrcObjectTransformLayerSetTransform", dynlib: LLVMLib.}
+
 ##
 ##  Create a LocalIndirectStubsManager from the given target triple.
 ##
@@ -1371,24 +1462,35 @@ proc orcObjectTransformLayerSetTransform*(
 ##  and must be disposed of by calling LLVMOrcDisposeDisposeIndirectStubsManager.
 ##
 
-proc orcCreateLocalIndirectStubsManager*(targetTriple: cstring): OrcIndirectStubsManagerRef {.
-    importc: "LLVMOrcCreateLocalIndirectStubsManager", dynlib: LLVMLib.}
+proc orcCreateLocalIndirectStubsManager*(
+  targetTriple: cstring
+): OrcIndirectStubsManagerRef {.
+  importc: "LLVMOrcCreateLocalIndirectStubsManager", dynlib: LLVMLib
+.}
+
 ##
 ##  Dispose of an IndirectStubsManager.
 ##
 
-proc orcDisposeIndirectStubsManager*(ism: OrcIndirectStubsManagerRef) {.
-    importc: "LLVMOrcDisposeIndirectStubsManager", dynlib: LLVMLib.}
-proc orcCreateLocalLazyCallThroughManager*(targetTriple: cstring;
-    es: OrcExecutionSessionRef; errorHandlerAddr: OrcJITTargetAddress;
-    lctm: ptr OrcLazyCallThroughManagerRef): ErrorRef {.
-    importc: "LLVMOrcCreateLocalLazyCallThroughManager", dynlib: LLVMLib.}
+proc orcDisposeIndirectStubsManager*(
+  ism: OrcIndirectStubsManagerRef
+) {.importc: "LLVMOrcDisposeIndirectStubsManager", dynlib: LLVMLib.}
+
+proc orcCreateLocalLazyCallThroughManager*(
+  targetTriple: cstring,
+  es: OrcExecutionSessionRef,
+  errorHandlerAddr: OrcJITTargetAddress,
+  lctm: ptr OrcLazyCallThroughManagerRef,
+): ErrorRef {.importc: "LLVMOrcCreateLocalLazyCallThroughManager", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of an LazyCallThroughManager.
 ##
 
-proc orcDisposeLazyCallThroughManager*(lctm: OrcLazyCallThroughManagerRef) {.
-    importc: "LLVMOrcDisposeLazyCallThroughManager", dynlib: LLVMLib.}
+proc orcDisposeLazyCallThroughManager*(
+  lctm: OrcLazyCallThroughManagerRef
+) {.importc: "LLVMOrcDisposeLazyCallThroughManager", dynlib: LLVMLib.}
+
 ##
 ##  Create a DumpObjects instance.
 ##
@@ -1404,21 +1506,26 @@ proc orcDisposeLazyCallThroughManager*(lctm: OrcLazyCallThroughManagerRef) {.
 ##  an extension, as a .o suffix will be added by DumpObjects.
 ##
 
-proc orcCreateDumpObjects*(dumpDir: cstring; identifierOverride: cstring): OrcDumpObjectsRef {.
-    importc: "LLVMOrcCreateDumpObjects", dynlib: LLVMLib.}
+proc orcCreateDumpObjects*(
+  dumpDir: cstring, identifierOverride: cstring
+): OrcDumpObjectsRef {.importc: "LLVMOrcCreateDumpObjects", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of a DumpObjects instance.
 ##
 
-proc orcDisposeDumpObjects*(dumpObjects: OrcDumpObjectsRef) {.
-    importc: "LLVMOrcDisposeDumpObjects", dynlib: LLVMLib.}
+proc orcDisposeDumpObjects*(
+  dumpObjects: OrcDumpObjectsRef
+) {.importc: "LLVMOrcDisposeDumpObjects", dynlib: LLVMLib.}
+
 ##
 ##  Dump the contents of the given MemoryBuffer.
 ##
 
-proc orcDumpObjectsCallOperator*(dumpObjects: OrcDumpObjectsRef;
-                                 objBuffer: ptr MemoryBufferRef): ErrorRef {.
-    importc: "LLVMOrcDumpObjects_CallOperator", dynlib: LLVMLib.}
+proc orcDumpObjectsCallOperator*(
+  dumpObjects: OrcDumpObjectsRef, objBuffer: ptr MemoryBufferRef
+): ErrorRef {.importc: "LLVMOrcDumpObjects_CallOperator", dynlib: LLVMLib.}
+
 ##
 ##  @}
 ##

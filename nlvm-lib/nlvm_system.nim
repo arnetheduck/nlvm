@@ -43,12 +43,17 @@ const
 include system/inclrtl, system/hti
 
 template dprintf(s: cstring, x: varargs[untyped]) =
-  when defined(nlvmDebugSystem): c_printf(s, x)
-  else: discard
+  when defined(nlvmDebugSystem):
+    c_printf(s, x)
+  else:
+    discard
 
 # Chicken and egg in system.nim...
-template `+=`(x: var SomeInteger, y: SomeInteger) = x = x + y
-template `-=`(x: var SomeInteger, y: SomeInteger) = x = x - y
+template `+=`(x: var SomeInteger, y: SomeInteger) =
+  x = x + y
+
+template `-=`(x: var SomeInteger, y: SomeInteger) =
+  x = x - y
 
 type
   NlvmException = object
@@ -110,8 +115,7 @@ func readBytes(v: var pointer, T: type): T =
 # trust that these fit in an uint64
 func readUleb128(v: var pointer): uint64 =
   ## Read unsigned variable-length integer - no error checking
-  var
-    shift: uint
+  var shift: uint
 
   while true:
     let b = v.readBytes(uint8)
@@ -128,23 +132,24 @@ func readSleb128(v: var pointer): int64 =
     b: uint8
 
   while true:
-      b = v.readBytes(uint8)
-      res = res or (uint64(b and 0x7F) shl shift)
-      shift += 7
-      if (b and 0x80) == 0:
-        break
+    b = v.readBytes(uint8)
+    res = res or (uint64(b and 0x7F) shl shift)
+    shift += 7
+    if (b and 0x80) == 0:
+      break
 
   if shift < (8 * sizeof(uint64)) and ((b and 0x40) != 0):
     res = res or (not 0'u64) shl shift
 
   cast[int64](res)
 
-proc readEncodedPointer(
-    v: var pointer, ctx: UnwindContext, encoding: uint8): pointer =
-  if encoding == DW_EH_PE_omit: return
-  let tmp = v # when reading rel below, we have to use the original address, not
-              # not the one incremented by readbytes.. interestingly, it seems
-              # rust disagrees here - todo: investigate
+proc readEncodedPointer(v: var pointer, ctx: UnwindContext, encoding: uint8): pointer =
+  if encoding == DW_EH_PE_omit:
+    return
+  let tmp = v
+    # when reading rel below, we have to use the original address, not
+    # not the one incremented by readbytes.. interestingly, it seems
+    # rust disagrees here - todo: investigate
   # DW_EH_PE_aligned implies it's an absolute pointer value
   if encoding == DW_EH_PE_aligned:
     roundUp(v, sizeof(uint).uint)
@@ -152,27 +157,45 @@ proc readEncodedPointer(
 
   let p =
     case encoding and 0x0F
-    of DW_EH_PE_absptr: v.readBytes(uint)
-    of DW_EH_PE_uleb128: uint(v.readUleb128())
-    of DW_EH_PE_udata2: uint(v.readBytes(uint16))
-    of DW_EH_PE_udata4: uint(v.readBytes(uint32))
-    of DW_EH_PE_udata8: uint(v.readBytes(uint64))
-    of DW_EH_PE_sleb128: uint(v.readSleb128())
-    of DW_EH_PE_sdata2: uint(v.readBytes(int16))
-    of DW_EH_PE_sdata4: uint(v.readBytes(int32))
-    of DW_EH_PE_sdata8: uint(v.readBytes(int64))
-    else: c_abort()
+    of DW_EH_PE_absptr:
+      v.readBytes(uint)
+    of DW_EH_PE_uleb128:
+      uint(v.readUleb128())
+    of DW_EH_PE_udata2:
+      uint(v.readBytes(uint16))
+    of DW_EH_PE_udata4:
+      uint(v.readBytes(uint32))
+    of DW_EH_PE_udata8:
+      uint(v.readBytes(uint64))
+    of DW_EH_PE_sleb128:
+      uint(v.readSleb128())
+    of DW_EH_PE_sdata2:
+      uint(v.readBytes(int16))
+    of DW_EH_PE_sdata4:
+      uint(v.readBytes(int32))
+    of DW_EH_PE_sdata8:
+      uint(v.readBytes(int64))
+    else:
+      c_abort()
 
-  if p == 0: return nil
+  if p == 0:
+    return nil
 
   let rel =
     case encoding and 0x70
-    of DW_EH_PE_absptr: 0.uint
-    of DW_EH_PE_pcrel: cast[uint](tmp) # relative to address of the encoded value, despite the name
-    of DW_EH_PE_funcrel: ctx.getRegionStart()
-    of DW_EH_PE_textrel: ctx.getTextRelBase()
-    of DW_EH_PE_datarel: ctx.getDataRelBase()
-    else: c_abort()
+    of DW_EH_PE_absptr:
+      0.uint
+    of DW_EH_PE_pcrel:
+      cast[uint](tmp)
+    # relative to address of the encoded value, despite the name
+    of DW_EH_PE_funcrel:
+      ctx.getRegionStart()
+    of DW_EH_PE_textrel:
+      ctx.getTextRelBase()
+    of DW_EH_PE_datarel:
+      ctx.getDataRelBase()
+    else:
+      c_abort()
 
   let loc = p + rel
   if (encoding and DW_EH_PE_indirect) != 0:
@@ -187,8 +210,8 @@ proc toUnwindException(e: ptr NlvmException): ptr UnwindException =
   addr e.unwindException
 
 func toNlvmException(e: ptr UnwindException): ptr NlvmException =
-  cast[ptr NlvmException](
-    cast[uint](e) + sizeof(UnwindException).uint - sizeof(NlvmException).uint)
+  cast[ptr NlvmException](cast[uint](e) + sizeof(UnwindException).uint -
+    sizeof(NlvmException).uint)
 
 func toNimException(e: ptr NlvmException): ref Exception =
   e[].nimException
@@ -197,14 +220,15 @@ func toNimException(e: ptr UnwindException): ref Exception =
   e.toNlvmException().toNimException()
 
 proc nlvmExceptionCleanup(
-    unwindCode: UnwindReasonCode, exception: ptr UnwindException) {.cdecl.} =
+    unwindCode: UnwindReasonCode, exception: ptr UnwindException
+) {.cdecl.} =
   dprintf("Cleanup %p\n", exception)
   let nlvme = toNlvmException(exception)
   when declared(GC_unref):
     GC_unref(nlvme.nimException)
   c_free(cast[pointer](nlvme))
 
-var ehGlobals{.threadvar.}: NlvmEhGlobals
+var ehGlobals {.threadvar.}: NlvmEhGlobals
 
 proc unhandledException() {.noreturn.} =
   c_fprintf(cstderr, "Error: unhandled exception: [foreign]\n")
@@ -212,29 +236,32 @@ proc unhandledException() {.noreturn.} =
   quit(1) # TODO alternatively, quitOrDebug
 
 proc unhandledException(e: ref Exception) {.noreturn.} =
-  c_fprintf(
-    cstderr, "Error: unhandled exception: %s [%s]\n", cstring(e.msg), e.name)
+  c_fprintf(cstderr, "Error: unhandled exception: %s [%s]\n", cstring(e.msg), e.name)
 
   quit(1) # TODO alternatively, quitOrDebug
 
 func getNimTypePtr(
-    ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8,
-    ctx: UnwindContext): pointer =
-  let
-    ti =
-      case ttypeEncoding and 0x0F'u8
-      of DW_EH_PE_absptr: ttypeIndex * sizeof(pointer)
-      of DW_EH_PE_udata2, DW_EH_PE_sdata2: ttypeIndex * 2
-      of DW_EH_PE_udata4, DW_EH_PE_sdata4: ttypeIndex * 4
-      of DW_EH_PE_udata8, DW_EH_PE_sdata8: ttypeIndex * 8
-      else: c_abort()
+    ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8, ctx: UnwindContext
+): pointer =
+  let ti =
+    case ttypeEncoding and 0x0F'u8
+    of DW_EH_PE_absptr:
+      ttypeIndex * sizeof(pointer)
+    of DW_EH_PE_udata2, DW_EH_PE_sdata2:
+      ttypeIndex * 2
+    of DW_EH_PE_udata4, DW_EH_PE_sdata4:
+      ttypeIndex * 4
+    of DW_EH_PE_udata8, DW_EH_PE_sdata8:
+      ttypeIndex * 8
+    else:
+      c_abort()
 
   var tiPtr = classInfo.offset(-ti)
   tiPtr.readEncodedPointer(ctx, ttypeEncoding)
 
 when defined(nimV2):
   type
-    DestructorProc = proc (p: pointer) {.nimcall, benign, raises: [].}
+    DestructorProc = proc(p: pointer) {.nimcall, benign, raises: [].}
     TNimTypeV2 = object
       destructor: pointer
       size: int
@@ -243,6 +270,7 @@ when defined(nimV2):
       traceImpl: pointer
       typeInfoV1: pointer # for backwards compat, usually nil
       flags: int
+
     PNimTypeV2 = ptr TNimTypeV2
 
   func exceptionType(e: ref Exception): PNimTypeV2 =
@@ -251,8 +279,8 @@ when defined(nimV2):
     cast[ptr PNimTypeV2](unsafeAddr e[])[]
 
   func getNimType(
-      ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8,
-      ctx: UnwindContext): PNimTypeV2 =
+      ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8, ctx: UnwindContext
+  ): PNimTypeV2 =
     cast[PNimTypeV2](getNimTypePtr(ttypeIndex, classInfo, ttypeEncoding, ctx))
 
   proc memcmp(str1, str2: cstring, n: csize_t): cint {.importc, header: "<string.h>".}
@@ -263,7 +291,8 @@ when defined(nimV2):
       suffixLen = suffix.len
 
     if suffixLen <= sLen:
-      result = memcmp(cstring(unsafeAddr s[sLen - suffixLen]), suffix, csize_t(suffixLen)) == 0
+      result =
+        memcmp(cstring(unsafeAddr s[sLen - suffixLen]), suffix, csize_t(suffixLen)) == 0
 
   proc isObj(obj: PNimTypeV2, subclass: cstring): bool {.compilerRtl, inl.} =
     endsWith(obj.name, subclass)
@@ -277,8 +306,8 @@ else:
     cast[ptr PNimType](unsafeAddr e[])[]
 
   func getNimType(
-      ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8,
-      ctx: UnwindContext): PNimType =
+      ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8, ctx: UnwindContext
+  ): PNimType =
     cast[PNimType](getNimTypePtr(ttypeIndex, classInfo, ttypeEncoding, ctx))
 
 import system/memory
@@ -299,8 +328,7 @@ proc nlvmRaise(e: ref Exception) {.compilerproc, noreturn.} =
     GC_ref(e)
 
   let unwindException = exc.toUnwindException()
-  dprintf(
-    "Raising %s %p %p\n", cstring(e.name), unwindException, e.exceptionType())
+  dprintf("Raising %s %p %p\n", cstring(e.name), unwindException, e.exceptionType())
 
   let reason = raiseException(unwindException)
 
@@ -319,12 +347,11 @@ proc nlvmReraise() {.compilerproc, noreturn.} =
     nlvmRaise((ref ReraiseDefect)(msg: "no exception to reraise"))
 
   dprintf("Reraise %p\n", unwindException)
-  ehGlobals.closureException = nil  # Just in case, see workaround notes
+  ehGlobals.closureException = nil # Just in case, see workaround notes
 
   if unwindException[].isNative():
     let exceptionHeader = unwindException.toNlvmException()
     exceptionHeader.handlerCount = -exceptionHeader.handlerCount
-
   else:
     ehGlobals.caughtExceptions = nil
 
@@ -351,8 +378,10 @@ proc nlvmGetCurrentException(): ref Exception {.compilerproc.} =
   else:
     let unwindException = ehGlobals.caughtExceptions
     dprintf("current: %p\n", unwindException)
-    if unwindException.isNil(): nil
-    else: unwindException.toNimException()
+    if unwindException.isNil():
+      nil
+    else:
+      unwindException.toNimException()
 
 proc nlvmGetCurrentExceptionMsg(): string {.compilerproc.} =
   let e = nlvmGetCurrentException()
@@ -360,10 +389,9 @@ proc nlvmGetCurrentExceptionMsg(): string {.compilerproc.} =
 
 proc nlvmBeginCatch(unwindArg: pointer) {.compilerproc.} =
   dprintf("begin catch %p\n", unwindArg)
-  ehGlobals.closureException = nil  # Just in case, see workaround notes
+  ehGlobals.closureException = nil # Just in case, see workaround notes
 
-  let
-    unwindException = cast[ptr UnwindException](unwindArg)
+  let unwindException = cast[ptr UnwindException](unwindArg)
 
   if unwindException[].isNative():
     let exceptionHeader = unwindException.toNlvmException()
@@ -392,7 +420,7 @@ proc nlvmEndCatch() {.compilerproc.} =
     # rethrown foreign exception
     return
 
-  ehGlobals.closureException = nil  # Just in case, see workaround notes
+  ehGlobals.closureException = nil # Just in case, see workaround notes
 
   if unwindException[].isNative():
     let exceptionHeader = unwindException.toNlvmException()
@@ -423,24 +451,27 @@ func canCatch(catchType, thrownType: PNimType): bool =
   var tmp = thrownType
 
   while tmp != nil:
-    if tmp == catchType: return true
+    if tmp == catchType:
+      return true
     tmp = tmp.base
 
-type
-  ScanResult = object
-    ttypeIndex: int # > 0 catch handler, < 0 exception spec handler, == 0 a cleanup
-    landingPad: pointer # null -> nothing found, else something found
-    reason: UnwindReasonCode
+type ScanResult = object
+  ttypeIndex: int # > 0 catch handler, < 0 exception spec handler, == 0 a cleanup
+  landingPad: pointer # null -> nothing found, else something found
+  reason: UnwindReasonCode
 
 when defined(nimV2):
   type PNimTypeVX = PNimTypeV2
 else:
   type PNimTypeVX = PNimType
 
-
 func exceptionSpecCanCatch(
-    specIndex: int, classInfo: pointer, ttypeEncoding: uint8,
-    excpType: PNimTypeVX, ctx: UnwindContext): bool =
+    specIndex: int,
+    classInfo: pointer,
+    ttypeEncoding: uint8,
+    excpType: PNimTypeVX,
+    ctx: UnwindContext,
+): bool =
   # specIndex is negative of 1-based byte offset into classInfo
   var specIndex = -specIndex
 
@@ -460,17 +491,18 @@ func exceptionSpecCanCatch(
   return true
 
 func scanEHTable(
-    actions: UnwindAction, native: bool, unwindException: ptr UnwindException,
-    ctx: UnwindContext): ScanResult =
+    actions: UnwindAction,
+    native: bool,
+    unwindException: ptr UnwindException,
+    ctx: UnwindContext,
+): ScanResult =
   # Sanity checking of actions
   if actions.isSet(UA_SEARCH_PHASE):
     if actions.isSet(UA_CLEANUP_PHASE or UA_HANDLER_FRAME or UA_FORCE_UNWIND):
       return ScanResult(reason: URC_FATAL_PHASE1_ERROR)
-
   elif actions.isSet(UA_CLEANUP_PHASE):
     if actions.isSet(UA_HANDLER_FRAME) and actions.isSet(UA_FORCE_UNWIND):
       return ScanResult(reason: URC_FATAL_PHASE2_ERROR)
-
   else: # Either of search/cleanup must be set
     return ScanResult(reason: URC_FATAL_PHASE1_ERROR)
 
@@ -490,7 +522,10 @@ func scanEHTable(
     startEncoding = header.readBytes(uint8)
     lpStartEncoded = header.readEncodedPointer(ctx, startEncoding)
     lpStart =
-      if lpStartEncoded.isNil(): cast[pointer](funcStart) else: lpStartEncoded
+      if lpStartEncoded.isNil():
+        cast[pointer](funcStart)
+      else:
+        lpStartEncoded
 
   let
     ttypeEncoding = header.readBytes(uint8)
@@ -498,7 +533,8 @@ func scanEHTable(
       if ttypeEncoding != DW_EH_PE_omit:
         let ciOffset = header.readUleb128()
         header.offset(ciOffset.int)
-      else: nil
+      else:
+        nil
 
   # Call site
   let
@@ -526,11 +562,8 @@ func scanEHTable(
       if actionEntry == 0:
         # Cleanup
         if actions.isSet(UA_CLEANUP_PHASE) and not actions.isSet(UA_HANDLER_FRAME):
-          return ScanResult(
-            ttypeIndex: 0,
-            landingPad: landingPad,
-            reason: URC_HANDLER_FOUND
-          )
+          return
+            ScanResult(ttypeIndex: 0, landingPad: landingPad, reason: URC_HANDLER_FOUND)
         dprintf("cleanup\n")
         return ScanResult(reason: URC_CONTINUE_UNWIND)
 
@@ -544,8 +577,7 @@ func scanEHTable(
 
         if ttypeIndex > 0:
           # Catch
-          let catchType =
-            getNimType(ttypeIndex, classInfo, ttypeEncoding, ctx)
+          let catchType = getNimType(ttypeIndex, classInfo, ttypeEncoding, ctx)
           dprintf("catch type %p\n", catchType)
 
           if catchType.isNil():
@@ -555,7 +587,7 @@ func scanEHTable(
               return ScanResult(
                 ttypeIndex: ttypeIndex,
                 landingPad: landingPad,
-                reason: URC_HANDLER_FOUND
+                reason: URC_HANDLER_FOUND,
               )
             elif not actions.isSet(UA_FORCE_UNWIND):
               # stack corruption maybe, according to libcxxabi
@@ -574,12 +606,11 @@ func scanEHTable(
                 return ScanResult(
                   ttypeIndex: ttypeIndex,
                   landingPad: landingPad,
-                  reason: URC_HANDLER_FOUND
+                  reason: URC_HANDLER_FOUND,
                 )
               elif not actions.isSet(UA_FORCE_UNWIND):
                 # stack corruption maybe, according to libcxxabi
                 c_abort()
-
         elif ttypeIndex < 0:
           # Exception spec
           if native:
@@ -591,12 +622,13 @@ func scanEHTable(
               c_abort()
 
             if exceptionSpecCanCatch(
-                ttypeIndex, classInfo, ttypeEncoding, excpType, ctx):
+              ttypeIndex, classInfo, ttypeEncoding, excpType, ctx
+            ):
               if actions.isSet(UA_SEARCH_PHASE):
                 return ScanResult(
                   ttypeIndex: ttypeIndex,
                   landingPad: landingPad,
-                  reason: URC_HANDLER_FOUND
+                  reason: URC_HANDLER_FOUND,
                 )
               elif not actions.isSet(UA_FORCE_UNWIND):
                 # stack corruption maybe, according to libcxxabi
@@ -606,7 +638,7 @@ func scanEHTable(
               return ScanResult(
                 ttypeIndex: ttypeIndex,
                 landingPad: landingPad,
-                reason: URC_HANDLER_FOUND
+                reason: URC_HANDLER_FOUND,
               )
             elif not actions.isSet(UA_FORCE_UNWIND):
               # stack corruption maybe, according to libcxxabi
@@ -614,17 +646,15 @@ func scanEHTable(
         else: # ttypeIndex == 0
           if actions.isSet(UA_CLEANUP_PHASE) and not actions.isSet(UA_HANDLER_FRAME):
             return ScanResult(
-              ttypeIndex: ttypeIndex,
-              landingPad: landingPad,
-              reason: URC_HANDLER_FOUND
+              ttypeIndex: ttypeIndex, landingPad: landingPad, reason: URC_HANDLER_FOUND
             )
 
         var temp = action
         let actionOffset = temp.readSleb128()
         if actionOffset == 0:
-            # End of action list, no matching handler or cleanup found
-            dprintf("noaction\n")
-            return ScanResult(reason: URC_CONTINUE_UNWIND)
+          # End of action list, no matching handler or cleanup found
+          dprintf("noaction\n")
+          return ScanResult(reason: URC_CONTINUE_UNWIND)
 
         action.ptrAdd(actionOffset.int)
 
@@ -632,8 +662,8 @@ func scanEHTable(
   c_abort()
 
 proc setRegisters(
-    unwindException: ptr UnwindException, ctx: UnwindContext,
-    results: ScanResult) =
+    unwindException: ptr UnwindException, ctx: UnwindContext, results: ScanResult
+) =
   ctx.setGR(UNWIND_DATA_REG[0], cast[uint](unwindException))
   ctx.setGR(UNWIND_DATA_REG[1], cast[uint](results.ttypeIndex))
   ctx.setIP(cast[uint](results.landingPad))
@@ -643,7 +673,8 @@ proc nlvmEHPersonality(
     actions: UnwindAction,
     exceptionClass: uint64,
     unwindException: ptr UnwindException,
-    ctx: UnwindContext): UnwindReasonCode {.compilerproc.} =
+    ctx: UnwindContext,
+): UnwindReasonCode {.compilerproc.} =
   ## Personality function called whenever the exception handling stack is being
   ## examined by libunwind
   if version != 1 or unwindException.isNil() or ctx.isNil():
@@ -661,7 +692,6 @@ proc nlvmEHPersonality(
       exceptionHeader.landingPad = results.landingPad
 
     results.reason
-
   elif actions.isSet(UA_CLEANUP_PHASE):
     if actions.isSet(UA_HANDLER_FRAME):
       # Found catch handler in phase one
@@ -672,7 +702,7 @@ proc nlvmEHPersonality(
           ScanResult(
             ttypeIndex: exceptionHeader.ttypeIndex,
             landingPad: exceptionHeader.landingPad,
-            reason: URC_HANDLER_FOUND
+            reason: URC_HANDLER_FOUND,
           )
         else:
           scanEHTable(actions, native, unwindException, ctx)
@@ -683,7 +713,6 @@ proc nlvmEHPersonality(
 
       setRegisters(unwindException, ctx, results)
       URC_INSTALL_CONTEXT
-
     else:
       let results = scanEHTable(actions, native, unwindException, ctx)
       if results.reason == URC_HANDLER_FOUND:

@@ -22,8 +22,8 @@
 ## \*===----------------------------------------------------------------------===
 
 type
-  MemoryManagerCreateContextCallback* = proc (ctxCtx: pointer): pointer
-  MemoryManagerNotifyTerminatingCallback* = proc (ctxCtx: pointer)
+  MemoryManagerCreateContextCallback* = proc(ctxCtx: pointer): pointer
+  MemoryManagerNotifyTerminatingCallback* = proc(ctxCtx: pointer)
 
 ##
 ##  @defgroup LLVMCExecutionEngineORCEE ExecutionEngine-based ORC Utils
@@ -37,9 +37,12 @@ type
 ##
 
 proc orcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager*(
-    es: OrcExecutionSessionRef): OrcObjectLayerRef {.
-    importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager",
-    dynlib: LLVMLib.}
+  es: OrcExecutionSessionRef
+): OrcObjectLayerRef {.
+  importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager",
+  dynlib: LLVMLib
+.}
+
 ##
 ##  Create a RTDyldObjectLinkingLayer instance using MCJIT-memory-manager-like
 ##  callbacks.
@@ -66,14 +69,19 @@ proc orcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager*(
 ##
 
 proc orcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks*(
-    es: OrcExecutionSessionRef; createContextCtx: pointer;
-    createContext: MemoryManagerCreateContextCallback;
-    notifyTerminating: MemoryManagerNotifyTerminatingCallback;
-    allocateCodeSection: MemoryManagerAllocateCodeSectionCallback;
-    allocateDataSection: MemoryManagerAllocateDataSectionCallback;
-    finalizeMemory: MemoryManagerFinalizeMemoryCallback;
-    destroy: MemoryManagerDestroyCallback): OrcObjectLayerRef {.importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks",
-    dynlib: LLVMLib.}
+  es: OrcExecutionSessionRef,
+  createContextCtx: pointer,
+  createContext: MemoryManagerCreateContextCallback,
+  notifyTerminating: MemoryManagerNotifyTerminatingCallback,
+  allocateCodeSection: MemoryManagerAllocateCodeSectionCallback,
+  allocateDataSection: MemoryManagerAllocateDataSectionCallback,
+  finalizeMemory: MemoryManagerFinalizeMemoryCallback,
+  destroy: MemoryManagerDestroyCallback,
+): OrcObjectLayerRef {.
+  importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks",
+  dynlib: LLVMLib
+.}
+
 ##
 ##  Add the given listener to the given RTDyldObjectLinkingLayer.
 ##
@@ -82,9 +90,11 @@ proc orcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks*(
 ##
 
 proc orcRTDyldObjectLinkingLayerRegisterJITEventListener*(
-    rTDyldObjLinkingLayer: OrcObjectLayerRef; listener: JITEventListenerRef) {.
-    importc: "LLVMOrcRTDyldObjectLinkingLayerRegisterJITEventListener",
-    dynlib: LLVMLib.}
+  rTDyldObjLinkingLayer: OrcObjectLayerRef, listener: JITEventListenerRef
+) {.
+  importc: "LLVMOrcRTDyldObjectLinkingLayerRegisterJITEventListener", dynlib: LLVMLib
+.}
+
 ##
 ##  @}
 ##

@@ -17,8 +17,7 @@
 ##  @{
 ##
 
-type
-  Bool* = cint
+type Bool* = cint
 
 ##  Opaque types.
 ##
@@ -37,15 +36,13 @@ type
 ##  @see llvm::MemoryBuffer
 ##
 
-type
-  MemoryBufferRef* = ptr OpaqueMemoryBuffer
+type MemoryBufferRef* = ptr OpaqueMemoryBuffer
 
 ##
 ##  The top-level container for all LLVM global data. See the LLVMContext class.
 ##
 
-type
-  ContextRef* = ptr OpaqueContext
+type ContextRef* = ptr OpaqueContext
 
 ##
 ##  The top-level container for all other LLVM Intermediate Representation (IR)
@@ -54,8 +51,7 @@ type
 ##  @see llvm::Module
 ##
 
-type
-  ModuleRef* = ptr OpaqueModule
+type ModuleRef* = ptr OpaqueModule
 
 ##
 ##  Each value in the LLVM IR has a type, an LLVMTypeRef.
@@ -63,8 +59,7 @@ type
 ##  @see llvm::Type
 ##
 
-type
-  TypeRef* = ptr OpaqueType
+type TypeRef* = ptr OpaqueType
 
 ##
 ##  Represents an individual value in LLVM IR.
@@ -72,8 +67,7 @@ type
 ##  This models llvm::Value.
 ##
 
-type
-  ValueRef* = ptr OpaqueValue
+type ValueRef* = ptr OpaqueValue
 
 ##
 ##  Represents a basic block of instructions in LLVM IR.
@@ -81,8 +75,7 @@ type
 ##  This models llvm::BasicBlock.
 ##
 
-type
-  BasicBlockRef* = ptr OpaqueBasicBlock
+type BasicBlockRef* = ptr OpaqueBasicBlock
 
 ##
 ##  Represents an LLVM Metadata.
@@ -90,8 +83,7 @@ type
 ##  This models llvm::Metadata.
 ##
 
-type
-  MetadataRef* = ptr OpaqueMetadata
+type MetadataRef* = ptr OpaqueMetadata
 
 ##
 ##  Represents an LLVM Named Metadata Node.
@@ -99,8 +91,7 @@ type
 ##  This models llvm::NamedMDNode.
 ##
 
-type
-  NamedMDNodeRef* = ptr OpaqueNamedMDNode
+type NamedMDNodeRef* = ptr OpaqueNamedMDNode
 
 ##
 ##  Represents an entry in a Global Object's metadata attachments.
@@ -108,8 +99,7 @@ type
 ##  This models std::pair<unsigned, MDNode *>
 ##
 
-type
-  ValueMetadataEntry* = opaqueValueMetadataEntry
+type ValueMetadataEntry* = opaqueValueMetadataEntry
 
 ##
 ##  Represents an LLVM basic block builder.
@@ -117,8 +107,7 @@ type
 ##  This models llvm::IRBuilder.
 ##
 
-type
-  BuilderRef* = ptr OpaqueBuilder
+type BuilderRef* = ptr OpaqueBuilder
 
 ##
 ##  Represents an LLVM debug info builder.
@@ -126,8 +115,7 @@ type
 ##  This models llvm::DIBuilder.
 ##
 
-type
-  DIBuilderRef* = ptr OpaqueDIBuilder
+type DIBuilderRef* = ptr OpaqueDIBuilder
 
 ##
 ##  Interface used to provide a module to JIT or interpreter.
@@ -135,21 +123,18 @@ type
 ##  different type to keep binary compatibility.
 ##
 
-type
-  ModuleProviderRef* = ptr OpaqueModuleProvider
+type ModuleProviderRef* = ptr OpaqueModuleProvider
 
 ##  @see llvm::PassManagerBase
 
-type
-  PassManagerRef* = ptr OpaquePassManager
+type PassManagerRef* = ptr OpaquePassManager
 
 ##
 ##  Used to get the users and usees of a Value.
 ##
 ##  @see llvm::Use
 
-type
-  UseRef* = ptr OpaqueUse
+type UseRef* = ptr OpaqueUse
 
 ##
 ##  Used to represent an attributes.
@@ -157,43 +142,37 @@ type
 ##  @see llvm::Attribute
 ##
 
-type
-  AttributeRef* = ptr OpaqueAttributeRef
+type AttributeRef* = ptr OpaqueAttributeRef
 
 ##
 ##  @see llvm::DiagnosticInfo
 ##
 
-type
-  DiagnosticInfoRef* = ptr OpaqueDiagnosticInfo
+type DiagnosticInfoRef* = ptr OpaqueDiagnosticInfo
 
 ##
 ##  @see llvm::Comdat
 ##
 
-type
-  ComdatRef* = ptr comdat
+type ComdatRef* = ptr comdat
 
 ##
 ##  @see llvm::Module::ModuleFlagEntry
 ##
 
-type
-  ModuleFlagEntry* = opaqueModuleFlagEntry
+type ModuleFlagEntry* = opaqueModuleFlagEntry
 
 ##
 ##  @see llvm::JITEventListener
 ##
 
-type
-  JITEventListenerRef* = ptr OpaqueJITEventListener
+type JITEventListenerRef* = ptr OpaqueJITEventListener
 
 ##
 ##  @see llvm::object::Binary
 ##
 
-type
-  BinaryRef* = ptr OpaqueBinary
+type BinaryRef* = ptr OpaqueBinary
 
 ##
 ##  @}

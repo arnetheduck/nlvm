@@ -13,22 +13,19 @@ const
   LLVMRoot = fmt"../ext/llvm-{LLVMVersion}.src/"
   LLDRoot = fmt"../ext/lld-{LLVMVersion}.src/"
 
-{.passL: "-llldELF" .}
-{.passL: "-llldWasm" .}
-{.passL: "-llldMinGW" .}
-{.passL: "-llldCommon" .}
-{.passL: "-lz" .}
-{.passL: "-lzstd" .}
+{.passL: "-llldELF".}
+{.passL: "-llldWasm".}
+{.passL: "-llldMinGW".}
+{.passL: "-llldCommon".}
+{.passL: "-lz".}
+{.passL: "-lzstd".}
 
 when defined(staticLLVM):
-  const
-    LLVMOut = LLVMRoot & "sta/"
+  const LLVMOut = LLVMRoot & "sta/"
 
   {.passL: gorge(LLVMRoot & "sta/bin/llvm-config --libs all").}
-
 else:
-  const
-    LLVMOut = LLVMRoot & "sha/"
+  const LLVMOut = LLVMRoot & "sha/"
 
   {.passL: fmt"-lLLVM-{LLVMMaj}".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
@@ -46,87 +43,139 @@ else:
 {.compile("wrapper.cc", "-std=gnu++17").}
 
 # Includes and helpers for generated code
-type
-  OpaqueMemoryBuffer = object
+type OpaqueMemoryBuffer = object
 
 type
   # Opaque handles to various things
-  OpaqueAttributeRef{.pure, final.} = object
-  OpaqueContext{.pure, final.} = object
-  OpaqueModule{.pure, final.} = object
-  OpaqueType{.pure, final.} = object
-  OpaqueValue{.pure, final.} = object
-  OpaqueBasicBlock{.pure, final.} = object
-  OpaqueBuilder{.pure, final.} = object
-  OpaqueModuleProvider{.pure, final.} = object
-  OpaquePassManager{.pure, final.} = object
-  OpaqueUse{.pure, final.} = object
-  OpaqueDiagnosticInfo{.pure, final.} = object
-  OpaqueTargetMachine{.pure, final.} = object
-  OpaqueMetaData{.pure, final.} = object
-  OpaqueDIBuilder{.pure, final.} = object
-  target{.pure, final.} = object
-  OpaqueJITEventListener{.pure, final.} = object
-  OpaqueNamedMDNode{.pure, final.} = object
-  opaqueValueMetadataEntry{.pure, final.} = object
-  comdat{.pure, final.} = object
-  opaqueModuleFlagEntry{.pure, final.} = object
-  OpaqueBinary{.pure, final.} = object
-  OpaqueError{.pure, final.} = object
-  OpaquePassBuilderOptions{.pure, final.} = object
-
+  OpaqueAttributeRef {.pure, final.} = object
+  OpaqueContext {.pure, final.} = object
+  OpaqueModule {.pure, final.} = object
+  OpaqueType {.pure, final.} = object
+  OpaqueValue {.pure, final.} = object
+  OpaqueBasicBlock {.pure, final.} = object
+  OpaqueBuilder {.pure, final.} = object
+  OpaqueModuleProvider {.pure, final.} = object
+  OpaquePassManager {.pure, final.} = object
+  OpaqueUse {.pure, final.} = object
+  OpaqueDiagnosticInfo {.pure, final.} = object
+  OpaqueTargetMachine {.pure, final.} = object
+  OpaqueMetaData {.pure, final.} = object
+  OpaqueDIBuilder {.pure, final.} = object
+  target {.pure, final.} = object
+  OpaqueJITEventListener {.pure, final.} = object
+  OpaqueNamedMDNode {.pure, final.} = object
+  opaqueValueMetadataEntry {.pure, final.} = object
+  comdat {.pure, final.} = object
+  opaqueModuleFlagEntry {.pure, final.} = object
+  OpaqueBinary {.pure, final.} = object
+  OpaqueError {.pure, final.} = object
+  OpaquePassBuilderOptions {.pure, final.} = object
 
   ## Orc.nim
-  OrcOpaqueExecutionSession{.pure, final.} = object
-  OrcOpaqueSymbolStringPool{.pure, final.} = object
-  OrcOpaqueJITDylib{.pure, final.} = object
-  OrcOpaqueSymbolStringPoolEntry{.pure, final.} = object
-  OrcOpaqueMaterializationUnit{.pure, final.} = object
-  OrcOpaqueMaterializationResponsibility{.pure, final.} = object
-  OrcOpaqueResourceTracker{.pure, final.} = object
-  OrcOpaqueDefinitionGenerator{.pure, final.} = object
-  OrcOpaqueLookupState{.pure, final.} = object
-  OrcOpaqueThreadSafeContext{.pure, final.} = object
-  OrcOpaqueThreadSafeModule{.pure, final.} = object
-  OrcOpaqueJITTargetMachineBuilder{.pure, final.} = object
-  OrcOpaqueObjectLayer{.pure, final.} = object
-  OrcOpaqueObjectLinkingLayer{.pure, final.} = object
-  OrcOpaqueIRTransformLayer{.pure, final.} = object
-  OrcOpaqueObjectTransformLayer{.pure, final.} = object
-  OrcOpaqueIndirectStubsManager{.pure, final.} = object
-  OrcOpaqueLazyCallThroughManager{.pure, final.} = object
-  OrcOpaqueDumpObjects{.pure, final.} = object
+  OrcOpaqueExecutionSession {.pure, final.} = object
+  OrcOpaqueSymbolStringPool {.pure, final.} = object
+  OrcOpaqueJITDylib {.pure, final.} = object
+  OrcOpaqueSymbolStringPoolEntry {.pure, final.} = object
+  OrcOpaqueMaterializationUnit {.pure, final.} = object
+  OrcOpaqueMaterializationResponsibility {.pure, final.} = object
+  OrcOpaqueResourceTracker {.pure, final.} = object
+  OrcOpaqueDefinitionGenerator {.pure, final.} = object
+  OrcOpaqueLookupState {.pure, final.} = object
+  OrcOpaqueThreadSafeContext {.pure, final.} = object
+  OrcOpaqueThreadSafeModule {.pure, final.} = object
+  OrcOpaqueJITTargetMachineBuilder {.pure, final.} = object
+  OrcOpaqueObjectLayer {.pure, final.} = object
+  OrcOpaqueObjectLinkingLayer {.pure, final.} = object
+  OrcOpaqueIRTransformLayer {.pure, final.} = object
+  OrcOpaqueObjectTransformLayer {.pure, final.} = object
+  OrcOpaqueIndirectStubsManager {.pure, final.} = object
+  OrcOpaqueLazyCallThroughManager {.pure, final.} = object
+  OrcOpaqueDumpObjects {.pure, final.} = object
 
   ## ExecutionEngine.nim
-  OpaqueGenericValue{.pure, final.} = object
-  OpaqueExecutionEngine{.pure, final.} = object
-  OpaqueMCJITMemoryManager{.pure, final.} = object
+  OpaqueGenericValue {.pure, final.} = object
+  OpaqueExecutionEngine {.pure, final.} = object
+  OpaqueMCJITMemoryManager {.pure, final.} = object
 
   ## LLJIT.nim
-  OrcOpaqueLLJITBuilder{.pure, final.} = object
-  OrcOpaqueLLJIT{.pure, final.} = object
+  OrcOpaqueLLJITBuilder {.pure, final.} = object
+  OrcOpaqueLLJIT {.pure, final.} = object
 
-  OpaqueTargetData{.pure, final.} = object
-  OpaqueTargetLibraryInfotData{.pure, final.} = object
+  OpaqueTargetData {.pure, final.} = object
+  OpaqueTargetLibraryInfotData {.pure, final.} = object
 
   Opcode* {.size: sizeof(cint).} = enum
-    Ret = 1, Br = 2, Switch = 3, IndirectBr = 4, Invoke = 5, ##  removed 6 due to API changes
-    Unreachable = 7, Add = 8, FAdd = 9, Sub = 10, FSub = 11, Mul = 12, FMul = 13, UDiv = 14, SDiv = 15,
-    FDiv = 16, URem = 17, SRem = 18, FRem = 19, ##  Logical Operators
-    Shl = 20, LShr = 21, AShr = 22, And = 23, Or = 24, Xor = 25, ##  Memory Operators
-    Alloca = 26, Load = 27, Store = 28, GetElementPtr = 29, ##  Cast Operators
-    Trunc = 30, ZExt = 31, SExt = 32, FPToUI = 33, FPToSI = 34, UIToFP = 35, SIToFP = 36,
-    FPTrunc = 37, FPExt = 38, PtrToInt = 39, IntToPtr = 40, BitCast = 41, ICmp = 42, FCmp = 43,
-    PHI = 44, Call = 45, Select = 46, UserOp1 = 47, UserOp2 = 48, VAArg = 49, ExtractElement = 50,
-    InsertElement = 51, ShuffleVector = 52, ExtractValue = 53, InsertValue = 54, Fence = 55,
-    AtomicCmpXchg = 56, AtomicRMW = 57, ##  Exception Handling Operators
-    Resume = 58, LandingPad = 59, AddrSpaceCast = 60, ##  Other Operators
-    CleanupRet = 61, CatchRet = 62, CatchPad = 63, CleanupPad = 64, CatchSwitch = 65, FNeg = 66, ##  Standard Binary Operators
-    CallBr = 67,                ##  Standard Unary Operators
-    Freeze = 68                 ##  Atomic operators
+    Ret = 1
+    Br = 2
+    Switch = 3
+    IndirectBr = 4
+    Invoke = 5 ##  removed 6 due to API changes
+    Unreachable = 7
+    Add = 8
+    FAdd = 9
+    Sub = 10
+    FSub = 11
+    Mul = 12
+    FMul = 13
+    UDiv = 14
+    SDiv = 15
+    FDiv = 16
+    URem = 17
+    SRem = 18
+    FRem = 19 ##  Logical Operators
+    Shl = 20
+    LShr = 21
+    AShr = 22
+    And = 23
+    Or = 24
+    Xor = 25 ##  Memory Operators
+    Alloca = 26
+    Load = 27
+    Store = 28
+    GetElementPtr = 29 ##  Cast Operators
+    Trunc = 30
+    ZExt = 31
+    SExt = 32
+    FPToUI = 33
+    FPToSI = 34
+    UIToFP = 35
+    SIToFP = 36
+    FPTrunc = 37
+    FPExt = 38
+    PtrToInt = 39
+    IntToPtr = 40
+    BitCast = 41
+    ICmp = 42
+    FCmp = 43
+    PHI = 44
+    Call = 45
+    Select = 46
+    UserOp1 = 47
+    UserOp2 = 48
+    VAArg = 49
+    ExtractElement = 50
+    InsertElement = 51
+    ShuffleVector = 52
+    ExtractValue = 53
+    InsertValue = 54
+    Fence = 55
+    AtomicCmpXchg = 56
+    AtomicRMW = 57 ##  Exception Handling Operators
+    Resume = 58
+    LandingPad = 59
+    AddrSpaceCast = 60 ##  Other Operators
+    CleanupRet = 61
+    CatchRet = 62
+    CatchPad = 63
+    CleanupPad = 64
+    CatchSwitch = 65
+    FNeg = 66 ##  Standard Binary Operators
+    CallBr = 67 ##  Standard Unary Operators
+    Freeze = 68 ##  Atomic operators
 
   ByteOrdering* {.size: sizeof(cint).} = enum
-    BigEndian, LittleEndian
+    BigEndian
+    LittleEndian
 
 include llvm/Types
 include llvm/Support
@@ -172,115 +221,215 @@ const
   DW_ATE_lo_user* = 0x80.cuint
   DW_ATE_hi_user* = 0xff.cuint
 
-proc getModuleDataLayout*(m: ModuleRef): TargetDataRef {.
-    importc: "LLVMGetModuleDataLayout", dynlib: LLVMLib.}
+proc getModuleDataLayout*(
+  m: ModuleRef
+): TargetDataRef {.importc: "LLVMGetModuleDataLayout", dynlib: LLVMLib.}
 
 proc typeOfX*(val: ValueRef): TypeRef {.importc: "LLVMTypeOf", dynlib: LLVMLib.}
 
 template oaAddr(v: openArray): untyped =
-  if v.len > 0: v[0].unsafeAddr else: nil
-template oaLen(v: openArray): cuint = v.len.uint32
+  if v.len > 0:
+    v[0].unsafeAddr
+  else:
+    nil
 
-template clen(v: string|seq|openArray): csize_t = v.len.csize_t
+template oaLen(v: openArray): cuint =
+  v.len.uint32
 
-proc nimAddModuleFlag*(m: ModuleRef, name: cstring, value: uint32) {.importc: "LLVMNimAddModuleFlag".}
+template clen(v: string | seq | openArray): csize_t =
+  v.len.csize_t
+
+proc nimAddModuleFlag*(
+  m: ModuleRef, name: cstring, value: uint32
+) {.importc: "LLVMNimAddModuleFlag".}
 
 proc dIBuilderCreateSubroutineType*(
-  d: DIBuilderRef, file: MetadataRef, parameterTypes: openArray[MetadataRef]): MetadataRef =
-  dIBuilderCreateSubroutineType(d, nil, parameterTypes.oaAddr,
-  parameterTypes.oaLen, DIFlagZero)
-proc dIBuilderCreateFunction*(d: DIBuilderRef, scope: MetadataRef,
-  name: string, linkageName: string, file: MetadataRef, lineNo: cuint,
-  ty: MetadataRef, isLocalToUnit: bool, isDefinition: bool, scopeLine: cuint,
-  flags: cuint, isOptimized: bool): MetadataRef =
-  dIBuilderCreateFunction(d, scope, name.cstring, name.clen, linkageName.cstring,
-  linkageName.clen, file, lineNo, ty, isLocalToUnit.Bool, isDefinition.Bool,
-  scopeLine, flags.DIFlags, isOptimized.Bool)
+    d: DIBuilderRef, file: MetadataRef, parameterTypes: openArray[MetadataRef]
+): MetadataRef =
+  dIBuilderCreateSubroutineType(
+    d, nil, parameterTypes.oaAddr, parameterTypes.oaLen, DIFlagZero
+  )
+
+proc dIBuilderCreateFunction*(
+    d: DIBuilderRef,
+    scope: MetadataRef,
+    name: string,
+    linkageName: string,
+    file: MetadataRef,
+    lineNo: cuint,
+    ty: MetadataRef,
+    isLocalToUnit: bool,
+    isDefinition: bool,
+    scopeLine: cuint,
+    flags: cuint,
+    isOptimized: bool,
+): MetadataRef =
+  dIBuilderCreateFunction(
+    d, scope, name.cstring, name.clen, linkageName.cstring, linkageName.clen, file,
+    lineNo, ty, isLocalToUnit.Bool, isDefinition.Bool, scopeLine, flags.DIFlags,
+    isOptimized.Bool,
+  )
+
 proc dIBuilderCreateBasicType*(
-  d: DIBuilderRef, name: string, bits: uint64,
-  encoding: cuint, flags: DIFlags = DIFlagZero): MetadataRef =
+    d: DIBuilderRef,
+    name: string,
+    bits: uint64,
+    encoding: cuint,
+    flags: DIFlags = DIFlagZero,
+): MetadataRef =
   dIBuilderCreateBasicType(d, name.cstring, name.clen, bits, encoding, flags)
+
 proc dIBuilderCreatePointerType*(
-  d: DIBuilderRef, pointeeTy: MetadataRef, bits: uint64, align: uint32,
-  name: string): MetadataRef =
+    d: DIBuilderRef, pointeeTy: MetadataRef, bits: uint64, align: uint32, name: string
+): MetadataRef =
   dIBuilderCreatePointerType(d, pointeeTy, bits, align, 0, name.cstring, name.clen)
+
 proc dIBuilderCreateStructType*(
-  d: DIBuilderRef, scope: MetadataRef, name: string,
-  file: MetadataRef, lineNumber: cuint, sizeBits: uint64,
-  alignBits: uint32, flags: cuint, derivedFrom: MetadataRef,
-  elements: openArray[MetadataRef], runtimeLang: cuint, vtableHolder: MetadataRef,
-  uniqueId: string): MetadataRef =
-  dIBuilderCreateStructType(d, scope, name.cstring, name.clen, file, lineNumber,
-  sizeBits, alignBits, flags.DIFlags, derivedFrom, elements.oaAddr, elements.oaLen,
-  runtimeLang, vtableHolder, uniqueId.cstring, uniqueId.clen)
+    d: DIBuilderRef,
+    scope: MetadataRef,
+    name: string,
+    file: MetadataRef,
+    lineNumber: cuint,
+    sizeBits: uint64,
+    alignBits: uint32,
+    flags: cuint,
+    derivedFrom: MetadataRef,
+    elements: openArray[MetadataRef],
+    runtimeLang: cuint,
+    vtableHolder: MetadataRef,
+    uniqueId: string,
+): MetadataRef =
+  dIBuilderCreateStructType(
+    d, scope, name.cstring, name.clen, file, lineNumber, sizeBits, alignBits,
+    flags.DIFlags, derivedFrom, elements.oaAddr, elements.oaLen, runtimeLang,
+    vtableHolder, uniqueId.cstring, uniqueId.clen,
+  )
+
 proc dIBuilderCreateMemberType*(
-  d: DIBuilderRef, scope: MetadataRef, name: string,
-  file: MetadataRef, lineNo: cuint, sizeBits: uint64, alignBits: uint32,
-  offsetBits: uint64, flags: cuint,
-  ty: MetadataRef): MetadataRef =
-  dIBuilderCreateMemberType(d, scope, name.cstring, name.clen, file, lineNo,
-  sizeBits, alignBits, offsetBits, flags.DIFlags, ty)
+    d: DIBuilderRef,
+    scope: MetadataRef,
+    name: string,
+    file: MetadataRef,
+    lineNo: cuint,
+    sizeBits: uint64,
+    alignBits: uint32,
+    offsetBits: uint64,
+    flags: cuint,
+    ty: MetadataRef,
+): MetadataRef =
+  dIBuilderCreateMemberType(
+    d, scope, name.cstring, name.clen, file, lineNo, sizeBits, alignBits, offsetBits,
+    flags.DIFlags, ty,
+  )
+
 proc dIBuilderCreateGlobalVariableExpression*(
-  d: DIBuilderRef, context: MetadataRef, name: string,
-  linkageName: string, file: MetadataRef, lineNo: cuint, ty: MetadataRef,
-  isLocalToUnit: bool, exp: MetadataRef, decl: MetadataRef,
-  alignBits: uint32): MetadataRef =
-  dIBuilderCreateGlobalVariableExpression(d, context, name.cstring, name.clen,
-  linkageName.cstring, linkageName.clen, file, lineNo, ty, isLocalToUnit.Bool,
-  exp, decl, alignBits)
+    d: DIBuilderRef,
+    context: MetadataRef,
+    name: string,
+    linkageName: string,
+    file: MetadataRef,
+    lineNo: cuint,
+    ty: MetadataRef,
+    isLocalToUnit: bool,
+    exp: MetadataRef,
+    decl: MetadataRef,
+    alignBits: uint32,
+): MetadataRef =
+  dIBuilderCreateGlobalVariableExpression(
+    d, context, name.cstring, name.clen, linkageName.cstring, linkageName.clen, file,
+    lineNo, ty, isLocalToUnit.Bool, exp, decl, alignBits,
+  )
 
 proc dIBuilderCreateAutoVariable*(
-  d: DIBuilderRef, scope: MetadataRef, name: string,
-  file: MetadataRef, lineNo: cuint, ty: MetadataRef, alwaysPreserve: bool,
-  flags: cuint, alignBits: uint32): MetadataRef =
-  dIBuilderCreateAutoVariable(d, scope, name.cstring, name.clen, file, lineNo,
-  ty, alwaysPreserve.Bool, flags.DIFlags, alignBits)
+    d: DIBuilderRef,
+    scope: MetadataRef,
+    name: string,
+    file: MetadataRef,
+    lineNo: cuint,
+    ty: MetadataRef,
+    alwaysPreserve: bool,
+    flags: cuint,
+    alignBits: uint32,
+): MetadataRef =
+  dIBuilderCreateAutoVariable(
+    d, scope, name.cstring, name.clen, file, lineNo, ty, alwaysPreserve.Bool,
+    flags.DIFlags, alignBits,
+  )
+
 proc dIBuilderCreateParameterVariable*(
-  d: DIBuilderRef, scope: MetadataRef, name: string, argNo: cuint,
-  file: MetadataRef, lineNo: cuint, ty: MetadataRef, alwaysPreserve: bool,
-  flags: cuint): MetadataRef =
-  dIBuilderCreateParameterVariable(d, scope, name.cstring, name.clen, argNo,
-  file, lineNo, ty, alwaysPreserve.Bool, flags.DIFlags)
+    d: DIBuilderRef,
+    scope: MetadataRef,
+    name: string,
+    argNo: cuint,
+    file: MetadataRef,
+    lineNo: cuint,
+    ty: MetadataRef,
+    alwaysPreserve: bool,
+    flags: cuint,
+): MetadataRef =
+  dIBuilderCreateParameterVariable(
+    d, scope, name.cstring, name.clen, argNo, file, lineNo, ty, alwaysPreserve.Bool,
+    flags.DIFlags,
+  )
+
 proc dIBuilderCreateArrayType*(
-  d: DIBuilderRef, size: uint64, alignBits: uint32, ty: MetadataRef,
-  subscripts: openArray[MetadataRef]): MetadataRef =
+    d: DIBuilderRef,
+    size: uint64,
+    alignBits: uint32,
+    ty: MetadataRef,
+    subscripts: openArray[MetadataRef],
+): MetadataRef =
   dIBuilderCreateArrayType(d, size, alignBits, ty, subscripts.oaAddr, subscripts.oaLen)
-proc dIBuilderGetOrCreateArray*(d: DIBuilderRef, p: openArray[MetadataRef]): MetadataRef =
+
+proc dIBuilderGetOrCreateArray*(
+    d: DIBuilderRef, p: openArray[MetadataRef]
+): MetadataRef =
   dIBuilderGetOrCreateArray(d, p.oaAddr, p.oaLen.csize_t)
+
 proc nimDICompositeTypeSetTypeArray*(
-  d: DIBuilderRef, compositeTy: MetadataRef,
-  tyArray: MetadataRef) {.importc: "LLVMNimDICompositeTypeSetTypeArray".}
+  d: DIBuilderRef, compositeTy: MetadataRef, tyArray: MetadataRef
+) {.importc: "LLVMNimDICompositeTypeSetTypeArray".}
+
 proc addModuleFlag*(
-  m: ModuleRef, behavior: ModuleFlagBehavior, key: string, val: MetadataRef) =
+    m: ModuleRef, behavior: ModuleFlagBehavior, key: string, val: MetadataRef
+) =
   addModuleFlag(m, behavior, key.cstring, key.clen, val)
+
 proc nimSetMetadataGlobal*(
-  val: ValueRef; kindID: cuint; node: ValueRef) {.importc: "LLVMNimSetMetadataGlobal".}
+  val: ValueRef, kindID: cuint, node: ValueRef
+) {.importc: "LLVMNimSetMetadataGlobal".}
 
 proc nimLLDLinkElf*(
-  argv: cstringArray, argc: csize_t): bool {.importc: "LLVMNimLLDLinkElf".}
+  argv: cstringArray, argc: csize_t
+): bool {.importc: "LLVMNimLLDLinkElf".}
 
 proc nimLLDLinkElf*(args: openArray[string]): bool =
   let argv = allocCStringArray(args)
-  defer: deallocCStringArray(argv)
+  defer:
+    deallocCStringArray(argv)
 
   nimLLDLinkElf(argv, args.len.csize_t)
 
 proc nimLLDLinkWasm*(
-  argv: cstringArray, argc: csize_t): bool {.importc: "LLVMNimLLDLinkWasm".}
+  argv: cstringArray, argc: csize_t
+): bool {.importc: "LLVMNimLLDLinkWasm".}
 
 proc nimLLDLinkWasm*(args: openArray[string]): bool =
   let argv = allocCStringArray(args)
-  defer: deallocCStringArray(argv)
+  defer:
+    deallocCStringArray(argv)
 
   nimLLDLinkWasm(argv, args.len.csize_t)
 
+proc nimCreateTargetMachine*(
+  t: TargetRef,
+  triple: cstring,
+  level: CodeGenOptLevel,
+  reloc: RelocMode,
+  codeModel: CodeModel,
+): TargetMachineRef {.importc: "LLVMNimCreateTargetMachine".}
 
-proc nimCreateTargetMachine*(t: TargetRef; triple: cstring; level: CodeGenOptLevel;
-                         reloc: RelocMode; codeModel: CodeModel): TargetMachineRef {.
-    importc: "LLVMNimCreateTargetMachine".}
-
-proc nimSetFunctionAttributes*(F: ValueRef) {.
-    importc: "LLVMNimSetFunctionAttributes".}
+proc nimSetFunctionAttributes*(F: ValueRef) {.importc: "LLVMNimSetFunctionAttributes".}
 
 # A few helpers to make things more smooth
 
@@ -314,12 +463,14 @@ template checkErr(body: untyped) =
     quit 1
 
 proc createMemoryBufferWithContentsOfFile(file: string): MemoryBufferRef =
-  checkErr: createMemoryBufferWithContentsOfFile(file, addr(result), e)
+  checkErr:
+    createMemoryBufferWithContentsOfFile(file, addr(result), e)
 
 proc parseIRInContext*(contextRef: ContextRef, file: string): ModuleRef =
   let mb = createMemoryBufferWithContentsOfFile(file)
 
-  checkErr: parseIRInContext(contextRef, mb, addr(result), e)
+  checkErr:
+    parseIRInContext(contextRef, mb, addr(result), e)
 
 proc getOrInsertFunction*(m: ModuleRef, name: cstring, functionTy: TypeRef): ValueRef =
   result = m.getNamedFunction(name)
@@ -336,24 +487,33 @@ iterator params*(fn: ValueRef): ValueRef =
 template asRaw(arr: untyped, body: untyped): untyped =
   var s = @arr
   let n {.inject.} = s.len.cuint
-  let p {.inject.} = if s.len > 0: addr(s[0]) else: nil
+  let p {.inject.} =
+    if s.len > 0:
+      addr(s[0])
+    else:
+      nil
   body
 
-proc functionType*(returnType: TypeRef, paramTypes: openArray[TypeRef],
-                   isVarArg = false): TypeRef =
-  asRaw(paramTypes, functionType(returnType, p, n, if isVarArg: llvm.True else: llvm.False))
+proc functionType*(
+    returnType: TypeRef, paramTypes: openArray[TypeRef], isVarArg = false
+): TypeRef =
+  asRaw(
+    paramTypes, functionType(returnType, p, n, if isVarArg: llvm.True else: llvm.False)
+  )
 
 proc getParamTypes*(functionTy: TypeRef): seq[TypeRef] =
   result = newSeq[TypeRef](functionTy.countParamTypes())
   if result.len > 0:
     functionTy.getParamTypes(addr(result[0]))
 
-proc structTypeInContext*(c: ContextRef, elementTypes: openArray[TypeRef],
-                          packed = False): TypeRef =
+proc structTypeInContext*(
+    c: ContextRef, elementTypes: openArray[TypeRef], packed = False
+): TypeRef =
   asRaw(elementTypes, structTypeInContext(c, p, n, packed))
 
-proc structSetBody*(structTy: TypeRef; elementTypes: openArray[TypeRef];
-                    packed = False) =
+proc structSetBody*(
+    structTy: TypeRef, elementTypes: openArray[TypeRef], packed = False
+) =
   asRaw(elementTypes, structSetBody(structTy, p, n, packed))
 
 proc getStructElementTypes*(structTy: TypeRef): seq[TypeRef] =
@@ -364,57 +524,91 @@ proc getStructElementTypes*(structTy: TypeRef): seq[TypeRef] =
 proc pointerType*(elementType: TypeRef): TypeRef =
   pointerType(elementType, 0)
 
-proc constStringInContext*(c: ContextRef, s: string, dontNullTerminate = False): ValueRef =
+proc constStringInContext*(
+    c: ContextRef, s: string, dontNullTerminate = False
+): ValueRef =
   constStringInContext(c, s, s.len.cuint, dontNullTerminate)
 
-proc constStructInContext*(c: ContextRef, constantVals: openArray[ValueRef]; packed = False): ValueRef =
+proc constStructInContext*(
+    c: ContextRef, constantVals: openArray[ValueRef], packed = False
+): ValueRef =
   asRaw(constantVals, constStructInContext(c, p, n, packed))
 
 proc constArray*(t: TypeRef, constantVals: openArray[ValueRef]): ValueRef =
   asRaw(constantVals, constArray(t, p, n))
 
-proc constNamedStruct*(structTy: TypeRef;
-                       constantVals: openArray[ValueRef]): ValueRef =
+proc constNamedStruct*(structTy: TypeRef, constantVals: openArray[ValueRef]): ValueRef =
   asRaw(constantVals, constNamedStruct(structTy, p, n))
 
-proc constGEP2*(ty: TypeRef, constantVal: ValueRef;
-                constantIndices: openArray[ValueRef]): ValueRef =
+proc constGEP2*(
+    ty: TypeRef, constantVal: ValueRef, constantIndices: openArray[ValueRef]
+): ValueRef =
   asRaw(constantIndices, constGEP2(ty, constantVal, p, n))
 
-proc addIncoming*(phiNode: ValueRef; incomingValues: openArray[ValueRef];
-                  incomingBlocks: openArray[BasicBlockRef]) =
+proc addIncoming*(
+    phiNode: ValueRef,
+    incomingValues: openArray[ValueRef],
+    incomingBlocks: openArray[BasicBlockRef],
+) =
   var s0 = @incomingValues
   let n0 = s0.len.cuint
-  let p0 = if s0.len > 0: addr(s0[0]) else: nil
+  let p0 =
+    if s0.len > 0:
+      addr(s0[0])
+    else:
+      nil
   var s1 = @incomingBlocks
-  let p1 = if s1.len > 0: addr(s1[0]) else: nil
+  let p1 =
+    if s1.len > 0:
+      addr(s1[0])
+    else:
+      nil
   addIncoming(phiNode, p0, p1, n0)
 
 proc buildGEP2*(
-    b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openArray[ValueRef];
-    name: cstring): ValueRef =
+    b: BuilderRef,
+    ty: TypeRef,
+    pointer: ValueRef,
+    indices: openArray[ValueRef],
+    name: cstring,
+): ValueRef =
   asRaw(indices, buildGEP2(b, ty, pointer, p, n, name))
 
 proc buildInBoundsGEP2*(
-    b: BuilderRef; ty: TypeRef, pointer: ValueRef; indices: openArray[ValueRef];
-    name: cstring): ValueRef =
+    b: BuilderRef,
+    ty: TypeRef,
+    pointer: ValueRef,
+    indices: openArray[ValueRef],
+    name: cstring,
+): ValueRef =
   asRaw(indices, buildInBoundsGEP2(b, ty, pointer, p, n, name))
 
 proc buildCall2*(
-    b: BuilderRef; ty: TypeRef, fn: ValueRef; args: openArray[ValueRef];
-    name: cstring): ValueRef =
+    b: BuilderRef, ty: TypeRef, fn: ValueRef, args: openArray[ValueRef], name: cstring
+): ValueRef =
   asRaw(args, buildCall2(b, ty, fn, p, n, name))
 
-proc buildInvoke2*(b: BuilderRef; ty: TypeRef, fn: ValueRef;
-    args: openArray[ValueRef]; then: BasicBlockRef; catch: BasicBlockRef;
-    name: cstring = ""): ValueRef =
+proc buildInvoke2*(
+    b: BuilderRef,
+    ty: TypeRef,
+    fn: ValueRef,
+    args: openArray[ValueRef],
+    then: BasicBlockRef,
+    catch: BasicBlockRef,
+    name: cstring = "",
+): ValueRef =
   asRaw(args, buildInvoke2(b, ty, fn, p, n, then, catch, name))
 
-proc diBuilderCreateFile*(builder: DIBuilderRef, filename: string, directory: string): MetadataRef =
-  diBuilderCreateFile(builder, filename.cstring, filename.len.csize_t,
-    directory.cstring, directory.len.csize_t)
+proc diBuilderCreateFile*(
+    builder: DIBuilderRef, filename: string, directory: string
+): MetadataRef =
+  diBuilderCreateFile(
+    builder, filename.cstring, filename.len.csize_t, directory.cstring,
+    directory.len.csize_t,
+  )
 
-template getEnumAttrKind(x: untyped): untyped = getEnumAttributeKindForName(x, x.len)
+template getEnumAttrKind(x: untyped): untyped =
+  getEnumAttributeKindForName(x, x.len)
 
 let
   attrNoReturn* = getEnumAttrKind("noreturn")
@@ -438,7 +632,8 @@ proc createStringAttribute*(c: ContextRef, k, v: string): AttributeRef =
   createStringAttribute(c, k.cstring, k.len.cuint, v.cstring, v.len.cuint)
 
 proc appendBasicBlockInContext*(
-    b: BuilderRef, c: ContextRef, name: cstring): BasicBlockRef =
+    b: BuilderRef, c: ContextRef, name: cstring
+): BasicBlockRef =
   let
     pre = b.getInsertBlock()
     f = pre.getBasicBlockParent()

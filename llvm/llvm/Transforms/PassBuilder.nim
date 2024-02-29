@@ -26,8 +26,7 @@
 ##  be found in the source for LLVMRunPasses
 ##
 
-type
-  PassBuilderOptionsRef* = ptr OpaquePassBuilderOptions
+type PassBuilderOptionsRef* = ptr OpaquePassBuilderOptions
 
 ##
 ##  Construct and run a set of passes over a module
@@ -39,9 +38,10 @@ type
 ##  full reference of the Passes format.
 ##
 
-proc runPasses*(m: ModuleRef; passes: cstring; tm: TargetMachineRef;
-                options: PassBuilderOptionsRef): ErrorRef {.
-    importc: "LLVMRunPasses", dynlib: LLVMLib.}
+proc runPasses*(
+  m: ModuleRef, passes: cstring, tm: TargetMachineRef, options: PassBuilderOptionsRef
+): ErrorRef {.importc: "LLVMRunPasses", dynlib: LLVMLib.}
+
 ##
 ##  Create a new set of options for a PassBuilder
 ##
@@ -51,60 +51,74 @@ proc runPasses*(m: ModuleRef; passes: cstring; tm: TargetMachineRef;
 ##
 
 proc createPassBuilderOptions*(): PassBuilderOptionsRef {.
-    importc: "LLVMCreatePassBuilderOptions", dynlib: LLVMLib.}
+  importc: "LLVMCreatePassBuilderOptions", dynlib: LLVMLib
+.}
+
 ##
 ##  Toggle adding the VerifierPass for the PassBuilder, ensuring all functions
 ##  inside the module is valid.
 ##
 
-proc passBuilderOptionsSetVerifyEach*(options: PassBuilderOptionsRef;
-                                      verifyEach: Bool) {.
-    importc: "LLVMPassBuilderOptionsSetVerifyEach", dynlib: LLVMLib.}
+proc passBuilderOptionsSetVerifyEach*(
+  options: PassBuilderOptionsRef, verifyEach: Bool
+) {.importc: "LLVMPassBuilderOptionsSetVerifyEach", dynlib: LLVMLib.}
+
 ##
 ##  Toggle debug logging when running the PassBuilder
 ##
 
-proc passBuilderOptionsSetDebugLogging*(options: PassBuilderOptionsRef;
-                                        debugLogging: Bool) {.
-    importc: "LLVMPassBuilderOptionsSetDebugLogging", dynlib: LLVMLib.}
-proc passBuilderOptionsSetLoopInterleaving*(options: PassBuilderOptionsRef;
-    loopInterleaving: Bool) {.importc: "LLVMPassBuilderOptionsSetLoopInterleaving",
-                              dynlib: LLVMLib.}
-proc passBuilderOptionsSetLoopVectorization*(options: PassBuilderOptionsRef;
-    loopVectorization: Bool) {.importc: "LLVMPassBuilderOptionsSetLoopVectorization",
-                               dynlib: LLVMLib.}
-proc passBuilderOptionsSetSLPVectorization*(options: PassBuilderOptionsRef;
-    sLPVectorization: Bool) {.importc: "LLVMPassBuilderOptionsSetSLPVectorization",
-                              dynlib: LLVMLib.}
-proc passBuilderOptionsSetLoopUnrolling*(options: PassBuilderOptionsRef;
-    loopUnrolling: Bool) {.importc: "LLVMPassBuilderOptionsSetLoopUnrolling",
-                           dynlib: LLVMLib.}
+proc passBuilderOptionsSetDebugLogging*(
+  options: PassBuilderOptionsRef, debugLogging: Bool
+) {.importc: "LLVMPassBuilderOptionsSetDebugLogging", dynlib: LLVMLib.}
+
+proc passBuilderOptionsSetLoopInterleaving*(
+  options: PassBuilderOptionsRef, loopInterleaving: Bool
+) {.importc: "LLVMPassBuilderOptionsSetLoopInterleaving", dynlib: LLVMLib.}
+
+proc passBuilderOptionsSetLoopVectorization*(
+  options: PassBuilderOptionsRef, loopVectorization: Bool
+) {.importc: "LLVMPassBuilderOptionsSetLoopVectorization", dynlib: LLVMLib.}
+
+proc passBuilderOptionsSetSLPVectorization*(
+  options: PassBuilderOptionsRef, sLPVectorization: Bool
+) {.importc: "LLVMPassBuilderOptionsSetSLPVectorization", dynlib: LLVMLib.}
+
+proc passBuilderOptionsSetLoopUnrolling*(
+  options: PassBuilderOptionsRef, loopUnrolling: Bool
+) {.importc: "LLVMPassBuilderOptionsSetLoopUnrolling", dynlib: LLVMLib.}
+
 proc passBuilderOptionsSetForgetAllSCEVInLoopUnroll*(
-    options: PassBuilderOptionsRef; forgetAllSCEVInLoopUnroll: Bool) {.
-    importc: "LLVMPassBuilderOptionsSetForgetAllSCEVInLoopUnroll",
-    dynlib: LLVMLib.}
-proc passBuilderOptionsSetLicmMssaOptCap*(options: PassBuilderOptionsRef;
-    licmMssaOptCap: cuint) {.importc: "LLVMPassBuilderOptionsSetLicmMssaOptCap",
-                             dynlib: LLVMLib.}
+  options: PassBuilderOptionsRef, forgetAllSCEVInLoopUnroll: Bool
+) {.importc: "LLVMPassBuilderOptionsSetForgetAllSCEVInLoopUnroll", dynlib: LLVMLib.}
+
+proc passBuilderOptionsSetLicmMssaOptCap*(
+  options: PassBuilderOptionsRef, licmMssaOptCap: cuint
+) {.importc: "LLVMPassBuilderOptionsSetLicmMssaOptCap", dynlib: LLVMLib.}
+
 proc passBuilderOptionsSetLicmMssaNoAccForPromotionCap*(
-    options: PassBuilderOptionsRef; licmMssaNoAccForPromotionCap: cuint) {.
-    importc: "LLVMPassBuilderOptionsSetLicmMssaNoAccForPromotionCap",
-    dynlib: LLVMLib.}
-proc passBuilderOptionsSetCallGraphProfile*(options: PassBuilderOptionsRef;
-    callGraphProfile: Bool) {.importc: "LLVMPassBuilderOptionsSetCallGraphProfile",
-                              dynlib: LLVMLib.}
-proc passBuilderOptionsSetMergeFunctions*(options: PassBuilderOptionsRef;
-    mergeFunctions: Bool) {.importc: "LLVMPassBuilderOptionsSetMergeFunctions",
-                            dynlib: LLVMLib.}
-proc passBuilderOptionsSetInlinerThreshold*(options: PassBuilderOptionsRef;
-    threshold: cint) {.importc: "LLVMPassBuilderOptionsSetInlinerThreshold",
-                       dynlib: LLVMLib.}
+  options: PassBuilderOptionsRef, licmMssaNoAccForPromotionCap: cuint
+) {.importc: "LLVMPassBuilderOptionsSetLicmMssaNoAccForPromotionCap", dynlib: LLVMLib.}
+
+proc passBuilderOptionsSetCallGraphProfile*(
+  options: PassBuilderOptionsRef, callGraphProfile: Bool
+) {.importc: "LLVMPassBuilderOptionsSetCallGraphProfile", dynlib: LLVMLib.}
+
+proc passBuilderOptionsSetMergeFunctions*(
+  options: PassBuilderOptionsRef, mergeFunctions: Bool
+) {.importc: "LLVMPassBuilderOptionsSetMergeFunctions", dynlib: LLVMLib.}
+
+proc passBuilderOptionsSetInlinerThreshold*(
+  options: PassBuilderOptionsRef, threshold: cint
+) {.importc: "LLVMPassBuilderOptionsSetInlinerThreshold", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of a heap-allocated PassBuilderOptions instance
 ##
 
-proc disposePassBuilderOptions*(options: PassBuilderOptionsRef) {.
-    importc: "LLVMDisposePassBuilderOptions", dynlib: LLVMLib.}
+proc disposePassBuilderOptions*(
+  options: PassBuilderOptionsRef
+) {.importc: "LLVMDisposePassBuilderOptions", dynlib: LLVMLib.}
+
 ##
 ##  @}
 ##

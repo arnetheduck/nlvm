@@ -2,20 +2,14 @@ import
   os,
   osproc,
   strutils,
-
-  compiler/[
-    extccomp,
-    lineinfos,
-    msgs,
-    options,
-    platform,
-    pathutils,
-  ],
+  compiler/[extccomp, lineinfos, msgs, options, platform, pathutils],
   llvm/llvm
 
 iterator passLinkOptions(opts: openArray[string]): string =
   var passNext = false
-  template yields(x: untyped) = yield strip(x, true, true, {'\'', '\"'})
+  template yields(x: untyped) =
+    yield strip(x, true, true, {'\'', '\"'})
+
   for s in opts:
     if passNext:
       passNext = false
@@ -37,17 +31,17 @@ iterator passLinkOptions(opts: openArray[string]): string =
       passNext = true
     elif s.startsWith("-Wl,"):
       # TODO comma support
-      yields s[4..^1]
+      yields s[4 ..^ 1]
     elif not s.startsWith("-"):
       yields s
 
 proc findLibraries(s: string): seq[string] =
   for line in s.split('\n'):
     if line.startsWith("libraries: ="):
-      return line["libraries: =".len..^1].split(':')
+      return line["libraries: =".len ..^ 1].split(':')
 
 proc findLastArg(args: openArray[string], opts: openArray[string]): string =
-  for i in 1..args.len:
+  for i in 1 .. args.len:
     if args[^i] in opts:
       return args[^i]
   return ""
@@ -74,9 +68,7 @@ proc linkLinuxAmd64(conf: ConfigRef) =
     except CatchableError:
       @[]
 
-  let linkOpts =
-    parseCmdLine(conf.linkOptions) &
-    parseCmdLine(conf.linkOptionsCmd)
+  let linkOpts = parseCmdLine(conf.linkOptions) & parseCmdLine(conf.linkOptionsCmd)
 
   # Simplified version of (ie would need more work):
   # https://github.com/llvm/llvm-project/blob/llvmorg-15.0.6/clang/lib/Driver/ToolChains/Gnu.cpp#L402
@@ -87,10 +79,11 @@ proc linkLinuxAmd64(conf: ConfigRef) =
   let
     isAndroid = conf.target.targetOS == osAndroid
     pieArg = linkOpts.findLastArg(["-pie", "-no-pie", "-nopie"])
-    isPIE = not(
-      "-shared" in linkOpts or "-static" in linkOpts or "-r" in linkOpts or
-      "-static-pie" in linkOpts
-    ) and pieArg in ["-pie"] # `-pie` by default
+    isPIE =
+      not (
+        "-shared" in linkOpts or "-static" in linkOpts or "-r" in linkOpts or
+        "-static-pie" in linkOpts
+      ) and pieArg in ["-pie"] # `-pie` by default
     isStaticPIE = "-static-pie" in linkOpts
     isStatic = "-static" in linkOpts and not isStaticPIE
     isCpp = optMixedMode in conf.globalOptions
@@ -144,26 +137,29 @@ proc linkLinuxAmd64(conf: ConfigRef) =
 
   args.add ["-o", exefile.string]
 
-  if "-nostdlib" notin linkOpts and "-nostartfiles" notin linkOpts and "-r" notin linkOpts:
+  if "-nostdlib" notin linkOpts and "-nostartfiles" notin linkOpts and
+      "-r" notin linkOpts:
     if not isAndroid:
-      let crt1 = if isPIE:
-        "Scrt1.o"
-      elif isStaticPIE:
-        "rcrt1.o"
-      else:
-        "crt1.o"
+      let crt1 =
+        if isPIE:
+          "Scrt1.o"
+        elif isStaticPIE:
+          "rcrt1.o"
+        else:
+          "crt1.o"
       args.add findFile(filePaths, crt1)
 
     args.add findFile(filePaths, "crti.o")
 
-    let crtbegin = if "-shared" in linkOpts:
-      if isAndroid: "crtbegin_so.o" else: "crtbeginS.o"
-    elif isStatic:
-      if isAndroid: "crtbegin_static.o" else: "crtbeginT.o"
-    elif isPIE or isStaticPIE:
-      if isAndroid: "crtbegin_dynamic.o" else: "crtbeginS.o"
-    else:
-      if isAndroid: "crtbegin_dynamic.o" else: "crtbegin.o"
+    let crtbegin =
+      if "-shared" in linkOpts:
+        if isAndroid: "crtbegin_so.o" else: "crtbeginS.o"
+      elif isStatic:
+        if isAndroid: "crtbegin_static.o" else: "crtbeginT.o"
+      elif isPIE or isStaticPIE:
+        if isAndroid: "crtbegin_dynamic.o" else: "crtbeginS.o"
+      else:
+        if isAndroid: "crtbegin_dynamic.o" else: "crtbegin.o"
 
     args.add findFile(filePaths, crtbegin)
   for opt in linkOpts:
@@ -202,8 +198,7 @@ proc linkLinuxAmd64(conf: ConfigRef) =
         args.add "--start-group"
 
       let wantPthread =
-        "-pthread" in linkOpts or
-        "-pthreads" in linkOpts or
+        "-pthread" in linkOpts or "-pthreads" in linkOpts or
         optThreads in conf.globalOptions
 
       template addRuntimeLibs() =
@@ -226,12 +221,13 @@ proc linkLinuxAmd64(conf: ConfigRef) =
       else:
         addRuntimeLibs()
 
-    let crtend = if "-shared" in linkOpts:
-      if isAndroid: "crtend_so.o" else: "crtendS.o"
-    elif isPIE or isStaticPIE:
-      if isAndroid: "crtend_android.o" else: "crtendS.o"
-    else:
-      if isAndroid: "crtend_android.o" else: "crtend.o"
+    let crtend =
+      if "-shared" in linkOpts:
+        if isAndroid: "crtend_so.o" else: "crtendS.o"
+      elif isPIE or isStaticPIE:
+        if isAndroid: "crtend_android.o" else: "crtendS.o"
+      else:
+        if isAndroid: "crtend_android.o" else: "crtend.o"
 
     args.add findFile(filePaths, crtend)
 
@@ -251,9 +247,7 @@ proc linkWasm32(conf: ConfigRef) =
 
   let exeFile = conf.getOutFile(conf.outFile, "wasm")
 
-  let linkOpts =
-    parseCmdLine(conf.linkOptions) &
-    parseCmdLine(conf.linkOptionsCmd)
+  let linkOpts = parseCmdLine(conf.linkOptions) & parseCmdLine(conf.linkOptionsCmd)
 
   args.add ["-o", exefile.string]
 
@@ -276,12 +270,10 @@ proc linkWasm32(conf: ConfigRef) =
     quit(1)
 
 proc useBuiltinLinker*(conf: ConfigRef): bool =
-  optGenStaticLib notin conf.globalOptions and
-    optGenGuiApp notin conf.globalOptions and
+  optGenStaticLib notin conf.globalOptions and optGenGuiApp notin conf.globalOptions and
     optGenDynLib notin conf.globalOptions and
     conf.getConfigVar("nlvm.linker", "builtin") == "builtin" and
-    conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccCLang} and
-    conf.target.targetOS == osLinux and
+    conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccCLang} and conf.target.targetOS == osLinux and
     conf.target.targetCPU == cpuAmd64
 
 proc lllink*(conf: ConfigRef) =

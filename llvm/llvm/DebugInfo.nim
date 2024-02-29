@@ -23,69 +23,107 @@
 ##  Debug info flags.
 ##
 
-type
-  DIFlags* {.size: sizeof(cint).} = enum
-    DIFlagZero = 0, DIFlagPrivate = 1, DIFlagProtected = 2, DIFlagPublic = 3,
-    DIFlagFwdDecl = 1 shl 2, DIFlagAppleBlock = 1 shl 3,
-    DIFlagReservedBit4 = 1 shl 4, DIFlagVirtual = 1 shl 5,
-    DIFlagArtificial = 1 shl 6, DIFlagExplicit = 1 shl 7,
-    DIFlagPrototyped = 1 shl 8, DIFlagObjcClassComplete = 1 shl 9,
-    DIFlagObjectPointer = 1 shl 10, DIFlagVector = 1 shl 11,
-    DIFlagStaticMember = 1 shl 12, DIFlagLValueReference = 1 shl 13,
-    DIFlagRValueReference = 1 shl 14, DIFlagReserved = 1 shl 15,
-    DIFlagSingleInheritance = 1 shl 16, DIFlagMultipleInheritance = 2 shl 16,
-    DIFlagVirtualInheritance = 3 shl 16, DIFlagIntroducedVirtual = 1 shl 18,
-    DIFlagBitField = 1 shl 19, DIFlagNoReturn = 1 shl 20,
-    DIFlagTypePassByValue = 1 shl 22, DIFlagTypePassByReference = 1 shl 23,
-    DIFlagEnumClass = 1 shl 24, #DIFlagFixedEnum = DIFlagEnumClass, ##  Deprecated.
-    DIFlagThunk = 1 shl 25, DIFlagNonTrivial = 1 shl 26,
-    DIFlagBigEndian = 1 shl 27, DIFlagLittleEndian = 1 shl 28
+type DIFlags* {.size: sizeof(cint).} = enum
+  DIFlagZero = 0
+  DIFlagPrivate = 1
+  DIFlagProtected = 2
+  DIFlagPublic = 3
+  DIFlagFwdDecl = 1 shl 2
+  DIFlagAppleBlock = 1 shl 3
+  DIFlagReservedBit4 = 1 shl 4
+  DIFlagVirtual = 1 shl 5
+  DIFlagArtificial = 1 shl 6
+  DIFlagExplicit = 1 shl 7
+  DIFlagPrototyped = 1 shl 8
+  DIFlagObjcClassComplete = 1 shl 9
+  DIFlagObjectPointer = 1 shl 10
+  DIFlagVector = 1 shl 11
+  DIFlagStaticMember = 1 shl 12
+  DIFlagLValueReference = 1 shl 13
+  DIFlagRValueReference = 1 shl 14
+  DIFlagReserved = 1 shl 15
+  DIFlagSingleInheritance = 1 shl 16
+  DIFlagMultipleInheritance = 2 shl 16
+  DIFlagVirtualInheritance = 3 shl 16
+  DIFlagIntroducedVirtual = 1 shl 18
+  DIFlagBitField = 1 shl 19
+  DIFlagNoReturn = 1 shl 20
+  DIFlagTypePassByValue = 1 shl 22
+  DIFlagTypePassByReference = 1 shl 23
+  DIFlagEnumClass = 1 shl 24 #DIFlagFixedEnum = DIFlagEnumClass, ##  Deprecated.
+  DIFlagThunk = 1 shl 25
+  DIFlagNonTrivial = 1 shl 26
+  DIFlagBigEndian = 1 shl 27
+  DIFlagLittleEndian = 1 shl 28
     # DIFlagIndirectVirtualBase = (1 shl 2) or (1 shl 5),
     # DIFlagAccessibility = DIFlagPrivate or DIFlagProtected or DIFlagPublic, DIFlagPtrToMemberRep = DIFlagSingleInheritance or
     #     DIFlagMultipleInheritance or
     #     DIFlagVirtualInheritance
 
-
 ##
 ##  Source languages known by DWARF.
 ##
 
-type
-  DWARFSourceLanguage* {.size: sizeof(cint).} = enum
-    DWARFSourceLanguageC89, DWARFSourceLanguageC, DWARFSourceLanguageAda83,
-    DWARFSourceLanguageC_plusPlus, DWARFSourceLanguageCobol74,
-    DWARFSourceLanguageCobol85, DWARFSourceLanguageFortran77,
-    DWARFSourceLanguageFortran90, DWARFSourceLanguagePascal83, DWARFSourceLanguageModula2, ##  New in DWARF v3:
-    DWARFSourceLanguageJava, DWARFSourceLanguageC99, DWARFSourceLanguageAda95,
-    DWARFSourceLanguageFortran95, DWARFSourceLanguagePLI,
-    DWARFSourceLanguageObjC, DWARFSourceLanguageObjC_plusPlus,
-    DWARFSourceLanguageUPC, DWARFSourceLanguageD, ##  New in DWARF v4:
-    DWARFSourceLanguagePython, ##  New in DWARF v5:
-    DWARFSourceLanguageOpenCL, DWARFSourceLanguageGo,
-    DWARFSourceLanguageModula3, DWARFSourceLanguageHaskell,
-    DWARFSourceLanguageC_plusPlus03, DWARFSourceLanguageC_plusPlus11,
-    DWARFSourceLanguageOCaml, DWARFSourceLanguageRust, DWARFSourceLanguageC11,
-    DWARFSourceLanguageSwift, DWARFSourceLanguageJulia,
-    DWARFSourceLanguageDylan, DWARFSourceLanguageC_plusPlus14,
-    DWARFSourceLanguageFortran03, DWARFSourceLanguageFortran08,
-    DWARFSourceLanguageRenderScript, DWARFSourceLanguageBLISS,
-    DWARFSourceLanguageKotlin, DWARFSourceLanguageZig,
-    DWARFSourceLanguageCrystal, DWARFSourceLanguageC_plusPlus17,
-    DWARFSourceLanguageC_plusPlus20, DWARFSourceLanguageC17,
-    DWARFSourceLanguageFortran18, DWARFSourceLanguageAda2005,
-    DWARFSourceLanguageAda2012, DWARFSourceLanguageMojo, ##  Vendor extensions:
-    DWARFSourceLanguageMipsAssembler, DWARFSourceLanguageGOOGLE_RenderScript,
-    DWARFSourceLanguageBORLAND_Delphi
-
+type DWARFSourceLanguage* {.size: sizeof(cint).} = enum
+  DWARFSourceLanguageC89
+  DWARFSourceLanguageC
+  DWARFSourceLanguageAda83
+  DWARFSourceLanguageC_plusPlus
+  DWARFSourceLanguageCobol74
+  DWARFSourceLanguageCobol85
+  DWARFSourceLanguageFortran77
+  DWARFSourceLanguageFortran90
+  DWARFSourceLanguagePascal83
+  DWARFSourceLanguageModula2 ##  New in DWARF v3:
+  DWARFSourceLanguageJava
+  DWARFSourceLanguageC99
+  DWARFSourceLanguageAda95
+  DWARFSourceLanguageFortran95
+  DWARFSourceLanguagePLI
+  DWARFSourceLanguageObjC
+  DWARFSourceLanguageObjC_plusPlus
+  DWARFSourceLanguageUPC
+  DWARFSourceLanguageD ##  New in DWARF v4:
+  DWARFSourceLanguagePython ##  New in DWARF v5:
+  DWARFSourceLanguageOpenCL
+  DWARFSourceLanguageGo
+  DWARFSourceLanguageModula3
+  DWARFSourceLanguageHaskell
+  DWARFSourceLanguageC_plusPlus03
+  DWARFSourceLanguageC_plusPlus11
+  DWARFSourceLanguageOCaml
+  DWARFSourceLanguageRust
+  DWARFSourceLanguageC11
+  DWARFSourceLanguageSwift
+  DWARFSourceLanguageJulia
+  DWARFSourceLanguageDylan
+  DWARFSourceLanguageC_plusPlus14
+  DWARFSourceLanguageFortran03
+  DWARFSourceLanguageFortran08
+  DWARFSourceLanguageRenderScript
+  DWARFSourceLanguageBLISS
+  DWARFSourceLanguageKotlin
+  DWARFSourceLanguageZig
+  DWARFSourceLanguageCrystal
+  DWARFSourceLanguageC_plusPlus17
+  DWARFSourceLanguageC_plusPlus20
+  DWARFSourceLanguageC17
+  DWARFSourceLanguageFortran18
+  DWARFSourceLanguageAda2005
+  DWARFSourceLanguageAda2012
+  DWARFSourceLanguageMojo ##  Vendor extensions:
+  DWARFSourceLanguageMipsAssembler
+  DWARFSourceLanguageGOOGLE_RenderScript
+  DWARFSourceLanguageBORLAND_Delphi
 
 ##
 ##  The amount of debug information to emit.
 ##
 
-type
-  DWARFEmissionKind* {.size: sizeof(cint).} = enum
-    DWARFEmissionNone = 0, DWARFEmissionFull, DWARFEmissionLineTablesOnly
-
+type DWARFEmissionKind* {.size: sizeof(cint).} = enum
+  DWARFEmissionNone = 0
+  DWARFEmissionFull
+  DWARFEmissionLineTablesOnly
 
 ##
 ##  The kind of metadata nodes.
@@ -129,15 +167,13 @@ const
   DIArgListMetadataKind* = 34
   DIAssignIDMetadataKind* = 35
 
-type
-  MetadataKind* = cuint
+type MetadataKind* = cuint
 
 ##
 ##  An LLVM DWARF type encoding.
 ##
 
-type
-  DWARFTypeEncoding* = cuint
+type DWARFTypeEncoding* = cuint
 
 ##
 ##  Describes the kind of macro declaration used for LLVMDIBuilderCreateMacro.
@@ -145,25 +181,29 @@ type
 ##  @note Values are from DW_MACINFO_* constants in the DWARF specification.
 ##
 
-type
-  DWARFMacinfoRecordType* {.size: sizeof(cint).} = enum
-    DWARFMacinfoRecordTypeDefine = 0x01, DWARFMacinfoRecordTypeMacro = 0x02,
-    DWARFMacinfoRecordTypeStartFile = 0x03,
-    DWARFMacinfoRecordTypeEndFile = 0x04, DWARFMacinfoRecordTypeVendorExt = 0xff
-
+type DWARFMacinfoRecordType* {.size: sizeof(cint).} = enum
+  DWARFMacinfoRecordTypeDefine = 0x01
+  DWARFMacinfoRecordTypeMacro = 0x02
+  DWARFMacinfoRecordTypeStartFile = 0x03
+  DWARFMacinfoRecordTypeEndFile = 0x04
+  DWARFMacinfoRecordTypeVendorExt = 0xff
 
 ##
 ##  The current debug metadata version number.
 ##
 
-proc debugMetadataVersion*(): cuint {.importc: "LLVMDebugMetadataVersion",
-                                      dynlib: LLVMLib.}
+proc debugMetadataVersion*(): cuint {.
+  importc: "LLVMDebugMetadataVersion", dynlib: LLVMLib
+.}
+
 ##
 ##  The version of debug metadata that's present in the provided \c Module.
 ##
 
-proc getModuleDebugMetadataVersion*(module: ModuleRef): cuint {.
-    importc: "LLVMGetModuleDebugMetadataVersion", dynlib: LLVMLib.}
+proc getModuleDebugMetadataVersion*(
+  module: ModuleRef
+): cuint {.importc: "LLVMGetModuleDebugMetadataVersion", dynlib: LLVMLib.}
+
 ##
 ##  Strip debug info in the module if it exists.
 ##  To do this, we remove all calls to the debugger intrinsics and any named
@@ -171,43 +211,55 @@ proc getModuleDebugMetadataVersion*(module: ModuleRef): cuint {.
 ##  Return true if module is modified.
 ##
 
-proc stripModuleDebugInfo*(module: ModuleRef): Bool {.
-    importc: "LLVMStripModuleDebugInfo", dynlib: LLVMLib.}
+proc stripModuleDebugInfo*(
+  module: ModuleRef
+): Bool {.importc: "LLVMStripModuleDebugInfo", dynlib: LLVMLib.}
+
 ##
 ##  Construct a builder for a module, and do not allow for unresolved nodes
 ##  attached to the module.
 ##
 
-proc createDIBuilderDisallowUnresolved*(m: ModuleRef): DIBuilderRef {.
-    importc: "LLVMCreateDIBuilderDisallowUnresolved", dynlib: LLVMLib.}
+proc createDIBuilderDisallowUnresolved*(
+  m: ModuleRef
+): DIBuilderRef {.importc: "LLVMCreateDIBuilderDisallowUnresolved", dynlib: LLVMLib.}
+
 ##
 ##  Construct a builder for a module and collect unresolved nodes attached
 ##  to the module in order to resolve cycles during a call to
 ##  \c LLVMDIBuilderFinalize.
 ##
 
-proc createDIBuilder*(m: ModuleRef): DIBuilderRef {.
-    importc: "LLVMCreateDIBuilder", dynlib: LLVMLib.}
+proc createDIBuilder*(
+  m: ModuleRef
+): DIBuilderRef {.importc: "LLVMCreateDIBuilder", dynlib: LLVMLib.}
+
 ##
 ##  Deallocates the \c DIBuilder and everything it owns.
 ##  @note You must call \c LLVMDIBuilderFinalize before this
 ##
 
-proc disposeDIBuilder*(builder: DIBuilderRef) {.importc: "LLVMDisposeDIBuilder",
-    dynlib: LLVMLib.}
+proc disposeDIBuilder*(
+  builder: DIBuilderRef
+) {.importc: "LLVMDisposeDIBuilder", dynlib: LLVMLib.}
+
 ##
 ##  Construct any deferred debug info descriptors.
 ##
 
-proc dIBuilderFinalize*(builder: DIBuilderRef) {.
-    importc: "LLVMDIBuilderFinalize", dynlib: LLVMLib.}
+proc dIBuilderFinalize*(
+  builder: DIBuilderRef
+) {.importc: "LLVMDIBuilderFinalize", dynlib: LLVMLib.}
+
 ##
 ##  Finalize a specific subprogram.
 ##  No new variables may be added to this subprogram afterwards.
 ##
 
-proc dIBuilderFinalizeSubprogram*(builder: DIBuilderRef; subprogram: MetadataRef) {.
-    importc: "LLVMDIBuilderFinalizeSubprogram", dynlib: LLVMLib.}
+proc dIBuilderFinalizeSubprogram*(
+  builder: DIBuilderRef, subprogram: MetadataRef
+) {.importc: "LLVMDIBuilderFinalizeSubprogram", dynlib: LLVMLib.}
+
 ##
 ##  A CompileUnit provides an anchor for all debugging
 ##  information generated during this instance of compilation.
@@ -241,18 +293,28 @@ proc dIBuilderFinalizeSubprogram*(builder: DIBuilderRef; subprogram: MetadataRef
 ##  \param SDKLen        The length of the C string passed to \c SDK.
 ##
 
-proc dIBuilderCreateCompileUnit*(builder: DIBuilderRef;
-                                 lang: DWARFSourceLanguage;
-                                 fileRef: MetadataRef; producer: cstring;
-                                 producerLen: csize_t; isOptimized: Bool;
-                                 flags: cstring; flagsLen: csize_t;
-                                 runtimeVer: cuint; splitName: cstring;
-                                 splitNameLen: csize_t; kind: DWARFEmissionKind;
-                                 dWOId: cuint; splitDebugInlining: Bool;
-                                 debugInfoForProfiling: Bool; sysRoot: cstring;
-                                 sysRootLen: csize_t; sdk: cstring;
-                                 sDKLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateCompileUnit", dynlib: LLVMLib.}
+proc dIBuilderCreateCompileUnit*(
+  builder: DIBuilderRef,
+  lang: DWARFSourceLanguage,
+  fileRef: MetadataRef,
+  producer: cstring,
+  producerLen: csize_t,
+  isOptimized: Bool,
+  flags: cstring,
+  flagsLen: csize_t,
+  runtimeVer: cuint,
+  splitName: cstring,
+  splitNameLen: csize_t,
+  kind: DWARFEmissionKind,
+  dWOId: cuint,
+  splitDebugInlining: Bool,
+  debugInfoForProfiling: Bool,
+  sysRoot: cstring,
+  sysRootLen: csize_t,
+  sdk: cstring,
+  sDKLen: csize_t,
+): MetadataRef {.importc: "LLVMDIBuilderCreateCompileUnit", dynlib: LLVMLib.}
+
 ##
 ##  Create a file descriptor to hold debugging information for a file.
 ##  \param Builder      The \c DIBuilder.
@@ -262,10 +324,14 @@ proc dIBuilderCreateCompileUnit*(builder: DIBuilderRef;
 ##  \param DirectoryLen The length of the C string passed to \c Directory.
 ##
 
-proc dIBuilderCreateFile*(builder: DIBuilderRef; filename: cstring;
-                          filenameLen: csize_t; directory: cstring;
-                          directoryLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateFile", dynlib: LLVMLib.}
+proc dIBuilderCreateFile*(
+  builder: DIBuilderRef,
+  filename: cstring,
+  filenameLen: csize_t,
+  directory: cstring,
+  directoryLen: csize_t,
+): MetadataRef {.importc: "LLVMDIBuilderCreateFile", dynlib: LLVMLib.}
+
 ##
 ##  Creates a new descriptor for a module with the specified parent scope.
 ##  \param Builder         The \c DIBuilder.
@@ -281,12 +347,19 @@ proc dIBuilderCreateFile*(builder: DIBuilderRef; filename: cstring;
 ##  \param APINotesFileLen The length of the C string passed to \c APINotestFile.
 ##
 
-proc dIBuilderCreateModule*(builder: DIBuilderRef; parentScope: MetadataRef;
-                            name: cstring; nameLen: csize_t;
-                            configMacros: cstring; configMacrosLen: csize_t;
-                            includePath: cstring; includePathLen: csize_t;
-                            aPINotesFile: cstring; aPINotesFileLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateModule", dynlib: LLVMLib.}
+proc dIBuilderCreateModule*(
+  builder: DIBuilderRef,
+  parentScope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  configMacros: cstring,
+  configMacrosLen: csize_t,
+  includePath: cstring,
+  includePathLen: csize_t,
+  aPINotesFile: cstring,
+  aPINotesFileLen: csize_t,
+): MetadataRef {.importc: "LLVMDIBuilderCreateModule", dynlib: LLVMLib.}
+
 ##
 ##  Creates a new descriptor for a namespace with the specified parent scope.
 ##  \param Builder          The \c DIBuilder.
@@ -297,10 +370,14 @@ proc dIBuilderCreateModule*(builder: DIBuilderRef; parentScope: MetadataRef;
 ##                          this is true of C++ inline namespaces.
 ##
 
-proc dIBuilderCreateNameSpace*(builder: DIBuilderRef; parentScope: MetadataRef;
-                               name: cstring; nameLen: csize_t;
-                               exportSymbols: Bool): MetadataRef {.
-    importc: "LLVMDIBuilderCreateNameSpace", dynlib: LLVMLib.}
+proc dIBuilderCreateNameSpace*(
+  builder: DIBuilderRef,
+  parentScope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  exportSymbols: Bool,
+): MetadataRef {.importc: "LLVMDIBuilderCreateNameSpace", dynlib: LLVMLib.}
+
 ##
 ##  Create a new descriptor for the specified subprogram.
 ##  \param Builder         The \c DIBuilder.
@@ -320,14 +397,23 @@ proc dIBuilderCreateNameSpace*(builder: DIBuilderRef; parentScope: MetadataRef;
 ##  \param IsOptimized     True if optimization is ON.
 ##
 
-proc dIBuilderCreateFunction*(builder: DIBuilderRef; scope: MetadataRef;
-                              name: cstring; nameLen: csize_t;
-                              linkageName: cstring; linkageNameLen: csize_t;
-                              file: MetadataRef; lineNo: cuint; ty: MetadataRef;
-                              isLocalToUnit: Bool; isDefinition: Bool;
-                              scopeLine: cuint; flags: DIFlags;
-                              isOptimized: Bool): MetadataRef {.
-    importc: "LLVMDIBuilderCreateFunction", dynlib: LLVMLib.}
+proc dIBuilderCreateFunction*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  linkageName: cstring,
+  linkageNameLen: csize_t,
+  file: MetadataRef,
+  lineNo: cuint,
+  ty: MetadataRef,
+  isLocalToUnit: Bool,
+  isDefinition: Bool,
+  scopeLine: cuint,
+  flags: DIFlags,
+  isOptimized: Bool,
+): MetadataRef {.importc: "LLVMDIBuilderCreateFunction", dynlib: LLVMLib.}
+
 ##
 ##  Create a descriptor for a lexical block with the specified parent context.
 ##  \param Builder      The \c DIBuilder.
@@ -337,9 +423,14 @@ proc dIBuilderCreateFunction*(builder: DIBuilderRef; scope: MetadataRef;
 ##  \param Column       The column in the source file.
 ##
 
-proc dIBuilderCreateLexicalBlock*(builder: DIBuilderRef; scope: MetadataRef;
-                                  file: MetadataRef; line: cuint; column: cuint): MetadataRef {.
-    importc: "LLVMDIBuilderCreateLexicalBlock", dynlib: LLVMLib.}
+proc dIBuilderCreateLexicalBlock*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  file: MetadataRef,
+  line: cuint,
+  column: cuint,
+): MetadataRef {.importc: "LLVMDIBuilderCreateLexicalBlock", dynlib: LLVMLib.}
+
 ##
 ##  Create a descriptor for a lexical block with a new file attached.
 ##  \param Builder        The \c DIBuilder.
@@ -348,9 +439,10 @@ proc dIBuilderCreateLexicalBlock*(builder: DIBuilderRef; scope: MetadataRef;
 ##  \param Discriminator  DWARF path discriminator value.
 ##
 
-proc dIBuilderCreateLexicalBlockFile*(builder: DIBuilderRef; scope: MetadataRef;
-                                      file: MetadataRef; discriminator: cuint): MetadataRef {.
-    importc: "LLVMDIBuilderCreateLexicalBlockFile", dynlib: LLVMLib.}
+proc dIBuilderCreateLexicalBlockFile*(
+  builder: DIBuilderRef, scope: MetadataRef, file: MetadataRef, discriminator: cuint
+): MetadataRef {.importc: "LLVMDIBuilderCreateLexicalBlockFile", dynlib: LLVMLib.}
+
 ##
 ##  Create a descriptor for an imported namespace. Suitable for e.g. C++
 ##  using declarations.
@@ -360,9 +452,16 @@ proc dIBuilderCreateLexicalBlockFile*(builder: DIBuilderRef; scope: MetadataRef;
 ##  \param Line       Line number of the declaration.
 ##
 
-proc dIBuilderCreateImportedModuleFromNamespace*(builder: DIBuilderRef;
-    scope: MetadataRef; ns: MetadataRef; file: MetadataRef; line: cuint): MetadataRef {.
-    importc: "LLVMDIBuilderCreateImportedModuleFromNamespace", dynlib: LLVMLib.}
+proc dIBuilderCreateImportedModuleFromNamespace*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  ns: MetadataRef,
+  file: MetadataRef,
+  line: cuint,
+): MetadataRef {.
+  importc: "LLVMDIBuilderCreateImportedModuleFromNamespace", dynlib: LLVMLib
+.}
+
 ##
 ##  Create a descriptor for an imported module that aliases another
 ##  imported entity descriptor.
@@ -375,10 +474,18 @@ proc dIBuilderCreateImportedModuleFromNamespace*(builder: DIBuilderRef;
 ##  \param NumElements    Number of renamed elements.
 ##
 
-proc dIBuilderCreateImportedModuleFromAlias*(builder: DIBuilderRef;
-    scope: MetadataRef; importedEntity: MetadataRef; file: MetadataRef;
-    line: cuint; elements: ptr MetadataRef; numElements: cuint): MetadataRef {.
-    importc: "LLVMDIBuilderCreateImportedModuleFromAlias", dynlib: LLVMLib.}
+proc dIBuilderCreateImportedModuleFromAlias*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  importedEntity: MetadataRef,
+  file: MetadataRef,
+  line: cuint,
+  elements: ptr MetadataRef,
+  numElements: cuint,
+): MetadataRef {.
+  importc: "LLVMDIBuilderCreateImportedModuleFromAlias", dynlib: LLVMLib
+.}
+
 ##
 ##  Create a descriptor for an imported module.
 ##  \param Builder        The \c DIBuilder.
@@ -390,10 +497,18 @@ proc dIBuilderCreateImportedModuleFromAlias*(builder: DIBuilderRef;
 ##  \param NumElements    Number of renamed elements.
 ##
 
-proc dIBuilderCreateImportedModuleFromModule*(builder: DIBuilderRef;
-    scope: MetadataRef; m: MetadataRef; file: MetadataRef; line: cuint;
-    elements: ptr MetadataRef; numElements: cuint): MetadataRef {.
-    importc: "LLVMDIBuilderCreateImportedModuleFromModule", dynlib: LLVMLib.}
+proc dIBuilderCreateImportedModuleFromModule*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  m: MetadataRef,
+  file: MetadataRef,
+  line: cuint,
+  elements: ptr MetadataRef,
+  numElements: cuint,
+): MetadataRef {.
+  importc: "LLVMDIBuilderCreateImportedModuleFromModule", dynlib: LLVMLib
+.}
+
 ##
 ##  Create a descriptor for an imported function, type, or variable.  Suitable
 ##  for e.g. FORTRAN-style USE declarations.
@@ -410,11 +525,18 @@ proc dIBuilderCreateImportedModuleFromModule*(builder: DIBuilderRef;
 ##  \param NumElements    Number of renamed elements.
 ##
 
-proc dIBuilderCreateImportedDeclaration*(builder: DIBuilderRef;
-    scope: MetadataRef; decl: MetadataRef; file: MetadataRef; line: cuint;
-    name: cstring; nameLen: csize_t; elements: ptr MetadataRef;
-    numElements: cuint): MetadataRef {.importc: "LLVMDIBuilderCreateImportedDeclaration",
-                                       dynlib: LLVMLib.}
+proc dIBuilderCreateImportedDeclaration*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  decl: MetadataRef,
+  file: MetadataRef,
+  line: cuint,
+  name: cstring,
+  nameLen: csize_t,
+  elements: ptr MetadataRef,
+  numElements: cuint,
+): MetadataRef {.importc: "LLVMDIBuilderCreateImportedDeclaration", dynlib: LLVMLib.}
+
 ##
 ##  Creates a new DebugLocation that describes a source location.
 ##  \param Line The line in the source file.
@@ -426,9 +548,14 @@ proc dIBuilderCreateImportedDeclaration*(builder: DIBuilderRef;
 ##        attributed to a source line, pass 0 for the line and column.
 ##
 
-proc dIBuilderCreateDebugLocation*(ctx: ContextRef; line: cuint; column: cuint;
-                                   scope: MetadataRef; inlinedAt: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateDebugLocation", dynlib: LLVMLib.}
+proc dIBuilderCreateDebugLocation*(
+  ctx: ContextRef,
+  line: cuint,
+  column: cuint,
+  scope: MetadataRef,
+  inlinedAt: MetadataRef,
+): MetadataRef {.importc: "LLVMDIBuilderCreateDebugLocation", dynlib: LLVMLib.}
+
 ##
 ##  Get the line number of this debug location.
 ##  \param Location     The debug location.
@@ -436,8 +563,10 @@ proc dIBuilderCreateDebugLocation*(ctx: ContextRef; line: cuint; column: cuint;
 ##  @see DILocation::getLine()
 ##
 
-proc dILocationGetLine*(location: MetadataRef): cuint {.
-    importc: "LLVMDILocationGetLine", dynlib: LLVMLib.}
+proc dILocationGetLine*(
+  location: MetadataRef
+): cuint {.importc: "LLVMDILocationGetLine", dynlib: LLVMLib.}
+
 ##
 ##  Get the column number of this debug location.
 ##  \param Location     The debug location.
@@ -445,8 +574,10 @@ proc dILocationGetLine*(location: MetadataRef): cuint {.
 ##  @see DILocation::getColumn()
 ##
 
-proc dILocationGetColumn*(location: MetadataRef): cuint {.
-    importc: "LLVMDILocationGetColumn", dynlib: LLVMLib.}
+proc dILocationGetColumn*(
+  location: MetadataRef
+): cuint {.importc: "LLVMDILocationGetColumn", dynlib: LLVMLib.}
+
 ##
 ##  Get the local scope associated with this debug location.
 ##  \param Location     The debug location.
@@ -454,8 +585,10 @@ proc dILocationGetColumn*(location: MetadataRef): cuint {.
 ##  @see DILocation::getScope()
 ##
 
-proc dILocationGetScope*(location: MetadataRef): MetadataRef {.
-    importc: "LLVMDILocationGetScope", dynlib: LLVMLib.}
+proc dILocationGetScope*(
+  location: MetadataRef
+): MetadataRef {.importc: "LLVMDILocationGetScope", dynlib: LLVMLib.}
+
 ##
 ##  Get the "inline at" location associated with this debug location.
 ##  \param Location     The debug location.
@@ -463,8 +596,10 @@ proc dILocationGetScope*(location: MetadataRef): MetadataRef {.
 ##  @see DILocation::getInlinedAt()
 ##
 
-proc dILocationGetInlinedAt*(location: MetadataRef): MetadataRef {.
-    importc: "LLVMDILocationGetInlinedAt", dynlib: LLVMLib.}
+proc dILocationGetInlinedAt*(
+  location: MetadataRef
+): MetadataRef {.importc: "LLVMDILocationGetInlinedAt", dynlib: LLVMLib.}
+
 ##
 ##  Get the metadata of the file associated with a given scope.
 ##  \param Scope     The scope object.
@@ -472,8 +607,10 @@ proc dILocationGetInlinedAt*(location: MetadataRef): MetadataRef {.
 ##  @see DIScope::getFile()
 ##
 
-proc dIScopeGetFile*(scope: MetadataRef): MetadataRef {.
-    importc: "LLVMDIScopeGetFile", dynlib: LLVMLib.}
+proc dIScopeGetFile*(
+  scope: MetadataRef
+): MetadataRef {.importc: "LLVMDIScopeGetFile", dynlib: LLVMLib.}
+
 ##
 ##  Get the directory of a given file.
 ##  \param File     The file object.
@@ -482,8 +619,10 @@ proc dIScopeGetFile*(scope: MetadataRef): MetadataRef {.
 ##  @see DIFile::getDirectory()
 ##
 
-proc dIFileGetDirectory*(file: MetadataRef; len: ptr cuint): cstring {.
-    importc: "LLVMDIFileGetDirectory", dynlib: LLVMLib.}
+proc dIFileGetDirectory*(
+  file: MetadataRef, len: ptr cuint
+): cstring {.importc: "LLVMDIFileGetDirectory", dynlib: LLVMLib.}
+
 ##
 ##  Get the name of a given file.
 ##  \param File     The file object.
@@ -492,8 +631,10 @@ proc dIFileGetDirectory*(file: MetadataRef; len: ptr cuint): cstring {.
 ##  @see DIFile::getFilename()
 ##
 
-proc dIFileGetFilename*(file: MetadataRef; len: ptr cuint): cstring {.
-    importc: "LLVMDIFileGetFilename", dynlib: LLVMLib.}
+proc dIFileGetFilename*(
+  file: MetadataRef, len: ptr cuint
+): cstring {.importc: "LLVMDIFileGetFilename", dynlib: LLVMLib.}
+
 ##
 ##  Get the source of a given file.
 ##  \param File     The file object.
@@ -502,8 +643,10 @@ proc dIFileGetFilename*(file: MetadataRef; len: ptr cuint): cstring {.
 ##  @see DIFile::getSource()
 ##
 
-proc dIFileGetSource*(file: MetadataRef; len: ptr cuint): cstring {.
-    importc: "LLVMDIFileGetSource", dynlib: LLVMLib.}
+proc dIFileGetSource*(
+  file: MetadataRef, len: ptr cuint
+): cstring {.importc: "LLVMDIFileGetSource", dynlib: LLVMLib.}
+
 ##
 ##  Create a type array.
 ##  \param Builder        The DIBuilder.
@@ -511,9 +654,10 @@ proc dIFileGetSource*(file: MetadataRef; len: ptr cuint): cstring {.
 ##  \param NumElements    Number of type elements.
 ##
 
-proc dIBuilderGetOrCreateTypeArray*(builder: DIBuilderRef;
-                                    data: ptr MetadataRef; numElements: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderGetOrCreateTypeArray", dynlib: LLVMLib.}
+proc dIBuilderGetOrCreateTypeArray*(
+  builder: DIBuilderRef, data: ptr MetadataRef, numElements: csize_t
+): MetadataRef {.importc: "LLVMDIBuilderGetOrCreateTypeArray", dynlib: LLVMLib.}
+
 ##
 ##  Create subroutine type.
 ##  \param Builder        The DIBuilder.
@@ -525,10 +669,14 @@ proc dIBuilderGetOrCreateTypeArray*(builder: DIBuilderRef;
 ##                         These flags are used to emit dwarf attributes.
 ##
 
-proc dIBuilderCreateSubroutineType*(builder: DIBuilderRef; file: MetadataRef;
-                                    parameterTypes: ptr MetadataRef;
-                                    numParameterTypes: cuint; flags: DIFlags): MetadataRef {.
-    importc: "LLVMDIBuilderCreateSubroutineType", dynlib: LLVMLib.}
+proc dIBuilderCreateSubroutineType*(
+  builder: DIBuilderRef,
+  file: MetadataRef,
+  parameterTypes: ptr MetadataRef,
+  numParameterTypes: cuint,
+  flags: DIFlags,
+): MetadataRef {.importc: "LLVMDIBuilderCreateSubroutineType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a macro.
 ##  @param Builder         The DIBuilder.
@@ -541,11 +689,17 @@ proc dIBuilderCreateSubroutineType*(builder: DIBuilderRef; file: MetadataRef;
 ##  @param ValueLen        Macro value length.
 ##
 
-proc dIBuilderCreateMacro*(builder: DIBuilderRef; parentMacroFile: MetadataRef;
-                           line: cuint; recordType: DWARFMacinfoRecordType;
-                           name: cstring; nameLen: csize_t; value: cstring;
-                           valueLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateMacro", dynlib: LLVMLib.}
+proc dIBuilderCreateMacro*(
+  builder: DIBuilderRef,
+  parentMacroFile: MetadataRef,
+  line: cuint,
+  recordType: DWARFMacinfoRecordType,
+  name: cstring,
+  nameLen: csize_t,
+  value: cstring,
+  valueLen: csize_t,
+): MetadataRef {.importc: "LLVMDIBuilderCreateMacro", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information temporary entry for a macro file.
 ##  List of macro node direct children will be calculated by DIBuilder,
@@ -556,10 +710,10 @@ proc dIBuilderCreateMacro*(builder: DIBuilderRef; parentMacroFile: MetadataRef;
 ##  @param File            File descriptor containing the name of the macro file.
 ##
 
-proc dIBuilderCreateTempMacroFile*(builder: DIBuilderRef;
-                                   parentMacroFile: MetadataRef; line: cuint;
-                                   file: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateTempMacroFile", dynlib: LLVMLib.}
+proc dIBuilderCreateTempMacroFile*(
+  builder: DIBuilderRef, parentMacroFile: MetadataRef, line: cuint, file: MetadataRef
+): MetadataRef {.importc: "LLVMDIBuilderCreateTempMacroFile", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for an enumerator.
 ##  @param Builder        The DIBuilder.
@@ -569,9 +723,10 @@ proc dIBuilderCreateTempMacroFile*(builder: DIBuilderRef;
 ##  @param IsUnsigned     True if the value is unsigned.
 ##
 
-proc dIBuilderCreateEnumerator*(builder: DIBuilderRef; name: cstring;
-                                nameLen: csize_t; value: int64; isUnsigned: Bool): MetadataRef {.
-    importc: "LLVMDIBuilderCreateEnumerator", dynlib: LLVMLib.}
+proc dIBuilderCreateEnumerator*(
+  builder: DIBuilderRef, name: cstring, nameLen: csize_t, value: int64, isUnsigned: Bool
+): MetadataRef {.importc: "LLVMDIBuilderCreateEnumerator", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for an enumeration.
 ##  \param Builder        The DIBuilder.
@@ -587,13 +742,20 @@ proc dIBuilderCreateEnumerator*(builder: DIBuilderRef; name: cstring;
 ##  \param ClassTy        Underlying type of a C++11/ObjC fixed enum.
 ##
 
-proc dIBuilderCreateEnumerationType*(builder: DIBuilderRef; scope: MetadataRef;
-                                     name: cstring; nameLen: csize_t;
-                                     file: MetadataRef; lineNumber: cuint;
-                                     sizeInBits: uint64; alignInBits: uint32;
-                                     elements: ptr MetadataRef;
-                                     numElements: cuint; classTy: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateEnumerationType", dynlib: LLVMLib.}
+proc dIBuilderCreateEnumerationType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNumber: cuint,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  elements: ptr MetadataRef,
+  numElements: cuint,
+  classTy: MetadataRef,
+): MetadataRef {.importc: "LLVMDIBuilderCreateEnumerationType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a union.
 ##  \param Builder      The DIBuilder.
@@ -612,14 +774,23 @@ proc dIBuilderCreateEnumerationType*(builder: DIBuilderRef; scope: MetadataRef;
 ##  \param UniqueIdLen  Length of unique identifier.
 ##
 
-proc dIBuilderCreateUnionType*(builder: DIBuilderRef; scope: MetadataRef;
-                               name: cstring; nameLen: csize_t;
-                               file: MetadataRef; lineNumber: cuint;
-                               sizeInBits: uint64; alignInBits: uint32;
-                               flags: DIFlags; elements: ptr MetadataRef;
-                               numElements: cuint; runTimeLang: cuint;
-                               uniqueId: cstring; uniqueIdLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateUnionType", dynlib: LLVMLib.}
+proc dIBuilderCreateUnionType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNumber: cuint,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  flags: DIFlags,
+  elements: ptr MetadataRef,
+  numElements: cuint,
+  runTimeLang: cuint,
+  uniqueId: cstring,
+  uniqueIdLen: csize_t,
+): MetadataRef {.importc: "LLVMDIBuilderCreateUnionType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for an array.
 ##  \param Builder      The DIBuilder.
@@ -630,10 +801,15 @@ proc dIBuilderCreateUnionType*(builder: DIBuilderRef; scope: MetadataRef;
 ##  \param NumSubscripts Number of subscripts.
 ##
 
-proc dIBuilderCreateArrayType*(builder: DIBuilderRef; size: uint64;
-                               alignInBits: uint32; ty: MetadataRef;
-                               subscripts: ptr MetadataRef; numSubscripts: cuint): MetadataRef {.
-    importc: "LLVMDIBuilderCreateArrayType", dynlib: LLVMLib.}
+proc dIBuilderCreateArrayType*(
+  builder: DIBuilderRef,
+  size: uint64,
+  alignInBits: uint32,
+  ty: MetadataRef,
+  subscripts: ptr MetadataRef,
+  numSubscripts: cuint,
+): MetadataRef {.importc: "LLVMDIBuilderCreateArrayType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a vector type.
 ##  \param Builder      The DIBuilder.
@@ -644,11 +820,15 @@ proc dIBuilderCreateArrayType*(builder: DIBuilderRef; size: uint64;
 ##  \param NumSubscripts Number of subscripts.
 ##
 
-proc dIBuilderCreateVectorType*(builder: DIBuilderRef; size: uint64;
-                                alignInBits: uint32; ty: MetadataRef;
-                                subscripts: ptr MetadataRef;
-                                numSubscripts: cuint): MetadataRef {.
-    importc: "LLVMDIBuilderCreateVectorType", dynlib: LLVMLib.}
+proc dIBuilderCreateVectorType*(
+  builder: DIBuilderRef,
+  size: uint64,
+  alignInBits: uint32,
+  ty: MetadataRef,
+  subscripts: ptr MetadataRef,
+  numSubscripts: cuint,
+): MetadataRef {.importc: "LLVMDIBuilderCreateVectorType", dynlib: LLVMLib.}
+
 ##
 ##  Create a DWARF unspecified type.
 ##  \param Builder   The DIBuilder.
@@ -656,9 +836,10 @@ proc dIBuilderCreateVectorType*(builder: DIBuilderRef; size: uint64;
 ##  \param NameLen   Length of type name.
 ##
 
-proc dIBuilderCreateUnspecifiedType*(builder: DIBuilderRef; name: cstring;
-                                     nameLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateUnspecifiedType", dynlib: LLVMLib.}
+proc dIBuilderCreateUnspecifiedType*(
+  builder: DIBuilderRef, name: cstring, nameLen: csize_t
+): MetadataRef {.importc: "LLVMDIBuilderCreateUnspecifiedType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a basic
 ##  type.
@@ -670,10 +851,15 @@ proc dIBuilderCreateUnspecifiedType*(builder: DIBuilderRef; name: cstring;
 ##  \param Flags       Flags to encode optional attribute like endianity
 ##
 
-proc dIBuilderCreateBasicType*(builder: DIBuilderRef; name: cstring;
-                               nameLen: csize_t; sizeInBits: uint64;
-                               encoding: DWARFTypeEncoding; flags: DIFlags): MetadataRef {.
-    importc: "LLVMDIBuilderCreateBasicType", dynlib: LLVMLib.}
+proc dIBuilderCreateBasicType*(
+  builder: DIBuilderRef,
+  name: cstring,
+  nameLen: csize_t,
+  sizeInBits: uint64,
+  encoding: DWARFTypeEncoding,
+  flags: DIFlags,
+): MetadataRef {.importc: "LLVMDIBuilderCreateBasicType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a pointer.
 ##  \param Builder     The DIBuilder.
@@ -685,11 +871,16 @@ proc dIBuilderCreateBasicType*(builder: DIBuilderRef; name: cstring;
 ##  \param NameLen           Length of pointer type name. (optional)
 ##
 
-proc dIBuilderCreatePointerType*(builder: DIBuilderRef; pointeeTy: MetadataRef;
-                                 sizeInBits: uint64; alignInBits: uint32;
-                                 addressSpace: cuint; name: cstring;
-                                 nameLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreatePointerType", dynlib: LLVMLib.}
+proc dIBuilderCreatePointerType*(
+  builder: DIBuilderRef,
+  pointeeTy: MetadataRef,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  addressSpace: cuint,
+  name: cstring,
+  nameLen: csize_t,
+): MetadataRef {.importc: "LLVMDIBuilderCreatePointerType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a struct.
 ##  \param Builder     The DIBuilder.
@@ -709,15 +900,25 @@ proc dIBuilderCreatePointerType*(builder: DIBuilderRef; pointeeTy: MetadataRef;
 ##  \param UniqueIdLen  Length of the unique identifier for the struct.
 ##
 
-proc dIBuilderCreateStructType*(builder: DIBuilderRef; scope: MetadataRef;
-                                name: cstring; nameLen: csize_t;
-                                file: MetadataRef; lineNumber: cuint;
-                                sizeInBits: uint64; alignInBits: uint32;
-                                flags: DIFlags; derivedFrom: MetadataRef;
-                                elements: ptr MetadataRef; numElements: cuint;
-                                runTimeLang: cuint; vTableHolder: MetadataRef;
-                                uniqueId: cstring; uniqueIdLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateStructType", dynlib: LLVMLib.}
+proc dIBuilderCreateStructType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNumber: cuint,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  flags: DIFlags,
+  derivedFrom: MetadataRef,
+  elements: ptr MetadataRef,
+  numElements: cuint,
+  runTimeLang: cuint,
+  vTableHolder: MetadataRef,
+  uniqueId: cstring,
+  uniqueIdLen: csize_t,
+): MetadataRef {.importc: "LLVMDIBuilderCreateStructType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a member.
 ##  \param Builder      The DIBuilder.
@@ -733,13 +934,20 @@ proc dIBuilderCreateStructType*(builder: DIBuilderRef; scope: MetadataRef;
 ##  \param Ty           Parent type.
 ##
 
-proc dIBuilderCreateMemberType*(builder: DIBuilderRef; scope: MetadataRef;
-                                name: cstring; nameLen: csize_t;
-                                file: MetadataRef; lineNo: cuint;
-                                sizeInBits: uint64; alignInBits: uint32;
-                                offsetInBits: uint64; flags: DIFlags;
-                                ty: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateMemberType", dynlib: LLVMLib.}
+proc dIBuilderCreateMemberType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNo: cuint,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  offsetInBits: uint64,
+  flags: DIFlags,
+  ty: MetadataRef,
+): MetadataRef {.importc: "LLVMDIBuilderCreateMemberType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a
 ##  C++ static data member.
@@ -755,12 +963,19 @@ proc dIBuilderCreateMemberType*(builder: DIBuilderRef; scope: MetadataRef;
 ##  \param AlignInBits  Member alignment.
 ##
 
-proc dIBuilderCreateStaticMemberType*(builder: DIBuilderRef; scope: MetadataRef;
-                                      name: cstring; nameLen: csize_t;
-                                      file: MetadataRef; lineNumber: cuint;
-                                      `type`: MetadataRef; flags: DIFlags;
-                                      constantVal: ValueRef; alignInBits: uint32): MetadataRef {.
-    importc: "LLVMDIBuilderCreateStaticMemberType", dynlib: LLVMLib.}
+proc dIBuilderCreateStaticMemberType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNumber: cuint,
+  `type`: MetadataRef,
+  flags: DIFlags,
+  constantVal: ValueRef,
+  alignInBits: uint32,
+): MetadataRef {.importc: "LLVMDIBuilderCreateStaticMemberType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a pointer to member.
 ##  \param Builder      The DIBuilder.
@@ -771,12 +986,15 @@ proc dIBuilderCreateStaticMemberType*(builder: DIBuilderRef; scope: MetadataRef;
 ##  \param Flags        Flags.
 ##
 
-proc dIBuilderCreateMemberPointerType*(builder: DIBuilderRef;
-                                       pointeeType: MetadataRef;
-                                       classType: MetadataRef;
-                                       sizeInBits: uint64; alignInBits: uint32;
-                                       flags: DIFlags): MetadataRef {.
-    importc: "LLVMDIBuilderCreateMemberPointerType", dynlib: LLVMLib.}
+proc dIBuilderCreateMemberPointerType*(
+  builder: DIBuilderRef,
+  pointeeType: MetadataRef,
+  classType: MetadataRef,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  flags: DIFlags,
+): MetadataRef {.importc: "LLVMDIBuilderCreateMemberPointerType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for Objective-C instance variable.
 ##  \param Builder      The DIBuilder.
@@ -792,13 +1010,20 @@ proc dIBuilderCreateMemberPointerType*(builder: DIBuilderRef;
 ##  \param PropertyNode Property associated with this ivar.
 ##
 
-proc dIBuilderCreateObjCIVar*(builder: DIBuilderRef; name: cstring;
-                              nameLen: csize_t; file: MetadataRef;
-                              lineNo: cuint; sizeInBits: uint64;
-                              alignInBits: uint32; offsetInBits: uint64;
-                              flags: DIFlags; ty: MetadataRef;
-                              propertyNode: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateObjCIVar", dynlib: LLVMLib.}
+proc dIBuilderCreateObjCIVar*(
+  builder: DIBuilderRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNo: cuint,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  offsetInBits: uint64,
+  flags: DIFlags,
+  ty: MetadataRef,
+  propertyNode: MetadataRef,
+): MetadataRef {.importc: "LLVMDIBuilderCreateObjCIVar", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for Objective-C property.
 ##  \param Builder            The DIBuilder.
@@ -814,22 +1039,30 @@ proc dIBuilderCreateObjCIVar*(builder: DIBuilderRef; name: cstring;
 ##  \param Ty                 Type.
 ##
 
-proc dIBuilderCreateObjCProperty*(builder: DIBuilderRef; name: cstring;
-                                  nameLen: csize_t; file: MetadataRef;
-                                  lineNo: cuint; getterName: cstring;
-                                  getterNameLen: csize_t; setterName: cstring;
-                                  setterNameLen: csize_t;
-                                  propertyAttributes: cuint; ty: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateObjCProperty", dynlib: LLVMLib.}
+proc dIBuilderCreateObjCProperty*(
+  builder: DIBuilderRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNo: cuint,
+  getterName: cstring,
+  getterNameLen: csize_t,
+  setterName: cstring,
+  setterNameLen: csize_t,
+  propertyAttributes: cuint,
+  ty: MetadataRef,
+): MetadataRef {.importc: "LLVMDIBuilderCreateObjCProperty", dynlib: LLVMLib.}
+
 ##
 ##  Create a uniqued DIType* clone with FlagObjectPointer and FlagArtificial set.
 ##  \param Builder   The DIBuilder.
 ##  \param Type      The underlying type to which this pointer points.
 ##
 
-proc dIBuilderCreateObjectPointerType*(builder: DIBuilderRef;
-                                       `type`: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateObjectPointerType", dynlib: LLVMLib.}
+proc dIBuilderCreateObjectPointerType*(
+  builder: DIBuilderRef, `type`: MetadataRef
+): MetadataRef {.importc: "LLVMDIBuilderCreateObjectPointerType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a qualified
 ##  type, e.g. 'const int'.
@@ -839,9 +1072,10 @@ proc dIBuilderCreateObjectPointerType*(builder: DIBuilderRef;
 ##  \param Type        Base Type.
 ##
 
-proc dIBuilderCreateQualifiedType*(builder: DIBuilderRef; tag: cuint;
-                                   `type`: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateQualifiedType", dynlib: LLVMLib.}
+proc dIBuilderCreateQualifiedType*(
+  builder: DIBuilderRef, tag: cuint, `type`: MetadataRef
+): MetadataRef {.importc: "LLVMDIBuilderCreateQualifiedType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a c++
 ##  style reference or rvalue reference type.
@@ -850,16 +1084,19 @@ proc dIBuilderCreateQualifiedType*(builder: DIBuilderRef; tag: cuint;
 ##  \param Type      Base Type.
 ##
 
-proc dIBuilderCreateReferenceType*(builder: DIBuilderRef; tag: cuint;
-                                   `type`: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateReferenceType", dynlib: LLVMLib.}
+proc dIBuilderCreateReferenceType*(
+  builder: DIBuilderRef, tag: cuint, `type`: MetadataRef
+): MetadataRef {.importc: "LLVMDIBuilderCreateReferenceType", dynlib: LLVMLib.}
+
 ##
 ##  Create C++11 nullptr type.
 ##  \param Builder   The DIBuilder.
 ##
 
-proc dIBuilderCreateNullPtrType*(builder: DIBuilderRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateNullPtrType", dynlib: LLVMLib.}
+proc dIBuilderCreateNullPtrType*(
+  builder: DIBuilderRef
+): MetadataRef {.importc: "LLVMDIBuilderCreateNullPtrType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a typedef.
 ##  \param Builder    The DIBuilder.
@@ -870,11 +1107,17 @@ proc dIBuilderCreateNullPtrType*(builder: DIBuilderRef): MetadataRef {.
 ##  \param Scope      The surrounding context for the typedef.
 ##
 
-proc dIBuilderCreateTypedef*(builder: DIBuilderRef; `type`: MetadataRef;
-                             name: cstring; nameLen: csize_t; file: MetadataRef;
-                             lineNo: cuint; scope: MetadataRef;
-                             alignInBits: uint32): MetadataRef {.
-    importc: "LLVMDIBuilderCreateTypedef", dynlib: LLVMLib.}
+proc dIBuilderCreateTypedef*(
+  builder: DIBuilderRef,
+  `type`: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNo: cuint,
+  scope: MetadataRef,
+  alignInBits: uint32,
+): MetadataRef {.importc: "LLVMDIBuilderCreateTypedef", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry to establish inheritance relationship
 ##  between two types.
@@ -886,10 +1129,15 @@ proc dIBuilderCreateTypedef*(builder: DIBuilderRef; `type`: MetadataRef;
 ##  \param Flags         Flags to describe inheritance attribute, e.g. private
 ##
 
-proc dIBuilderCreateInheritance*(builder: DIBuilderRef; ty: MetadataRef;
-                                 baseTy: MetadataRef; baseOffset: uint64;
-                                 vBPtrOffset: uint32; flags: DIFlags): MetadataRef {.
-    importc: "LLVMDIBuilderCreateInheritance", dynlib: LLVMLib.}
+proc dIBuilderCreateInheritance*(
+  builder: DIBuilderRef,
+  ty: MetadataRef,
+  baseTy: MetadataRef,
+  baseOffset: uint64,
+  vBPtrOffset: uint32,
+  flags: DIFlags,
+): MetadataRef {.importc: "LLVMDIBuilderCreateInheritance", dynlib: LLVMLib.}
+
 ##
 ##  Create a permanent forward-declared type.
 ##  \param Builder             The DIBuilder.
@@ -907,14 +1155,21 @@ proc dIBuilderCreateInheritance*(builder: DIBuilderRef; ty: MetadataRef;
 ##  \param UniqueIdentifierLen Length of the unique identifier.
 ##
 
-proc dIBuilderCreateForwardDecl*(builder: DIBuilderRef; tag: cuint;
-                                 name: cstring; nameLen: csize_t;
-                                 scope: MetadataRef; file: MetadataRef;
-                                 line: cuint; runtimeLang: cuint;
-                                 sizeInBits: uint64; alignInBits: uint32;
-                                 uniqueIdentifier: cstring;
-                                 uniqueIdentifierLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateForwardDecl", dynlib: LLVMLib.}
+proc dIBuilderCreateForwardDecl*(
+  builder: DIBuilderRef,
+  tag: cuint,
+  name: cstring,
+  nameLen: csize_t,
+  scope: MetadataRef,
+  file: MetadataRef,
+  line: cuint,
+  runtimeLang: cuint,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  uniqueIdentifier: cstring,
+  uniqueIdentifierLen: csize_t,
+): MetadataRef {.importc: "LLVMDIBuilderCreateForwardDecl", dynlib: LLVMLib.}
+
 ##
 ##  Create a temporary forward-declared type.
 ##  \param Builder             The DIBuilder.
@@ -933,11 +1188,24 @@ proc dIBuilderCreateForwardDecl*(builder: DIBuilderRef; tag: cuint;
 ##  \param UniqueIdentifierLen Length of the unique identifier.
 ##
 
-proc dIBuilderCreateReplaceableCompositeType*(builder: DIBuilderRef; tag: cuint;
-    name: cstring; nameLen: csize_t; scope: MetadataRef; file: MetadataRef;
-    line: cuint; runtimeLang: cuint; sizeInBits: uint64; alignInBits: uint32;
-    flags: DIFlags; uniqueIdentifier: cstring; uniqueIdentifierLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateReplaceableCompositeType", dynlib: LLVMLib.}
+proc dIBuilderCreateReplaceableCompositeType*(
+  builder: DIBuilderRef,
+  tag: cuint,
+  name: cstring,
+  nameLen: csize_t,
+  scope: MetadataRef,
+  file: MetadataRef,
+  line: cuint,
+  runtimeLang: cuint,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  flags: DIFlags,
+  uniqueIdentifier: cstring,
+  uniqueIdentifierLen: csize_t,
+): MetadataRef {.
+  importc: "LLVMDIBuilderCreateReplaceableCompositeType", dynlib: LLVMLib
+.}
+
 ##
 ##  Create debugging information entry for a bit field member.
 ##  \param Builder             The DIBuilder.
@@ -953,14 +1221,20 @@ proc dIBuilderCreateReplaceableCompositeType*(builder: DIBuilderRef; tag: cuint;
 ##  \param Type                Parent type.
 ##
 
-proc dIBuilderCreateBitFieldMemberType*(builder: DIBuilderRef;
-                                        scope: MetadataRef; name: cstring;
-                                        nameLen: csize_t; file: MetadataRef;
-                                        lineNumber: cuint; sizeInBits: uint64;
-                                        offsetInBits: uint64;
-                                        storageOffsetInBits: uint64;
-                                        flags: DIFlags; `type`: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateBitFieldMemberType", dynlib: LLVMLib.}
+proc dIBuilderCreateBitFieldMemberType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNumber: cuint,
+  sizeInBits: uint64,
+  offsetInBits: uint64,
+  storageOffsetInBits: uint64,
+  flags: DIFlags,
+  `type`: MetadataRef,
+): MetadataRef {.importc: "LLVMDIBuilderCreateBitFieldMemberType", dynlib: LLVMLib.}
+
 ##
 ##  Create debugging information entry for a class.
 ##  \param Scope               Scope in which this class is defined.
@@ -984,26 +1258,36 @@ proc dIBuilderCreateBitFieldMemberType*(builder: DIBuilderRef;
 ##  \param UniqueIdentifierLen Length of the unique identifier.
 ##
 
-proc dIBuilderCreateClassType*(builder: DIBuilderRef; scope: MetadataRef;
-                               name: cstring; nameLen: csize_t;
-                               file: MetadataRef; lineNumber: cuint;
-                               sizeInBits: uint64; alignInBits: uint32;
-                               offsetInBits: uint64; flags: DIFlags;
-                               derivedFrom: MetadataRef;
-                               elements: ptr MetadataRef; numElements: cuint;
-                               vTableHolder: MetadataRef;
-                               templateParamsNode: MetadataRef;
-                               uniqueIdentifier: cstring;
-                               uniqueIdentifierLen: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateClassType", dynlib: LLVMLib.}
+proc dIBuilderCreateClassType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNumber: cuint,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  offsetInBits: uint64,
+  flags: DIFlags,
+  derivedFrom: MetadataRef,
+  elements: ptr MetadataRef,
+  numElements: cuint,
+  vTableHolder: MetadataRef,
+  templateParamsNode: MetadataRef,
+  uniqueIdentifier: cstring,
+  uniqueIdentifierLen: csize_t,
+): MetadataRef {.importc: "LLVMDIBuilderCreateClassType", dynlib: LLVMLib.}
+
 ##
 ##  Create a uniqued DIType* clone with FlagArtificial set.
 ##  \param Builder     The DIBuilder.
 ##  \param Type        The underlying type.
 ##
 
-proc dIBuilderCreateArtificialType*(builder: DIBuilderRef; `type`: MetadataRef): MetadataRef {.
-    importc: "LLVMDIBuilderCreateArtificialType", dynlib: LLVMLib.}
+proc dIBuilderCreateArtificialType*(
+  builder: DIBuilderRef, `type`: MetadataRef
+): MetadataRef {.importc: "LLVMDIBuilderCreateArtificialType", dynlib: LLVMLib.}
+
 ##
 ##  Get the name of this DIType.
 ##  \param DType     The DIType.
@@ -1012,8 +1296,10 @@ proc dIBuilderCreateArtificialType*(builder: DIBuilderRef; `type`: MetadataRef):
 ##  @see DIType::getName()
 ##
 
-proc dITypeGetName*(dType: MetadataRef; length: ptr csize_t): cstring {.
-    importc: "LLVMDITypeGetName", dynlib: LLVMLib.}
+proc dITypeGetName*(
+  dType: MetadataRef, length: ptr csize_t
+): cstring {.importc: "LLVMDITypeGetName", dynlib: LLVMLib.}
+
 ##
 ##  Get the size of this DIType in bits.
 ##  \param DType     The DIType.
@@ -1021,8 +1307,10 @@ proc dITypeGetName*(dType: MetadataRef; length: ptr csize_t): cstring {.
 ##  @see DIType::getSizeInBits()
 ##
 
-proc dITypeGetSizeInBits*(dType: MetadataRef): uint64 {.
-    importc: "LLVMDITypeGetSizeInBits", dynlib: LLVMLib.}
+proc dITypeGetSizeInBits*(
+  dType: MetadataRef
+): uint64 {.importc: "LLVMDITypeGetSizeInBits", dynlib: LLVMLib.}
+
 ##
 ##  Get the offset of this DIType in bits.
 ##  \param DType     The DIType.
@@ -1030,8 +1318,10 @@ proc dITypeGetSizeInBits*(dType: MetadataRef): uint64 {.
 ##  @see DIType::getOffsetInBits()
 ##
 
-proc dITypeGetOffsetInBits*(dType: MetadataRef): uint64 {.
-    importc: "LLVMDITypeGetOffsetInBits", dynlib: LLVMLib.}
+proc dITypeGetOffsetInBits*(
+  dType: MetadataRef
+): uint64 {.importc: "LLVMDITypeGetOffsetInBits", dynlib: LLVMLib.}
+
 ##
 ##  Get the alignment of this DIType in bits.
 ##  \param DType     The DIType.
@@ -1039,8 +1329,10 @@ proc dITypeGetOffsetInBits*(dType: MetadataRef): uint64 {.
 ##  @see DIType::getAlignInBits()
 ##
 
-proc dITypeGetAlignInBits*(dType: MetadataRef): uint32 {.
-    importc: "LLVMDITypeGetAlignInBits", dynlib: LLVMLib.}
+proc dITypeGetAlignInBits*(
+  dType: MetadataRef
+): uint32 {.importc: "LLVMDITypeGetAlignInBits", dynlib: LLVMLib.}
+
 ##
 ##  Get the source line where this DIType is declared.
 ##  \param DType     The DIType.
@@ -1048,8 +1340,10 @@ proc dITypeGetAlignInBits*(dType: MetadataRef): uint32 {.
 ##  @see DIType::getLine()
 ##
 
-proc dITypeGetLine*(dType: MetadataRef): cuint {.importc: "LLVMDITypeGetLine",
-    dynlib: LLVMLib.}
+proc dITypeGetLine*(
+  dType: MetadataRef
+): cuint {.importc: "LLVMDITypeGetLine", dynlib: LLVMLib.}
+
 ##
 ##  Get the flags associated with this DIType.
 ##  \param DType     The DIType.
@@ -1057,8 +1351,10 @@ proc dITypeGetLine*(dType: MetadataRef): cuint {.importc: "LLVMDITypeGetLine",
 ##  @see DIType::getFlags()
 ##
 
-proc dITypeGetFlags*(dType: MetadataRef): DIFlags {.
-    importc: "LLVMDITypeGetFlags", dynlib: LLVMLib.}
+proc dITypeGetFlags*(
+  dType: MetadataRef
+): DIFlags {.importc: "LLVMDITypeGetFlags", dynlib: LLVMLib.}
+
 ##
 ##  Create a descriptor for a value range.
 ##  \param Builder    The DIBuilder.
@@ -1066,9 +1362,10 @@ proc dITypeGetFlags*(dType: MetadataRef): DIFlags {.
 ##  \param Count      Count of elements in the subrange.
 ##
 
-proc dIBuilderGetOrCreateSubrange*(builder: DIBuilderRef; lowerBound: int64;
-                                   count: int64): MetadataRef {.
-    importc: "LLVMDIBuilderGetOrCreateSubrange", dynlib: LLVMLib.}
+proc dIBuilderGetOrCreateSubrange*(
+  builder: DIBuilderRef, lowerBound: int64, count: int64
+): MetadataRef {.importc: "LLVMDIBuilderGetOrCreateSubrange", dynlib: LLVMLib.}
+
 ##
 ##  Create an array of DI Nodes.
 ##  \param Builder        The DIBuilder.
@@ -1076,9 +1373,10 @@ proc dIBuilderGetOrCreateSubrange*(builder: DIBuilderRef; lowerBound: int64;
 ##  \param NumElements    Number of DI Node elements.
 ##
 
-proc dIBuilderGetOrCreateArray*(builder: DIBuilderRef; data: ptr MetadataRef;
-                                numElements: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderGetOrCreateArray", dynlib: LLVMLib.}
+proc dIBuilderGetOrCreateArray*(
+  builder: DIBuilderRef, data: ptr MetadataRef, numElements: csize_t
+): MetadataRef {.importc: "LLVMDIBuilderGetOrCreateArray", dynlib: LLVMLib.}
+
 ##
 ##  Create a new descriptor for the specified variable which has a complex
 ##  address expression for its address.
@@ -1087,9 +1385,10 @@ proc dIBuilderGetOrCreateArray*(builder: DIBuilderRef; data: ptr MetadataRef;
 ##  \param Length      Length of the address operation array.
 ##
 
-proc dIBuilderCreateExpression*(builder: DIBuilderRef; `addr`: ptr uint64;
-                                length: csize_t): MetadataRef {.
-    importc: "LLVMDIBuilderCreateExpression", dynlib: LLVMLib.}
+proc dIBuilderCreateExpression*(
+  builder: DIBuilderRef, `addr`: ptr uint64, length: csize_t
+): MetadataRef {.importc: "LLVMDIBuilderCreateExpression", dynlib: LLVMLib.}
+
 ##
 ##  Create a new descriptor for the specified variable that does not have an
 ##  address, but does have a constant value.
@@ -1097,9 +1396,12 @@ proc dIBuilderCreateExpression*(builder: DIBuilderRef; `addr`: ptr uint64;
 ##  \param Value       The constant value.
 ##
 
-proc dIBuilderCreateConstantValueExpression*(builder: DIBuilderRef;
-    value: uint64): MetadataRef {.importc: "LLVMDIBuilderCreateConstantValueExpression",
-                                  dynlib: LLVMLib.}
+proc dIBuilderCreateConstantValueExpression*(
+  builder: DIBuilderRef, value: uint64
+): MetadataRef {.
+  importc: "LLVMDIBuilderCreateConstantValueExpression", dynlib: LLVMLib
+.}
+
 ##
 ##  Create a new descriptor for the specified variable.
 ##  \param Scope       Variable scope.
@@ -1120,17 +1422,32 @@ proc dIBuilderCreateConstantValueExpression*(builder: DIBuilderRef;
 ##                     specified)
 ##
 
-proc dIBuilderCreateGlobalVariableExpression*(builder: DIBuilderRef;
-    scope: MetadataRef; name: cstring; nameLen: csize_t; linkage: cstring;
-    linkLen: csize_t; file: MetadataRef; lineNo: cuint; ty: MetadataRef;
-    localToUnit: Bool; expr: MetadataRef; decl: MetadataRef; alignInBits: uint32): MetadataRef {.
-    importc: "LLVMDIBuilderCreateGlobalVariableExpression", dynlib: LLVMLib.}
+proc dIBuilderCreateGlobalVariableExpression*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  linkage: cstring,
+  linkLen: csize_t,
+  file: MetadataRef,
+  lineNo: cuint,
+  ty: MetadataRef,
+  localToUnit: Bool,
+  expr: MetadataRef,
+  decl: MetadataRef,
+  alignInBits: uint32,
+): MetadataRef {.
+  importc: "LLVMDIBuilderCreateGlobalVariableExpression", dynlib: LLVMLib
+.}
+
 ##
 ##  Get the dwarf::Tag of a DINode
 ##
 
-proc getDINodeTag*(md: MetadataRef): uint16 {.importc: "LLVMGetDINodeTag",
-    dynlib: LLVMLib.}
+proc getDINodeTag*(
+  md: MetadataRef
+): uint16 {.importc: "LLVMGetDINodeTag", dynlib: LLVMLib.}
+
 ##
 ##  Retrieves the \c DIVariable associated with this global variable expression.
 ##  \param GVE    The global variable expression.
@@ -1138,8 +1455,10 @@ proc getDINodeTag*(md: MetadataRef): uint16 {.importc: "LLVMGetDINodeTag",
 ##  @see llvm::DIGlobalVariableExpression::getVariable()
 ##
 
-proc dIGlobalVariableExpressionGetVariable*(gve: MetadataRef): MetadataRef {.
-    importc: "LLVMDIGlobalVariableExpressionGetVariable", dynlib: LLVMLib.}
+proc dIGlobalVariableExpressionGetVariable*(
+  gve: MetadataRef
+): MetadataRef {.importc: "LLVMDIGlobalVariableExpressionGetVariable", dynlib: LLVMLib.}
+
 ##
 ##  Retrieves the \c DIExpression associated with this global variable expression.
 ##  \param GVE    The global variable expression.
@@ -1147,8 +1466,12 @@ proc dIGlobalVariableExpressionGetVariable*(gve: MetadataRef): MetadataRef {.
 ##  @see llvm::DIGlobalVariableExpression::getExpression()
 ##
 
-proc dIGlobalVariableExpressionGetExpression*(gve: MetadataRef): MetadataRef {.
-    importc: "LLVMDIGlobalVariableExpressionGetExpression", dynlib: LLVMLib.}
+proc dIGlobalVariableExpressionGetExpression*(
+  gve: MetadataRef
+): MetadataRef {.
+  importc: "LLVMDIGlobalVariableExpressionGetExpression", dynlib: LLVMLib
+.}
+
 ##
 ##  Get the metadata of the file associated with a given variable.
 ##  \param Var     The variable object.
@@ -1156,8 +1479,10 @@ proc dIGlobalVariableExpressionGetExpression*(gve: MetadataRef): MetadataRef {.
 ##  @see DIVariable::getFile()
 ##
 
-proc dIVariableGetFile*(`var`: MetadataRef): MetadataRef {.
-    importc: "LLVMDIVariableGetFile", dynlib: LLVMLib.}
+proc dIVariableGetFile*(
+  `var`: MetadataRef
+): MetadataRef {.importc: "LLVMDIVariableGetFile", dynlib: LLVMLib.}
+
 ##
 ##  Get the metadata of the scope associated with a given variable.
 ##  \param Var     The variable object.
@@ -1165,8 +1490,10 @@ proc dIVariableGetFile*(`var`: MetadataRef): MetadataRef {.
 ##  @see DIVariable::getScope()
 ##
 
-proc dIVariableGetScope*(`var`: MetadataRef): MetadataRef {.
-    importc: "LLVMDIVariableGetScope", dynlib: LLVMLib.}
+proc dIVariableGetScope*(
+  `var`: MetadataRef
+): MetadataRef {.importc: "LLVMDIVariableGetScope", dynlib: LLVMLib.}
+
 ##
 ##  Get the source line where this \c DIVariable is declared.
 ##  \param Var     The DIVariable.
@@ -1174,8 +1501,10 @@ proc dIVariableGetScope*(`var`: MetadataRef): MetadataRef {.
 ##  @see DIVariable::getLine()
 ##
 
-proc dIVariableGetLine*(`var`: MetadataRef): cuint {.
-    importc: "LLVMDIVariableGetLine", dynlib: LLVMLib.}
+proc dIVariableGetLine*(
+  `var`: MetadataRef
+): cuint {.importc: "LLVMDIVariableGetLine", dynlib: LLVMLib.}
+
 ##
 ##  Create a new temporary \c MDNode.  Suitable for use in constructing cyclic
 ##  \c MDNode structures. A temporary \c MDNode is not uniqued, may be RAUW'd,
@@ -1185,9 +1514,10 @@ proc dIVariableGetLine*(`var`: MetadataRef): cuint {.
 ##  \param NumElements    Number of metadata elements.
 ##
 
-proc temporaryMDNode*(ctx: ContextRef; data: ptr MetadataRef;
-                      numElements: csize_t): MetadataRef {.
-    importc: "LLVMTemporaryMDNode", dynlib: LLVMLib.}
+proc temporaryMDNode*(
+  ctx: ContextRef, data: ptr MetadataRef, numElements: csize_t
+): MetadataRef {.importc: "LLVMTemporaryMDNode", dynlib: LLVMLib.}
+
 ##
 ##  Deallocate a temporary node.
 ##
@@ -1196,17 +1526,20 @@ proc temporaryMDNode*(ctx: ContextRef; data: ptr MetadataRef;
 ##  \param TempNode    The temporary metadata node.
 ##
 
-proc disposeTemporaryMDNode*(tempNode: MetadataRef) {.
-    importc: "LLVMDisposeTemporaryMDNode", dynlib: LLVMLib.}
+proc disposeTemporaryMDNode*(
+  tempNode: MetadataRef
+) {.importc: "LLVMDisposeTemporaryMDNode", dynlib: LLVMLib.}
+
 ##
 ##  Replace all uses of temporary metadata.
 ##  \param TempTargetMetadata    The temporary metadata node.
 ##  \param Replacement           The replacement metadata node.
 ##
 
-proc metadataReplaceAllUsesWith*(tempTargetMetadata: MetadataRef;
-                                 replacement: MetadataRef) {.
-    importc: "LLVMMetadataReplaceAllUsesWith", dynlib: LLVMLib.}
+proc metadataReplaceAllUsesWith*(
+  tempTargetMetadata: MetadataRef, replacement: MetadataRef
+) {.importc: "LLVMMetadataReplaceAllUsesWith", dynlib: LLVMLib.}
+
 ##
 ##  Create a new descriptor for the specified global variable that is temporary
 ##  and meant to be RAUWed.
@@ -1225,11 +1558,23 @@ proc metadataReplaceAllUsesWith*(tempTargetMetadata: MetadataRef;
 ##                     specified)
 ##
 
-proc dIBuilderCreateTempGlobalVariableFwdDecl*(builder: DIBuilderRef;
-    scope: MetadataRef; name: cstring; nameLen: csize_t; linkage: cstring;
-    lnkLen: csize_t; file: MetadataRef; lineNo: cuint; ty: MetadataRef;
-    localToUnit: Bool; decl: MetadataRef; alignInBits: uint32): MetadataRef {.
-    importc: "LLVMDIBuilderCreateTempGlobalVariableFwdDecl", dynlib: LLVMLib.}
+proc dIBuilderCreateTempGlobalVariableFwdDecl*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  linkage: cstring,
+  lnkLen: csize_t,
+  file: MetadataRef,
+  lineNo: cuint,
+  ty: MetadataRef,
+  localToUnit: Bool,
+  decl: MetadataRef,
+  alignInBits: uint32,
+): MetadataRef {.
+  importc: "LLVMDIBuilderCreateTempGlobalVariableFwdDecl", dynlib: LLVMLib
+.}
+
 ##
 ##  Insert a new llvm.dbg.declare intrinsic call before the given instruction.
 ##  \param Builder     The DIBuilder.
@@ -1240,10 +1585,15 @@ proc dIBuilderCreateTempGlobalVariableFwdDecl*(builder: DIBuilderRef;
 ##  \param Instr       Instruction acting as a location for the new intrinsic.
 ##
 
-proc dIBuilderInsertDeclareBefore*(builder: DIBuilderRef; storage: ValueRef;
-                                   varInfo: MetadataRef; expr: MetadataRef;
-                                   debugLoc: MetadataRef; instr: ValueRef): ValueRef {.
-    importc: "LLVMDIBuilderInsertDeclareBefore", dynlib: LLVMLib.}
+proc dIBuilderInsertDeclareBefore*(
+  builder: DIBuilderRef,
+  storage: ValueRef,
+  varInfo: MetadataRef,
+  expr: MetadataRef,
+  debugLoc: MetadataRef,
+  instr: ValueRef,
+): ValueRef {.importc: "LLVMDIBuilderInsertDeclareBefore", dynlib: LLVMLib.}
+
 ##
 ##  Insert a new llvm.dbg.declare intrinsic call at the end of the given basic
 ##  block. If the basic block has a terminator instruction, the intrinsic is
@@ -1256,10 +1606,15 @@ proc dIBuilderInsertDeclareBefore*(builder: DIBuilderRef; storage: ValueRef;
 ##  \param Block       Basic block acting as a location for the new intrinsic.
 ##
 
-proc dIBuilderInsertDeclareAtEnd*(builder: DIBuilderRef; storage: ValueRef;
-                                  varInfo: MetadataRef; expr: MetadataRef;
-                                  debugLoc: MetadataRef; `block`: BasicBlockRef): ValueRef {.
-    importc: "LLVMDIBuilderInsertDeclareAtEnd", dynlib: LLVMLib.}
+proc dIBuilderInsertDeclareAtEnd*(
+  builder: DIBuilderRef,
+  storage: ValueRef,
+  varInfo: MetadataRef,
+  expr: MetadataRef,
+  debugLoc: MetadataRef,
+  `block`: BasicBlockRef,
+): ValueRef {.importc: "LLVMDIBuilderInsertDeclareAtEnd", dynlib: LLVMLib.}
+
 ##
 ##  Insert a new llvm.dbg.value intrinsic call before the given instruction.
 ##  \param Builder     The DIBuilder.
@@ -1270,10 +1625,15 @@ proc dIBuilderInsertDeclareAtEnd*(builder: DIBuilderRef; storage: ValueRef;
 ##  \param Instr       Instruction acting as a location for the new intrinsic.
 ##
 
-proc dIBuilderInsertDbgValueBefore*(builder: DIBuilderRef; val: ValueRef;
-                                    varInfo: MetadataRef; expr: MetadataRef;
-                                    debugLoc: MetadataRef; instr: ValueRef): ValueRef {.
-    importc: "LLVMDIBuilderInsertDbgValueBefore", dynlib: LLVMLib.}
+proc dIBuilderInsertDbgValueBefore*(
+  builder: DIBuilderRef,
+  val: ValueRef,
+  varInfo: MetadataRef,
+  expr: MetadataRef,
+  debugLoc: MetadataRef,
+  instr: ValueRef,
+): ValueRef {.importc: "LLVMDIBuilderInsertDbgValueBefore", dynlib: LLVMLib.}
+
 ##
 ##  Insert a new llvm.dbg.value intrinsic call at the end of the given basic
 ##  block. If the basic block has a terminator instruction, the intrinsic is
@@ -1286,10 +1646,15 @@ proc dIBuilderInsertDbgValueBefore*(builder: DIBuilderRef; val: ValueRef;
 ##  \param Block       Basic block acting as a location for the new intrinsic.
 ##
 
-proc dIBuilderInsertDbgValueAtEnd*(builder: DIBuilderRef; val: ValueRef;
-                                   varInfo: MetadataRef; expr: MetadataRef;
-                                   debugLoc: MetadataRef; `block`: BasicBlockRef): ValueRef {.
-    importc: "LLVMDIBuilderInsertDbgValueAtEnd", dynlib: LLVMLib.}
+proc dIBuilderInsertDbgValueAtEnd*(
+  builder: DIBuilderRef,
+  val: ValueRef,
+  varInfo: MetadataRef,
+  expr: MetadataRef,
+  debugLoc: MetadataRef,
+  `block`: BasicBlockRef,
+): ValueRef {.importc: "LLVMDIBuilderInsertDbgValueAtEnd", dynlib: LLVMLib.}
+
 ##
 ##  Create a new descriptor for a local auto variable.
 ##  \param Builder         The DIBuilder.
@@ -1304,12 +1669,19 @@ proc dIBuilderInsertDbgValueAtEnd*(builder: DIBuilderRef; val: ValueRef;
 ##  \param AlignInBits     Variable alignment.
 ##
 
-proc dIBuilderCreateAutoVariable*(builder: DIBuilderRef; scope: MetadataRef;
-                                  name: cstring; nameLen: csize_t;
-                                  file: MetadataRef; lineNo: cuint;
-                                  ty: MetadataRef; alwaysPreserve: Bool;
-                                  flags: DIFlags; alignInBits: uint32): MetadataRef {.
-    importc: "LLVMDIBuilderCreateAutoVariable", dynlib: LLVMLib.}
+proc dIBuilderCreateAutoVariable*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNo: cuint,
+  ty: MetadataRef,
+  alwaysPreserve: Bool,
+  flags: DIFlags,
+  alignInBits: uint32,
+): MetadataRef {.importc: "LLVMDIBuilderCreateAutoVariable", dynlib: LLVMLib.}
+
 ##
 ##  Create a new descriptor for a function parameter variable.
 ##  \param Builder         The DIBuilder.
@@ -1324,29 +1696,39 @@ proc dIBuilderCreateAutoVariable*(builder: DIBuilderRef; scope: MetadataRef;
 ##  \param Flags           Flags.
 ##
 
-proc dIBuilderCreateParameterVariable*(builder: DIBuilderRef;
-                                       scope: MetadataRef; name: cstring;
-                                       nameLen: csize_t; argNo: cuint;
-                                       file: MetadataRef; lineNo: cuint;
-                                       ty: MetadataRef; alwaysPreserve: Bool;
-                                       flags: DIFlags): MetadataRef {.
-    importc: "LLVMDIBuilderCreateParameterVariable", dynlib: LLVMLib.}
+proc dIBuilderCreateParameterVariable*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  argNo: cuint,
+  file: MetadataRef,
+  lineNo: cuint,
+  ty: MetadataRef,
+  alwaysPreserve: Bool,
+  flags: DIFlags,
+): MetadataRef {.importc: "LLVMDIBuilderCreateParameterVariable", dynlib: LLVMLib.}
+
 ##
 ##  Get the metadata of the subprogram attached to a function.
 ##
 ##  @see llvm::Function::getSubprogram()
 ##
 
-proc getSubprogram*(`func`: ValueRef): MetadataRef {.
-    importc: "LLVMGetSubprogram", dynlib: LLVMLib.}
+proc getSubprogram*(
+  `func`: ValueRef
+): MetadataRef {.importc: "LLVMGetSubprogram", dynlib: LLVMLib.}
+
 ##
 ##  Set the subprogram attached to a function.
 ##
 ##  @see llvm::Function::setSubprogram()
 ##
 
-proc setSubprogram*(`func`: ValueRef; sp: MetadataRef) {.
-    importc: "LLVMSetSubprogram", dynlib: LLVMLib.}
+proc setSubprogram*(
+  `func`: ValueRef, sp: MetadataRef
+) {.importc: "LLVMSetSubprogram", dynlib: LLVMLib.}
+
 ##
 ##  Get the line associated with a given subprogram.
 ##  \param Subprogram     The subprogram object.
@@ -1354,16 +1736,20 @@ proc setSubprogram*(`func`: ValueRef; sp: MetadataRef) {.
 ##  @see DISubprogram::getLine()
 ##
 
-proc dISubprogramGetLine*(subprogram: MetadataRef): cuint {.
-    importc: "LLVMDISubprogramGetLine", dynlib: LLVMLib.}
+proc dISubprogramGetLine*(
+  subprogram: MetadataRef
+): cuint {.importc: "LLVMDISubprogramGetLine", dynlib: LLVMLib.}
+
 ##
 ##  Get the debug location for the given instruction.
 ##
 ##  @see llvm::Instruction::getDebugLoc()
 ##
 
-proc instructionGetDebugLoc*(inst: ValueRef): MetadataRef {.
-    importc: "LLVMInstructionGetDebugLoc", dynlib: LLVMLib.}
+proc instructionGetDebugLoc*(
+  inst: ValueRef
+): MetadataRef {.importc: "LLVMInstructionGetDebugLoc", dynlib: LLVMLib.}
+
 ##
 ##  Set the debug location for the given instruction.
 ##
@@ -1372,16 +1758,20 @@ proc instructionGetDebugLoc*(inst: ValueRef): MetadataRef {.
 ##  @see llvm::Instruction::setDebugLoc()
 ##
 
-proc instructionSetDebugLoc*(inst: ValueRef; loc: MetadataRef) {.
-    importc: "LLVMInstructionSetDebugLoc", dynlib: LLVMLib.}
+proc instructionSetDebugLoc*(
+  inst: ValueRef, loc: MetadataRef
+) {.importc: "LLVMInstructionSetDebugLoc", dynlib: LLVMLib.}
+
 ##
 ##  Obtain the enumerated type of a Metadata instance.
 ##
 ##  @see llvm::Metadata::getMetadataID()
 ##
 
-proc getMetadataKind*(metadata: MetadataRef): MetadataKind {.
-    importc: "LLVMGetMetadataKind", dynlib: LLVMLib.}
+proc getMetadataKind*(
+  metadata: MetadataRef
+): MetadataKind {.importc: "LLVMGetMetadataKind", dynlib: LLVMLib.}
+
 ##
 ##  @}
 ##

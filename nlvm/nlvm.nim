@@ -2,38 +2,15 @@
 # Copyright (c) Jacek Sieka 2016-2019
 # See the LICENSE file for license info (doh!)
 
-import
-  std/[
-    browsers,
-    sequtils,
-    parseopt,
-    strutils,
-    times,
-    os
-  ]
+import std/[browsers, sequtils, parseopt, strutils, times, os]
 
 import "."/llgen, llvm/llvm
 
 import
   compiler/[
-    ast,
-    cmdlinehelper,
-    commands,
-    condsyms,
-    extccomp,
-    idents,
-    lexer,
-    lineinfos,
-    llstream,
-    modulegraphs,
-    modules,
-    msgs,
-    options,
-    passes,
-    passaux,
-    pathutils,
-    platform,
-    sem
+    ast, cmdlinehelper, commands, condsyms, extccomp, idents, lexer, lineinfos,
+    llstream, modulegraphs, modules, msgs, options, passes, passaux, pathutils,
+    platform, sem,
   ]
 proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
@@ -44,7 +21,8 @@ const
   NlvmHash = gorge("git rev-parse HEAD").strip
   NimHash = gorge("git -C ../Nim rev-parse HEAD").strip
 
-  HelpHeader = """nlvm compiler for Nim, version $1 [$2: $3]
+  HelpHeader =
+    """nlvm compiler for Nim, version $1 [$2: $3]
 
 Copyright (c) 2015-2019 Jacek Sieka
 Nim compiler (c) 2009-2019 Andreas Rumpf
@@ -59,22 +37,23 @@ proc helpHeader(conf: ConfigRef): string =
   HelpHeader % [
     NlvmVersion,
     platform.OS[conf.target.hostOS].name,
-    platform.CPU[conf.target.hostCPU].name]
+    platform.CPU[conf.target.hostCPU].name,
+  ]
 
 proc getCommandLineDesc(conf: ConfigRef): string =
   helpHeader(conf) & Usage
 
-proc writeHelp(conf: ConfigRef; pass: TCmdLinePass) =
+proc writeHelp(conf: ConfigRef, pass: TCmdLinePass) =
   if pass == passCmd1:
     msgWriteln(conf, getCommandLineDesc(conf), {msgStdout})
     msgQuit(0)
 
-proc writeAdvanced(conf: ConfigRef; pass: TCmdLinePass) =
+proc writeAdvanced(conf: ConfigRef, pass: TCmdLinePass) =
   if pass == passCmd1:
     msgWriteln(conf, helpHeader(conf) & Usage, {msgStdout})
     msgQuit(0)
 
-proc writeFullhelp(conf: ConfigRef; pass: TCmdLinePass) =
+proc writeFullhelp(conf: ConfigRef, pass: TCmdLinePass) =
   if pass == passCmd1:
     msgWriteln(conf, helpHeader(conf) & Usage & AdvancedUsage, {msgStdout})
     msgQuit(0)
@@ -85,7 +64,7 @@ proc formatVersion(name, v, h: string): string =
   else:
     "$1: $2" % [name, v]
 
-proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
+proc writeVersionInfo(conf: ConfigRef, pass: TCmdLinePass) =
   if pass == passCmd1:
     msgWriteln(conf, helpHeader(conf), {msgStdout})
 
@@ -96,25 +75,30 @@ proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
     msgQuit(0)
 
 proc addPrefix(switch: string): string =
-  if len(switch) == 1: result = "-" & switch
-  else: result = "--" & switch
+  if len(switch) == 1:
+    result = "-" & switch
+  else:
+    result = "--" & switch
 
 proc expectNoArg(
-    conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
+    conf: ConfigRef, switch, arg: string, pass: TCmdLinePass, info: TLineInfo
+) =
   if arg != "":
     localError(
-      conf, info,
-      "invalid argument for command line option: '$1'" % addPrefix(switch))
+      conf, info, "invalid argument for command line option: '$1'" % addPrefix(switch)
+    )
 
-proc processSwitch(switch, arg: string, pass: TCmdLinePass,
-    info: TLineInfo, conf: ConfigRef) =
+proc processSwitch(
+    switch, arg: string, pass: TCmdLinePass, info: TLineInfo, conf: ConfigRef
+) =
   # helper to hijack some nlvm-specific options
   let sn = switch.normalize
   if sn.startsWith("llvm-"):
     if sn == "llvm-help":
       var llvmArgs = @["nlvm", "--help"]
       let arr = allocCStringArray(llvmArgs)
-      defer: deallocCStringArray(arr)
+      defer:
+        deallocCStringArray(arr)
       parseCommandLineOptions(llvmArgs.len.cint, arr, "")
       return
 
@@ -136,7 +120,7 @@ proc processSwitch(switch, arg: string, pass: TCmdLinePass,
   else:
     commands.processSwitch(switch, arg, pass, info, conf)
 
-proc processSwitch*(pass: TCmdLinePass; p: OptParser; config: ConfigRef) =
+proc processSwitch*(pass: TCmdLinePass, p: OptParser, config: ConfigRef) =
   # hijacked from commands.nim
 
   # hint[X]:off is parsed as (p.key = "hint[X]", p.val = "off")
@@ -149,23 +133,27 @@ proc processSwitch*(pass: TCmdLinePass; p: OptParser; config: ConfigRef) =
   else:
     processSwitch(p.key, p.val, pass, gCmdLineInfo, config)
 
-proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
+proc processCmdLine(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
   var p = parseopt.initOptParser(cmd)
   var argsCount = 0
   while true:
     parseopt.next(p)
     case p.kind
-    of cmdEnd: break
+    of cmdEnd:
+      break
     of cmdLongoption, cmdShortOption:
       if p.key == " ":
         p.key = "-"
-        if processArgument(pass, p, argsCount, config): break
+        if processArgument(pass, p, argsCount, config):
+          break
       else:
         processSwitch(pass, p, config)
     of cmdArgument:
-      if processArgument(pass, p, argsCount, config): break
+      if processArgument(pass, p, argsCount, config):
+        break
   if pass == passCmd2:
-    if optRun notin config.globalOptions and config.arguments.len > 0 and config.command.normalize != "run":
+    if optRun notin config.globalOptions and config.arguments.len > 0 and
+        config.command.normalize != "run":
       rawMessage(config, errGenerated, errArgsNeedRunOption)
 
 proc commandCompile(graph: ModuleGraph) =
@@ -174,10 +162,11 @@ proc commandCompile(graph: ModuleGraph) =
   if conf.outDir.isEmpty:
     conf.outDir = conf.projectPath
   if conf.outFile.isEmpty:
-    let targetName = if optGenDynLib in conf.globalOptions:
-      platform.OS[conf.target.targetOS].dllFrmt % conf.projectName
-    else:
-      conf.projectName & platform.OS[conf.target.targetOS].exeExt
+    let targetName =
+      if optGenDynLib in conf.globalOptions:
+        platform.OS[conf.target.targetOS].dllFrmt % conf.projectName
+      else:
+        conf.projectName & platform.OS[conf.target.targetOS].exeExt
     conf.outFile = RelativeFile targetName
 
   extccomp.initVars(conf)
@@ -198,15 +187,16 @@ proc commandScan(conf: ConfigRef) =
     while true:
       rawGetTok(L, tok)
       conf.printTok(tok)
-      if tok.tokType == tkEof: break
+      if tok.tokType == tkEof:
+        break
     closeLexer(L)
   else:
     conf.rawMessage(errCannotOpenFile, f)
 
 proc commandCheck(graph: ModuleGraph) =
-  graph.config.errorMax = high(int)  # do not stop after first error
+  graph.config.errorMax = high(int) # do not stop after first error
   defineSymbol(graph.config.symbols, "nimcheck")
-  semanticPasses(graph)  # use an empty backend for semantic checking only
+  semanticPasses(graph) # use an empty backend for semantic checking only
   modules.compileProject(graph)
 
 proc interactivePasses(graph: ModuleGraph) =
@@ -234,7 +224,10 @@ proc commandInteractive(graph: ModuleGraph) =
     var m = graph.makeStdinModule()
     incl(m.flags, sfMainModule)
     var idgen = IdGenerator(module: m.itemId.module, symId: m.itemId.item, typeId: 0)
-    let s = llStreamOpenStdIn(onPrompt = proc() = flushDot(graph.config))
+    let s = llStreamOpenStdIn(
+      onPrompt = proc() =
+        flushDot(graph.config)
+    )
     processModule(graph, m, idgen, s)
 
 proc mainCommand*(graph: ModuleGraph) =
@@ -254,25 +247,29 @@ proc mainCommand*(graph: ModuleGraph) =
   case conf.cmd
   # Take over the default compile command
   of cmdCompileToC, cmdCompileToCpp:
-    if conf.exc == excNone: conf.exc = excSetjmp
+    if conf.exc == excNone:
+      conf.exc = excSetjmp
     defineSymbol(graph.config.symbols, "c")
     commandCompile(graph)
   of cmdDump:
-    msgWriteln(conf, "-- list of currently defined symbols --",
-                {msgStdout, msgSkipHook, msgNoUnitSep})
-    for s in definedSymbolNames(conf.symbols): msgWriteln(conf, s, {msgStdout, msgSkipHook, msgNoUnitSep})
+    msgWriteln(
+      conf,
+      "-- list of currently defined symbols --",
+      {msgStdout, msgSkipHook, msgNoUnitSep},
+    )
+    for s in definedSymbolNames(conf.symbols):
+      msgWriteln(conf, s, {msgStdout, msgSkipHook, msgNoUnitSep})
     msgWriteln(conf, "-- end of list --", {msgStdout, msgSkipHook})
 
-    for it in conf.searchPaths: msgWriteln(conf, it.string)
+    for it in conf.searchPaths:
+      msgWriteln(conf, it.string)
 
   # of "scan":
   #   conf.cmd = cmdScan
   #   conf.wantMainModule()
   #   commandScan(conf)
-
   of cmdCheck:
     commandCheck(graph)
-
   of cmdCrun, cmdTcc:
     if not fileExists(conf.projectFull):
       conf.cmd = cmdInteractive
@@ -290,13 +287,19 @@ proc mainCommand*(graph: ModuleGraph) =
       commandCompile(graph)
     elif not conf.projectFull.string.endsWith(".nims"):
       rawMessage(conf, errGenerated, "not a NimScript file: " & conf.projectFull.string)
-  of cmdInteractive: commandInteractive(graph)
+  of cmdInteractive:
+    commandInteractive(graph)
   of cmdNimscript:
-    if conf.projectIsCmd or conf.projectIsStdin: discard
+    if conf.projectIsCmd or conf.projectIsStdin:
+      discard
     elif not fileExists(conf.projectFull):
-      rawMessage(conf, errGenerated, "NimScript file does not exist: " & conf.projectFull.string)
-  of cmdNop: discard
-  else: conf.rawMessage(errGenerated, "command not supported in nlvm: " & conf.command)
+      rawMessage(
+        conf, errGenerated, "NimScript file does not exist: " & conf.projectFull.string
+      )
+  of cmdNop:
+    discard
+  else:
+    conf.rawMessage(errGenerated, "command not supported in nlvm: " & conf.command)
 
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
     # if optProfileVM in conf.globalOptions:
@@ -307,17 +310,17 @@ proc getNimRunExe(conf: ConfigRef): string =
   # xxx consider defining `conf.getConfigVar("nimrun.exe")` to allow users to
   # customize the binary to run the command with, e.g. for custom `nodejs` or `wine`.
   if conf.isDefined("mingw"):
-    if conf.isDefined("i386"): result = "wine"
-    elif conf.isDefined("amd64"): result = "wine64"
+    if conf.isDefined("i386"):
+      result = "wine"
+    elif conf.isDefined("amd64"):
+      result = "wine64"
 
 proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   # For now, we reuse the nim command line options parser, mainly because
   # the options are used all over the compiler, but also because we want to
   # act as a drop-in replacement (for now)
   # Most of this is taken from the main nim command
-  let self = NimProg(
-    supportsStdinFile: true,
-    processCmdLine: processCmdLine  )
+  let self = NimProg(supportsStdinFile: true, processCmdLine: processCmdLine)
   self.initDefinesProg(conf, "nlvm")
 
   if paramCount() == 0:
@@ -341,9 +344,11 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
     return
   mainCommand(graph)
 
-  if conf.hasHint(hintGCStats): echo(GC_getStatistics())
+  if conf.hasHint(hintGCStats):
+    echo(GC_getStatistics())
   #echo(GC_getStatistics())
-  if conf.errorCounter != 0: return
+  if conf.errorCounter != 0:
+    return
 
   if optRun in conf.globalOptions:
     let output = conf.absOutFile
@@ -351,11 +356,15 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
     of cmdBackends, cmdTcc:
       let nimRunExe = getNimRunExe(conf)
       var cmdPrefix: string
-      if nimRunExe.len > 0: cmdPrefix.add nimRunExe.quoteShell
+      if nimRunExe.len > 0:
+        cmdPrefix.add nimRunExe.quoteShell
       case conf.backend
-      of backendC, backendCpp, backendObjc: discard
-      else: doAssert false, $conf.backend
-      if cmdPrefix.len > 0: cmdPrefix.add " "
+      of backendC, backendCpp, backendObjc:
+        discard
+      else:
+        doAssert false, $conf.backend
+      if cmdPrefix.len > 0:
+        cmdPrefix.add " "
         # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:
         # `The parameter is incorrect`
       execExternalProgram(conf, cmdPrefix & output.quoteShell & ' ' & conf.arguments)

@@ -4,81 +4,78 @@
 # See https://github.com/llvm/llvm-project/blob/master/llvm/include/llvm/ADT/Triple.h
 # for some insight into how llvm deals with it..
 
-import
-  compiler/platform
+import compiler/platform
 
 import strutils
 
 # couldn't find those marked with ? in llvm targets..
 # the first option will be used for output, but parsing will try all..
 const
-  cpuNames: array[TSystemCPU, seq[string]] =
-    [
-      @["unknown"],
-      @["i386", "i486", "i586", "i686"],
-      @["m68k"], # ?
-      @["alpha"], # ?
-      @["powerpc"],
-      @["powerpc64"],
-      @["powerpc64le"],
-      @["sparc"],
-      @["vm"], # ?
-      @["hppa"], # ?
-      @["ia64"], # ?
-      @["x86_64", "amd64"],
-      @["mips"],
-      @["mips64el"],
-      @["arm"],
-      @["aarch64"],
-      @["js"], # ? emscripten maybe?
-      @["nimvm"], # ?
-      @["avr"],
-      @["msp430"],
-      @["sparc64"], # ?
-      @["mips64"],
-      @["mips64el"],
-      @["riscv32"],
-      @["riscv64"],
-      @["esp"],
-      @["wasm32"]
-    ]
-  osNames: array[TSystemOS, seq[string]] =
-    [
-      @["unknown"],
-      @["dos"], # ?
-      @["windows"],
-      @["os2"], # ?
-      @["linux"],
-      @["morphos"], # ?
-      @["skyos"], # ?
-      @["solaris"],
-      @["irix"],
-      @["netbsd"],
-      @["freebsd"],
-      @["openbsd"],
-      @["dragonfly"],
-      @["crossos"], # ?
-      @["aix"],
-      @["palmos"], # ?
-      @["qnx"], # ?
-      @["amiga"], # ?
-      @["atari"], # ?
-      @["netware"], # ?
-      @["macos"], # ? how to disambiguate with osx?
-      @["macos"],
-      @["ios"], # ?
-      @["haiku"],
-      @["android"], # ?
-      @["vxworks"], # ?
-      @["genode"], # ?
-      @["js"], # ?
-      @["nimvm"], # ?
-      @["unknown"], # ?
-      @["nintendoswitch"], # ?,
-      @["freertos"], # ?,
-      @["zephyr"], # ?
-      @["any"]
-    ]
+  cpuNames: array[TSystemCPU, seq[string]] = [
+    @["unknown"],
+    @["i386", "i486", "i586", "i686"],
+    @["m68k"], # ?
+    @["alpha"], # ?
+    @["powerpc"],
+    @["powerpc64"],
+    @["powerpc64le"],
+    @["sparc"],
+    @["vm"], # ?
+    @["hppa"], # ?
+    @["ia64"], # ?
+    @["x86_64", "amd64"],
+    @["mips"],
+    @["mips64el"],
+    @["arm"],
+    @["aarch64"],
+    @["js"], # ? emscripten maybe?
+    @["nimvm"], # ?
+    @["avr"],
+    @["msp430"],
+    @["sparc64"], # ?
+    @["mips64"],
+    @["mips64el"],
+    @["riscv32"],
+    @["riscv64"],
+    @["esp"],
+    @["wasm32"],
+  ]
+  osNames: array[TSystemOS, seq[string]] = [
+    @["unknown"],
+    @["dos"], # ?
+    @["windows"],
+    @["os2"], # ?
+    @["linux"],
+    @["morphos"], # ?
+    @["skyos"], # ?
+    @["solaris"],
+    @["irix"],
+    @["netbsd"],
+    @["freebsd"],
+    @["openbsd"],
+    @["dragonfly"],
+    @["crossos"], # ?
+    @["aix"],
+    @["palmos"], # ?
+    @["qnx"], # ?
+    @["amiga"], # ?
+    @["atari"], # ?
+    @["netware"], # ?
+    @["macos"], # ? how to disambiguate with osx?
+    @["macos"],
+    @["ios"], # ?
+    @["haiku"],
+    @["android"], # ?
+    @["vxworks"], # ?
+    @["genode"], # ?
+    @["js"], # ?
+    @["nimvm"], # ?
+    @["unknown"], # ?
+    @["nintendoswitch"], # ?,
+    @["freertos"], # ?,
+    @["zephyr"], # ?
+    @["any"],
+  ]
 
 proc toTriple*(cpu: TSystemCPU, os: TSystemOS): string =
   # In most cases, we'll just use the string from above, but there are plenty
@@ -103,12 +100,14 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
 
     for xcpu, names in cpuNames:
       for name in names:
-        if t.startsWith(name): cpu = xcpu
+        if t.startsWith(name):
+          cpu = xcpu
 
     for xos, names in osNames:
       # TODO keeps looping because later names seem more recent, but this needs
       #      verifying.. "contains" is a bit too lax
       for name in names:
-        if t.contains(name): os = xos
+        if t.contains(name):
+          os = xos
 
     (cpu, os)

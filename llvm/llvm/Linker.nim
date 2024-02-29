@@ -19,12 +19,11 @@
 ##
 ##  This enum is provided for backwards-compatibility only. It has no effect.
 
-type
-  LinkerMode* {.size: sizeof(cint).} = enum
-    LinkerDestroySource = 0, ##  This is the default behavior.
-    LinkerPreserveSourceRemoved = 1 ##  This option has been deprecated and
-                                    ##                                           should not be used.
-
+type LinkerMode* {.size: sizeof(cint).} = enum
+  LinkerDestroySource = 0 ##  This is the default behavior.
+  LinkerPreserveSourceRemoved = 1
+    ##  This option has been deprecated and
+    ##                                           should not be used.
 
 ##  Links the source module into the destination module. The source module is
 ##  destroyed.
@@ -32,8 +31,10 @@ type
 ##  Use the diagnostic handler to get any diagnostic message.
 ##
 
-proc linkModules2*(dest: ModuleRef; src: ModuleRef): Bool {.
-    importc: "LLVMLinkModules2", dynlib: LLVMLib.}
+proc linkModules2*(
+  dest: ModuleRef, src: ModuleRef
+): Bool {.importc: "LLVMLinkModules2", dynlib: LLVMLib.}
+
 ##
 ##  @}
 ##

@@ -41,23 +41,20 @@
 ##  after the function returns.
 ##
 
-type
-  OrcLLJITBuilderObjectLinkingLayerCreatorFunction* = proc (ctx: pointer;
-      es: OrcExecutionSessionRef; triple: cstring): OrcObjectLayerRef
+type OrcLLJITBuilderObjectLinkingLayerCreatorFunction* =
+  proc(ctx: pointer, es: OrcExecutionSessionRef, triple: cstring): OrcObjectLayerRef
 
 ##
 ##  A reference to an orc::LLJITBuilder instance.
 ##
 
-type
-  OrcLLJITBuilderRef* = ptr OrcOpaqueLLJITBuilder
+type OrcLLJITBuilderRef* = ptr OrcOpaqueLLJITBuilder
 
 ##
 ##  A reference to an orc::LLJIT instance.
 ##
 
-type
-  OrcLLJITRef* = ptr OrcOpaqueLLJIT
+type OrcLLJITRef* = ptr OrcOpaqueLLJIT
 
 ##
 ##  Create an LLVMOrcLLJITBuilder.
@@ -67,15 +64,19 @@ type
 ##
 
 proc orcCreateLLJITBuilder*(): OrcLLJITBuilderRef {.
-    importc: "LLVMOrcCreateLLJITBuilder", dynlib: LLVMLib.}
+  importc: "LLVMOrcCreateLLJITBuilder", dynlib: LLVMLib
+.}
+
 ##
 ##  Dispose of an LLVMOrcLLJITBuilderRef. This should only be called if ownership
 ##  has not been passed to LLVMOrcCreateLLJIT (e.g. because some error prevented
 ##  that function from being called).
 ##
 
-proc orcDisposeLLJITBuilder*(builder: OrcLLJITBuilderRef) {.
-    importc: "LLVMOrcDisposeLLJITBuilder", dynlib: LLVMLib.}
+proc orcDisposeLLJITBuilder*(
+  builder: OrcLLJITBuilderRef
+) {.importc: "LLVMOrcDisposeLLJITBuilder", dynlib: LLVMLib.}
+
 ##
 ##  Set the JITTargetMachineBuilder to be used when constructing the LLJIT
 ##  instance. Calling this function is optional: if it is not called then the
@@ -86,16 +87,20 @@ proc orcDisposeLLJITBuilder*(builder: OrcLLJITBuilderRef) {.
 ##  dispose of the JITTargetMachineBuilder after calling this function.
 ##
 
-proc orcLLJITBuilderSetJITTargetMachineBuilder*(builder: OrcLLJITBuilderRef;
-    jtmb: OrcJITTargetMachineBuilderRef) {.
-    importc: "LLVMOrcLLJITBuilderSetJITTargetMachineBuilder", dynlib: LLVMLib.}
+proc orcLLJITBuilderSetJITTargetMachineBuilder*(
+  builder: OrcLLJITBuilderRef, jtmb: OrcJITTargetMachineBuilderRef
+) {.importc: "LLVMOrcLLJITBuilderSetJITTargetMachineBuilder", dynlib: LLVMLib.}
+
 ##
 ##  Set an ObjectLinkingLayer creator function for this LLJIT instance.
 ##
 
-proc orcLLJITBuilderSetObjectLinkingLayerCreator*(builder: OrcLLJITBuilderRef;
-    f: OrcLLJITBuilderObjectLinkingLayerCreatorFunction; ctx: pointer) {.
-    importc: "LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator", dynlib: LLVMLib.}
+proc orcLLJITBuilderSetObjectLinkingLayerCreator*(
+  builder: OrcLLJITBuilderRef,
+  f: OrcLLJITBuilderObjectLinkingLayerCreatorFunction,
+  ctx: pointer,
+) {.importc: "LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator", dynlib: LLVMLib.}
+
 ##
 ##  Create an LLJIT instance from an LLJITBuilder.
 ##
@@ -111,14 +116,18 @@ proc orcLLJITBuilderSetObjectLinkingLayerCreator*(builder: OrcLLJITBuilderRef;
 ##  and not-yet compiled modules.
 ##
 
-proc orcCreateLLJIT*(result: ptr OrcLLJITRef; builder: OrcLLJITBuilderRef): ErrorRef {.
-    importc: "LLVMOrcCreateLLJIT", dynlib: LLVMLib.}
+proc orcCreateLLJIT*(
+  result: ptr OrcLLJITRef, builder: OrcLLJITBuilderRef
+): ErrorRef {.importc: "LLVMOrcCreateLLJIT", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of an LLJIT instance.
 ##
 
-proc orcDisposeLLJIT*(j: OrcLLJITRef): ErrorRef {.
-    importc: "LLVMOrcDisposeLLJIT", dynlib: LLVMLib.}
+proc orcDisposeLLJIT*(
+  j: OrcLLJITRef
+): ErrorRef {.importc: "LLVMOrcDisposeLLJIT", dynlib: LLVMLib.}
+
 ##
 ##  Get a reference to the ExecutionSession for this LLJIT instance.
 ##
@@ -126,8 +135,12 @@ proc orcDisposeLLJIT*(j: OrcLLJITRef): ErrorRef {.
 ##  responsible for managing its memory.
 ##
 
-proc orcLLJITGetExecutionSession*(j: OrcLLJITRef): OrcExecutionSessionRef {.
-    importc: "LLVMOrcLLJITGetExecutionSession", dynlib: LLVMLib.}
+proc orcLLJITGetExecutionSession*(
+  j: OrcLLJITRef
+): OrcExecutionSessionRef {.
+  importc: "LLVMOrcLLJITGetExecutionSession", dynlib: LLVMLib
+.}
+
 ##
 ##  Return a reference to the Main JITDylib.
 ##
@@ -135,21 +148,27 @@ proc orcLLJITGetExecutionSession*(j: OrcLLJITRef): OrcExecutionSessionRef {.
 ##  for managing its memory.
 ##
 
-proc orcLLJITGetMainJITDylib*(j: OrcLLJITRef): OrcJITDylibRef {.
-    importc: "LLVMOrcLLJITGetMainJITDylib", dynlib: LLVMLib.}
+proc orcLLJITGetMainJITDylib*(
+  j: OrcLLJITRef
+): OrcJITDylibRef {.importc: "LLVMOrcLLJITGetMainJITDylib", dynlib: LLVMLib.}
+
 ##
 ##  Return the target triple for this LLJIT instance. This string is owned by
 ##  the LLJIT instance and should not be freed by the client.
 ##
 
-proc orcLLJITGetTripleString*(j: OrcLLJITRef): cstring {.
-    importc: "LLVMOrcLLJITGetTripleString", dynlib: LLVMLib.}
+proc orcLLJITGetTripleString*(
+  j: OrcLLJITRef
+): cstring {.importc: "LLVMOrcLLJITGetTripleString", dynlib: LLVMLib.}
+
 ##
 ##  Returns the global prefix character according to the LLJIT's DataLayout.
 ##
 
-proc orcLLJITGetGlobalPrefix*(j: OrcLLJITRef): char {.
-    importc: "LLVMOrcLLJITGetGlobalPrefix", dynlib: LLVMLib.}
+proc orcLLJITGetGlobalPrefix*(
+  j: OrcLLJITRef
+): char {.importc: "LLVMOrcLLJITGetGlobalPrefix", dynlib: LLVMLib.}
+
 ##
 ##  Mangles the given string according to the LLJIT instance's DataLayout, then
 ##  interns the result in the SymbolStringPool and returns a reference to the
@@ -158,8 +177,12 @@ proc orcLLJITGetGlobalPrefix*(j: OrcLLJITRef): char {.
 ##  value.
 ##
 
-proc orcLLJITMangleAndIntern*(j: OrcLLJITRef; unmangledName: cstring): OrcSymbolStringPoolEntryRef {.
-    importc: "LLVMOrcLLJITMangleAndIntern", dynlib: LLVMLib.}
+proc orcLLJITMangleAndIntern*(
+  j: OrcLLJITRef, unmangledName: cstring
+): OrcSymbolStringPoolEntryRef {.
+  importc: "LLVMOrcLLJITMangleAndIntern", dynlib: LLVMLib
+.}
+
 ##
 ##  Add a buffer representing an object file to the given JITDylib in the given
 ##  LLJIT instance. This operation transfers ownership of the buffer to the
@@ -170,9 +193,10 @@ proc orcLLJITMangleAndIntern*(j: OrcLLJITRef; unmangledName: cstring): OrcSymbol
 ##  JITDylib's default resource tracker.
 ##
 
-proc orcLLJITAddObjectFile*(j: OrcLLJITRef; jd: OrcJITDylibRef;
-                            objBuffer: MemoryBufferRef): ErrorRef {.
-    importc: "LLVMOrcLLJITAddObjectFile", dynlib: LLVMLib.}
+proc orcLLJITAddObjectFile*(
+  j: OrcLLJITRef, jd: OrcJITDylibRef, objBuffer: MemoryBufferRef
+): ErrorRef {.importc: "LLVMOrcLLJITAddObjectFile", dynlib: LLVMLib.}
+
 ##
 ##  Add a buffer representing an object file to the given ResourceTracker's
 ##  JITDylib in the given LLJIT instance. This operation transfers ownership of
@@ -183,9 +207,10 @@ proc orcLLJITAddObjectFile*(j: OrcLLJITRef; jd: OrcJITDylibRef;
 ##  RT.
 ##
 
-proc orcLLJITAddObjectFileWithRT*(j: OrcLLJITRef; rt: OrcResourceTrackerRef;
-                                  objBuffer: MemoryBufferRef): ErrorRef {.
-    importc: "LLVMOrcLLJITAddObjectFileWithRT", dynlib: LLVMLib.}
+proc orcLLJITAddObjectFileWithRT*(
+  j: OrcLLJITRef, rt: OrcResourceTrackerRef, objBuffer: MemoryBufferRef
+): ErrorRef {.importc: "LLVMOrcLLJITAddObjectFileWithRT", dynlib: LLVMLib.}
+
 ##
 ##  Add an IR module to the given JITDylib in the given LLJIT instance. This
 ##  operation transfers ownership of the TSM argument to the LLJIT instance.
@@ -196,9 +221,10 @@ proc orcLLJITAddObjectFileWithRT*(j: OrcLLJITRef; rt: OrcResourceTrackerRef;
 ##  JITDylib's default resource tracker.
 ##
 
-proc orcLLJITAddLLVMIRModule*(j: OrcLLJITRef; jd: OrcJITDylibRef;
-                              tsm: OrcThreadSafeModuleRef): ErrorRef {.
-    importc: "LLVMOrcLLJITAddLLVMIRModule", dynlib: LLVMLib.}
+proc orcLLJITAddLLVMIRModule*(
+  j: OrcLLJITRef, jd: OrcJITDylibRef, tsm: OrcThreadSafeModuleRef
+): ErrorRef {.importc: "LLVMOrcLLJITAddLLVMIRModule", dynlib: LLVMLib.}
+
 ##
 ##  Add an IR module to the given ResourceTracker's JITDylib in the given LLJIT
 ##  instance. This operation transfers ownership of the TSM argument to the LLJIT
@@ -209,36 +235,48 @@ proc orcLLJITAddLLVMIRModule*(j: OrcLLJITRef; jd: OrcJITDylibRef;
 ##  RT.
 ##
 
-proc orcLLJITAddLLVMIRModuleWithRT*(j: OrcLLJITRef; jd: OrcResourceTrackerRef;
-                                    tsm: OrcThreadSafeModuleRef): ErrorRef {.
-    importc: "LLVMOrcLLJITAddLLVMIRModuleWithRT", dynlib: LLVMLib.}
+proc orcLLJITAddLLVMIRModuleWithRT*(
+  j: OrcLLJITRef, jd: OrcResourceTrackerRef, tsm: OrcThreadSafeModuleRef
+): ErrorRef {.importc: "LLVMOrcLLJITAddLLVMIRModuleWithRT", dynlib: LLVMLib.}
+
 ##
 ##  Look up the given symbol in the main JITDylib of the given LLJIT instance.
 ##
 ##  This operation does not take ownership of the Name argument.
 ##
 
-proc orcLLJITLookup*(j: OrcLLJITRef; result: ptr OrcExecutorAddress;
-                     name: cstring): ErrorRef {.importc: "LLVMOrcLLJITLookup",
-    dynlib: LLVMLib.}
+proc orcLLJITLookup*(
+  j: OrcLLJITRef, result: ptr OrcExecutorAddress, name: cstring
+): ErrorRef {.importc: "LLVMOrcLLJITLookup", dynlib: LLVMLib.}
+
 ##
 ##  Returns a non-owning reference to the LLJIT instance's object linking layer.
 ##
 
-proc orcLLJITGetObjLinkingLayer*(j: OrcLLJITRef): OrcObjectLayerRef {.
-    importc: "LLVMOrcLLJITGetObjLinkingLayer", dynlib: LLVMLib.}
+proc orcLLJITGetObjLinkingLayer*(
+  j: OrcLLJITRef
+): OrcObjectLayerRef {.importc: "LLVMOrcLLJITGetObjLinkingLayer", dynlib: LLVMLib.}
+
 ##
 ##  Returns a non-owning reference to the LLJIT instance's object linking layer.
 ##
 
-proc orcLLJITGetObjTransformLayer*(j: OrcLLJITRef): OrcObjectTransformLayerRef {.
-    importc: "LLVMOrcLLJITGetObjTransformLayer", dynlib: LLVMLib.}
+proc orcLLJITGetObjTransformLayer*(
+  j: OrcLLJITRef
+): OrcObjectTransformLayerRef {.
+  importc: "LLVMOrcLLJITGetObjTransformLayer", dynlib: LLVMLib
+.}
+
 ##
 ##  Returns a non-owning reference to the LLJIT instance's IR transform layer.
 ##
 
-proc orcLLJITGetIRTransformLayer*(j: OrcLLJITRef): OrcIRTransformLayerRef {.
-    importc: "LLVMOrcLLJITGetIRTransformLayer", dynlib: LLVMLib.}
+proc orcLLJITGetIRTransformLayer*(
+  j: OrcLLJITRef
+): OrcIRTransformLayerRef {.
+  importc: "LLVMOrcLLJITGetIRTransformLayer", dynlib: LLVMLib
+.}
+
 ##
 ##  Get the LLJIT instance's default data layout string.
 ##
@@ -246,8 +284,10 @@ proc orcLLJITGetIRTransformLayer*(j: OrcLLJITRef): OrcIRTransformLayerRef {.
 ##  by the caller.
 ##
 
-proc orcLLJITGetDataLayoutStr*(j: OrcLLJITRef): cstring {.
-    importc: "LLVMOrcLLJITGetDataLayoutStr", dynlib: LLVMLib.}
+proc orcLLJITGetDataLayoutStr*(
+  j: OrcLLJITRef
+): cstring {.importc: "LLVMOrcLLJITGetDataLayoutStr", dynlib: LLVMLib.}
+
 ##
 ##  @}
 ##

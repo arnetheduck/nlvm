@@ -23,32 +23,34 @@
 ##  @{
 ##
 
-type
-  VerifierFailureAction* {.size: sizeof(cint).} = enum
-    AbortProcessAction,     ##  verifier will print to stderr and abort()
-    PrintMessageAction,     ##  verifier will print to stderr and return 1
-    ReturnStatusAction       ##  verifier will just return 1
-
+type VerifierFailureAction* {.size: sizeof(cint).} = enum
+  AbortProcessAction ##  verifier will print to stderr and abort()
+  PrintMessageAction ##  verifier will print to stderr and return 1
+  ReturnStatusAction ##  verifier will just return 1
 
 ##  Verifies that a module is valid, taking the specified action if not.
 ##    Optionally returns a human-readable description of any invalid constructs.
 ##    OutMessage must be disposed with LLVMDisposeMessage.
 
-proc verifyModule*(m: ModuleRef; action: VerifierFailureAction;
-                   outMessage: cstringArray): Bool {.
-    importc: "LLVMVerifyModule", dynlib: LLVMLib.}
+proc verifyModule*(
+  m: ModuleRef, action: VerifierFailureAction, outMessage: cstringArray
+): Bool {.importc: "LLVMVerifyModule", dynlib: LLVMLib.}
+
 ##  Verifies that a single function is valid, taking the specified action. Useful
 ##    for debugging.
 
-proc verifyFunction*(fn: ValueRef; action: VerifierFailureAction): Bool {.
-    importc: "LLVMVerifyFunction", dynlib: LLVMLib.}
+proc verifyFunction*(
+  fn: ValueRef, action: VerifierFailureAction
+): Bool {.importc: "LLVMVerifyFunction", dynlib: LLVMLib.}
+
 ##  Open up a ghostview window that displays the CFG of the current function.
 ##    Useful for debugging.
 
-proc viewFunctionCFG*(fn: ValueRef) {.importc: "LLVMViewFunctionCFG",
-                                      dynlib: LLVMLib.}
-proc viewFunctionCFGOnly*(fn: ValueRef) {.importc: "LLVMViewFunctionCFGOnly",
-    dynlib: LLVMLib.}
+proc viewFunctionCFG*(fn: ValueRef) {.importc: "LLVMViewFunctionCFG", dynlib: LLVMLib.}
+proc viewFunctionCFGOnly*(
+  fn: ValueRef
+) {.importc: "LLVMViewFunctionCFGOnly", dynlib: LLVMLib.}
+
 ##
 ##  @}
 ##

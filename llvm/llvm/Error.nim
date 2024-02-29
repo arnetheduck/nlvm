@@ -18,30 +18,29 @@
 ##  @{
 ##
 
-const
-  ErrorSuccess* = 0
+const ErrorSuccess* = 0
 
 ##
 ##  Opaque reference to an error instance. Null serves as the 'success' value.
 ##
 
-type
-  ErrorRef* = ptr OpaqueError
+type ErrorRef* = ptr OpaqueError
 
 ##
 ##  Error type identifier.
 ##
 
-type
-  ErrorTypeId* = pointer
+type ErrorTypeId* = pointer
 
 ##
 ##  Returns the type id for the given error instance, which must be a failure
 ##  value (i.e. non-null).
 ##
 
-proc getErrorTypeId*(err: ErrorRef): ErrorTypeId {.
-    importc: "LLVMGetErrorTypeId", dynlib: LLVMLib.}
+proc getErrorTypeId*(
+  err: ErrorRef
+): ErrorTypeId {.importc: "LLVMGetErrorTypeId", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of the given error without handling it. This operation consumes the
 ##  error, and the given LLVMErrorRef value is not usable once this call returns.
@@ -57,26 +56,34 @@ proc consumeError*(err: ErrorRef) {.importc: "LLVMConsumeError", dynlib: LLVMLib
 ##  LLVMDisposeErrorMessage.
 ##
 
-proc getErrorMessage*(err: ErrorRef): cstring {.importc: "LLVMGetErrorMessage",
-    dynlib: LLVMLib.}
+proc getErrorMessage*(
+  err: ErrorRef
+): cstring {.importc: "LLVMGetErrorMessage", dynlib: LLVMLib.}
+
 ##
 ##  Dispose of the given error message.
 ##
 
-proc disposeErrorMessage*(errMsg: cstring) {.importc: "LLVMDisposeErrorMessage",
-    dynlib: LLVMLib.}
+proc disposeErrorMessage*(
+  errMsg: cstring
+) {.importc: "LLVMDisposeErrorMessage", dynlib: LLVMLib.}
+
 ##
 ##  Returns the type id for llvm StringError.
 ##
 
-proc getStringErrorTypeId*(): ErrorTypeId {.importc: "LLVMGetStringErrorTypeId",
-    dynlib: LLVMLib.}
+proc getStringErrorTypeId*(): ErrorTypeId {.
+  importc: "LLVMGetStringErrorTypeId", dynlib: LLVMLib
+.}
+
 ##
 ##  Create a StringError.
 ##
 
-proc createStringError*(errMsg: cstring): ErrorRef {.
-    importc: "LLVMCreateStringError", dynlib: LLVMLib.}
+proc createStringError*(
+  errMsg: cstring
+): ErrorRef {.importc: "LLVMCreateStringError", dynlib: LLVMLib.}
+
 ##
 ##  @}
 ##

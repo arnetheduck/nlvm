@@ -23,8 +23,10 @@
 ##  @see sys::DynamicLibrary::LoadLibraryPermanently()
 ##
 
-proc loadLibraryPermanently*(filename: cstring): Bool {.
-    importc: "LLVMLoadLibraryPermanently", dynlib: LLVMLib.}
+proc loadLibraryPermanently*(
+  filename: cstring
+): Bool {.importc: "LLVMLoadLibraryPermanently", dynlib: LLVMLib.}
+
 ##
 ##  This function parses the given arguments using the LLVM command line parser.
 ##  Note that the only stable thing about this function is its signature; you
@@ -34,8 +36,10 @@ proc loadLibraryPermanently*(filename: cstring): Bool {.
 ##  @see llvm::cl::ParseCommandLineOptions()
 ##
 
-proc parseCommandLineOptions*(argc: cint; argv: cstringArray; overview: cstring) {.
-    importc: "LLVMParseCommandLineOptions", dynlib: LLVMLib.}
+proc parseCommandLineOptions*(
+  argc: cint, argv: cstringArray, overview: cstring
+) {.importc: "LLVMParseCommandLineOptions", dynlib: LLVMLib.}
+
 ##
 ##  This function will search through all previously loaded dynamic
 ##  libraries for the symbol \p symbolName. If it is found, the address of
@@ -44,8 +48,10 @@ proc parseCommandLineOptions*(argc: cint; argv: cstringArray; overview: cstring)
 ##  @see sys::DynamicLibrary::SearchForAddressOfSymbol()
 ##
 
-proc searchForAddressOfSymbol*(symbolName: cstring): pointer {.
-    importc: "LLVMSearchForAddressOfSymbol", dynlib: LLVMLib.}
+proc searchForAddressOfSymbol*(
+  symbolName: cstring
+): pointer {.importc: "LLVMSearchForAddressOfSymbol", dynlib: LLVMLib.}
+
 ##
 ##  This functions permanently adds the symbol \p symbolName with the
 ##  value \p symbolValue.  These symbols are searched before any
@@ -54,8 +60,10 @@ proc searchForAddressOfSymbol*(symbolName: cstring): pointer {.
 ##  @see sys::DynamicLibrary::AddSymbol()
 ##
 
-proc addSymbol*(symbolName: cstring; symbolValue: pointer) {.
-    importc: "LLVMAddSymbol", dynlib: LLVMLib.}
+proc addSymbol*(
+  symbolName: cstring, symbolValue: pointer
+) {.importc: "LLVMAddSymbol", dynlib: LLVMLib.}
+
 ##
 ##  @}
 ##
