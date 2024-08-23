@@ -23,6 +23,7 @@
 ##
 
 type
+  TargetMachineOptionsRef* = ptr OpaqueTargetMachineOptions
   TargetMachineRef* = ptr OpaqueTargetMachine
   TargetRef* = ptr target
   CodeGenOptLevel* {.size: sizeof(cint).} = enum
@@ -52,6 +53,11 @@ type
   CodeGenFileType* {.size: sizeof(cint).} = enum
     AssemblyFile
     ObjectFile
+
+  GlobalISelAbortMode* {.size: sizeof(cint).} = enum
+    GlobalISelAbortEnable
+    GlobalISelAbortDisable
+    GlobalISelAbortDisableWithDiag
 
 ##  Returns the first llvm::Target in the registered targets list.
 
@@ -106,6 +112,69 @@ proc targetHasAsmBackend*(
 ): Bool {.importc: "LLVMTargetHasAsmBackend", dynlib: LLVMLib.}
 
 ## ===-- Target Machine ----------------------------------------------------===
+##
+##  Create a new set of options for an llvm::TargetMachine.
+##
+##  The returned option structure must be released with
+##  LLVMDisposeTargetMachineOptions() after the call to
+##  LLVMCreateTargetMachineWithOptions().
+##
+
+proc createTargetMachineOptions*(): TargetMachineOptionsRef {.
+  importc: "LLVMCreateTargetMachineOptions", dynlib: LLVMLib
+.}
+
+##
+##  Dispose of an LLVMTargetMachineOptionsRef instance.
+##
+
+proc disposeTargetMachineOptions*(
+  options: TargetMachineOptionsRef
+) {.importc: "LLVMDisposeTargetMachineOptions", dynlib: LLVMLib.}
+
+proc targetMachineOptionsSetCPU*(
+  options: TargetMachineOptionsRef, cpu: cstring
+) {.importc: "LLVMTargetMachineOptionsSetCPU", dynlib: LLVMLib.}
+
+##
+##  Set the list of features for the target machine.
+##
+##  \param Features a comma-separated list of features.
+##
+
+proc targetMachineOptionsSetFeatures*(
+  options: TargetMachineOptionsRef, features: cstring
+) {.importc: "LLVMTargetMachineOptionsSetFeatures", dynlib: LLVMLib.}
+
+proc targetMachineOptionsSetABI*(
+  options: TargetMachineOptionsRef, abi: cstring
+) {.importc: "LLVMTargetMachineOptionsSetABI", dynlib: LLVMLib.}
+
+proc targetMachineOptionsSetCodeGenOptLevel*(
+  options: TargetMachineOptionsRef, level: CodeGenOptLevel
+) {.importc: "LLVMTargetMachineOptionsSetCodeGenOptLevel", dynlib: LLVMLib.}
+
+proc targetMachineOptionsSetRelocMode*(
+  options: TargetMachineOptionsRef, reloc: RelocMode
+) {.importc: "LLVMTargetMachineOptionsSetRelocMode", dynlib: LLVMLib.}
+
+proc targetMachineOptionsSetCodeModel*(
+  options: TargetMachineOptionsRef, codeModel: CodeModel
+) {.importc: "LLVMTargetMachineOptionsSetCodeModel", dynlib: LLVMLib.}
+
+##
+##  Create a new llvm::TargetMachine.
+##
+##  \param T the target to create a machine for.
+##  \param Triple a triple describing the target machine.
+##  \param Options additional configuration (see
+##                 LLVMCreateTargetMachineOptions()).
+##
+
+proc createTargetMachineWithOptions*(
+  t: TargetRef, triple: cstring, options: TargetMachineOptionsRef
+): TargetMachineRef {.importc: "LLVMCreateTargetMachineWithOptions", dynlib: LLVMLib.}
+
 ##  Creates a new llvm::TargetMachine. See llvm::Target::createTargetMachine
 
 proc createTargetMachine*(
@@ -166,6 +235,31 @@ proc createTargetDataLayout*(
 proc setTargetMachineAsmVerbosity*(
   t: TargetMachineRef, verboseAsm: Bool
 ) {.importc: "LLVMSetTargetMachineAsmVerbosity", dynlib: LLVMLib.}
+
+##  Enable fast-path instruction selection.
+
+proc setTargetMachineFastISel*(
+  t: TargetMachineRef, enable: Bool
+) {.importc: "LLVMSetTargetMachineFastISel", dynlib: LLVMLib.}
+
+##  Enable global instruction selection.
+
+proc setTargetMachineGlobalISel*(
+  t: TargetMachineRef, enable: Bool
+) {.importc: "LLVMSetTargetMachineGlobalISel", dynlib: LLVMLib.}
+
+##  Set abort behaviour when global instruction selection fails to lower/select
+##  an instruction.
+
+proc setTargetMachineGlobalISelAbort*(
+  t: TargetMachineRef, mode: GlobalISelAbortMode
+) {.importc: "LLVMSetTargetMachineGlobalISelAbort", dynlib: LLVMLib.}
+
+##  Enable the MachineOutliner pass.
+
+proc setTargetMachineMachineOutliner*(
+  t: TargetMachineRef, enable: Bool
+) {.importc: "LLVMSetTargetMachineMachineOutliner", dynlib: LLVMLib.}
 
 ##  Emits an asm or object file for the given module to the filename. This
 ##   wraps several c++ only classes (among them a file stream). Returns any

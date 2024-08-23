@@ -3640,8 +3640,7 @@ proc callCompilerProc(
       if fty.getReturnType().getTypeKind() == llvm.VoidTypeKind:
         ""
       else:
-        g.nn("call.cp." & name)
-      ,
+        g.nn("call.cp." & name),
     )
     if noReturn:
       discard g.b.buildUnreachable()
@@ -6154,8 +6153,7 @@ proc genAsgn(g: LLGen, n: PNode, fast: bool) =
       if fast:
         {}
       else:
-        {needToCopy}
-      ,
+        {needToCopy},
     )
   else:
     let
@@ -6176,8 +6174,7 @@ proc genAsgn(g: LLGen, n: PNode, fast: bool) =
       if fast or ri.kind in nkCallKinds:
         {}
       else:
-        {needToCopy}
-      ,
+        {needToCopy},
     )
 
 proc genCallMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
@@ -8751,8 +8748,7 @@ proc genNodeConv(g: LLGen, n: PNode, load: bool): LLValue =
       if load:
         g.llType(n.typ)
       else:
-        g.ptrTy
-      #  llvm.pointerType(g.llType(n.typ))
+        g.ptrTy #  llvm.pointerType(g.llType(n.typ))
     vtk = vt.getTypeKind()
     ntk = nt.getTypeKind()
     vtyp = skipTypes(n[1].typ, abstractRange)
@@ -9868,8 +9864,7 @@ proc newLLGen(
       if graph.config.target.targetCPU == cpuWasm32:
         llvm.ExternalLinkage
       else:
-        llvm.CommonLinkage
-    ,
+        llvm.CommonLinkage,
     lto: lto,
     orc: orc,
   )

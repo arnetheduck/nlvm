@@ -35,7 +35,7 @@ jobs:
         # Updating nph version should be accompanied with running the new
         # version
         run: |
-          VERSION="v0.5.1"
+          VERSION="v0.6.0"
           ARCHIVE="nph-linux_x64.tar.gz"
           curl -L "https://github.com/arnetheduck/nph/releases/download/${VERSION}/${ARCHIVE}" -o ${ARCHIVE}
           tar -xzf ${ARCHIVE}

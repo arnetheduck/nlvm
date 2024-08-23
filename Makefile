@@ -22,7 +22,7 @@ ifdef STATIC_LLVM
 	LLVM_DEP=ext/$(LLVM_DIR)/sta/bin/llvm-config
 	export PATH := $(PWD)/ext/$(LLVM_DIR)/sta/bin:$(PATH)
 else
-	LLVM_DEP=ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so
+	LLVM_DEP=ext/$(LLVM_DIR)/sha/lib/libLLVM.so.$(LLVM_MAJ).$(LLVM_MIN)
 	NLVMCFLAGS?=
 endif
 
@@ -101,7 +101,7 @@ self: nlvm/nlvm.self
 clean:
 	rm -rf $(NLVMC) $(NLVMR) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self Nim/testresults/
 
-ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
+ext/$(LLVM_DIR)/sha/lib/libLLVM.so.$(LLVM_MAJ).$(LLVM_MIN):
 	sh ./make-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sha \
 		-DLLVM_BUILD_LLVM_DYLIB=1 \
 		-DLLVM_LINK_LLVM_DYLIB=1 \
