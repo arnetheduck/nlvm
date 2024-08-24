@@ -27,7 +27,7 @@ when defined(staticLLVM):
 else:
   const LLVMOut = LLVMRoot & "sha/"
 
-  {.passL: fmt"-lLLVM.so".}
+  {.passL: fmt"-lLLVM".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
 {.passC: "-I" & LLVMOut & "include".}
