@@ -18,7 +18,7 @@ jobs:
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
           echo "LD=clang++" >> $GITHUB_ENV
-          echo "LLVM_VERSION=$(cat llvm/llvm.version) >> $GITHUB_ENV
+          echo "LLVM_VERSION=$(cat llvm/llvm.version)" >> $GITHUB_ENV
       - name: Cache LLVM
         id: cache-llvm
         uses: actions/cache@v3
