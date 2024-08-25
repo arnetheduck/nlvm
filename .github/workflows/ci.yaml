@@ -18,6 +18,14 @@ jobs:
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
           echo "LD=clang++" >> $GITHUB_ENV
+          echo "LLVM_VERSION=$(cat llvm/llvm.version)" >> $GITHUB_ENV
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v3
+        with:
+          path: |
+            ext/*-${{ env.LLVM_VERSION }}.src
+          key: llvm-${{ runner.os }}-${{ env.LLVM_VERSION }}
       - name: Set up llvm
         run: make STATIC_LLVM=1 prepare-llvm
       - name: Compile nim
@@ -35,7 +43,7 @@ jobs:
         # Updating nph version should be accompanied with running the new
         # version
         run: |
-          VERSION="v0.5.1"
+          VERSION="v0.6.0"
           ARCHIVE="nph-linux_x64.tar.gz"
           curl -L "https://github.com/arnetheduck/nph/releases/download/${VERSION}/${ARCHIVE}" -o ${ARCHIVE}
           tar -xzf ${ARCHIVE}

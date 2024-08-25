@@ -6,10 +6,10 @@ import std/[os, strformat, strutils]
 
 const
   LLVMVersion* = staticRead(currentSourcePath.parentDir & "/llvm.version")
-  LLVMMaj = parseInt(LLVMVersion.split('.')[0])
-  LLVMMin = parseInt(LLVMVersion.split('.')[1])
-  LLVMPat = parseInt(LLVMVersion.split('.')[2])
-  LLVMLib = fmt"libLLVM-{LLVMMaj}.so"
+  LLVMMaj* = parseInt(LLVMVersion.split('.')[0])
+  LLVMMin* = parseInt(LLVMVersion.split('.')[1])
+  LLVMPat* = parseInt(LLVMVersion.split('.')[2])
+  LLVMLib = "" #fmt"libLLVM-{LLVMMaj}.so"
   LLVMRoot = fmt"../ext/llvm-{LLVMVersion}.src/"
   LLDRoot = fmt"../ext/lld-{LLVMVersion}.src/"
 
@@ -27,11 +27,11 @@ when defined(staticLLVM):
 else:
   const LLVMOut = LLVMRoot & "sha/"
 
-  {.passL: fmt"-lLLVM-{LLVMMaj}".}
+  {.passL: fmt"-lLLVM".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
-{.passC: "-I" & LLVMRoot & "include".}
-{.passC: "-I" & LLVMOut & "include".}
+  {.passC: "-I" & LLVMOut & "include".}
+  {.passC: "-I" & LLVMRoot & "include".}
 
 {.passC: "-I" & LLDRoot & "include".}
 
@@ -40,7 +40,7 @@ else:
 {.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
 {.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
 
-{.compile("wrapper.cc", "-std=gnu++17").}
+{.compile("wrapper.cc", gorge(LLVMOut & "bin/llvm-config --cxxflags")).}
 
 # Includes and helpers for generated code
 type OpaqueMemoryBuffer = object
@@ -103,6 +103,9 @@ type
 
   OpaqueTargetData {.pure, final.} = object
   OpaqueTargetLibraryInfotData {.pure, final.} = object
+
+  OpaqueOperandBundle {.pure, final.} = object
+  OpaqueTargetMachineOptions {.pure, final.} = object
 
   Opcode* {.size: sizeof(cint).} = enum
     Ret = 1

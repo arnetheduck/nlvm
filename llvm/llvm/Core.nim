@@ -116,7 +116,6 @@ type
     ColdCallConv = 9
     GHCCallConv = 10
     HiPECallConv = 11
-    WebKitJSCallConv = 12
     AnyRegCallConv = 13
     PreserveMostCallConv = 14
     PreserveAllCallConv = 15
@@ -361,7 +360,44 @@ const
     ##  LLVMAttributeFunctionIndex = ~0U,
   AttributeFunctionIndex* = -1
 
-type AttributeIndex* = cuint
+##
+##  Tail call kind for LLVMSetTailCallKind and LLVMGetTailCallKind.
+##
+##  Note that 'musttail' implies 'tail'.
+##
+##  @see CallInst::TailCallKind
+##
+
+type
+  TailCallKind* {.size: sizeof(cint).} = enum
+    TailCallKindNone = 0
+    TailCallKindTail = 1
+    TailCallKindMustTail = 2
+    TailCallKindNoTail = 3
+
+  AttributeIndex* = cuint
+
+const
+  FastMathAllowReassoc* = (1 shl 0)
+  FastMathNoNaNs* = (1 shl 1)
+  FastMathNoInfs* = (1 shl 2)
+  FastMathNoSignedZeros* = (1 shl 3)
+  FastMathAllowReciprocal* = (1 shl 4)
+  FastMathAllowContract* = (1 shl 5)
+  FastMathApproxFunc* = (1 shl 6)
+  FastMathNone* = 0
+  FastMathAll* =
+    FastMathAllowReassoc or FastMathNoNaNs or FastMathNoInfs or FastMathNoSignedZeros or
+    FastMathAllowReciprocal or FastMathAllowContract or FastMathApproxFunc
+
+##
+##  Flags to indicate what fast-math-style optimizations are allowed
+##  on operations.
+##
+##  See https://llvm.org/docs/LangRef.html#fast-math-flags
+##
+
+type FastMathFlags* = cuint
 
 ##
 ##  @}
@@ -933,6 +969,72 @@ proc getInlineAsm*(
   dialect: InlineAsmDialect,
   canThrow: Bool,
 ): ValueRef {.importc: "LLVMGetInlineAsm", dynlib: LLVMLib.}
+
+##
+##  Get the template string used for an inline assembly snippet
+##
+##
+
+proc getInlineAsmAsmString*(
+  inlineAsmVal: ValueRef, len: ptr csize_t
+): cstring {.importc: "LLVMGetInlineAsmAsmString", dynlib: LLVMLib.}
+
+##
+##  Get the raw constraint string for an inline assembly snippet
+##
+##
+
+proc getInlineAsmConstraintString*(
+  inlineAsmVal: ValueRef, len: ptr csize_t
+): cstring {.importc: "LLVMGetInlineAsmConstraintString", dynlib: LLVMLib.}
+
+##
+##  Get the dialect used by the inline asm snippet
+##
+##
+
+proc getInlineAsmDialect*(
+  inlineAsmVal: ValueRef
+): InlineAsmDialect {.importc: "LLVMGetInlineAsmDialect", dynlib: LLVMLib.}
+
+##
+##  Get the function type of the inline assembly snippet. The same type that
+##  was passed into LLVMGetInlineAsm originally
+##
+##  @see LLVMGetInlineAsm
+##
+##
+
+proc getInlineAsmFunctionType*(
+  inlineAsmVal: ValueRef
+): TypeRef {.importc: "LLVMGetInlineAsmFunctionType", dynlib: LLVMLib.}
+
+##
+##  Get if the inline asm snippet has side effects
+##
+##
+
+proc getInlineAsmHasSideEffects*(
+  inlineAsmVal: ValueRef
+): Bool {.importc: "LLVMGetInlineAsmHasSideEffects", dynlib: LLVMLib.}
+
+##
+##  Get if the inline asm snippet needs an aligned stack
+##
+##
+
+proc getInlineAsmNeedsAlignedStack*(
+  inlineAsmVal: ValueRef
+): Bool {.importc: "LLVMGetInlineAsmNeedsAlignedStack", dynlib: LLVMLib.}
+
+##
+##  Get if the inline asm snippet may unwind the stack
+##
+##
+
+proc getInlineAsmCanUnwind*(
+  inlineAsmVal: ValueRef
+): Bool {.importc: "LLVMGetInlineAsmCanUnwind", dynlib: LLVMLib.}
 
 ##
 ##  Obtain the context to which this module is associated.
@@ -2417,9 +2519,11 @@ proc getAggregateElement*(
 ##  @see ConstantDataSequential::getElementAsConstant()
 ##
 
-# attribute_C_Deprecated(valueRef,
-#                        getElementAsConstant(valueRef, c, unsigned, idx),
-#                        "Use LLVMGetAggregateElement instead")
+#attribute_C_Deprecated(
+#  valueRef,
+#  getElementAsConstant(valueRef, c, unsigned, idx),
+#  "Use LLVMGetAggregateElement instead",
+#)
 ##
 ##  Create a ConstantVector from values.
 ##
@@ -2501,14 +2605,6 @@ proc constNUWMul*(
   lHSConstant: ValueRef, rHSConstant: ValueRef
 ): ValueRef {.importc: "LLVMConstNUWMul", dynlib: LLVMLib.}
 
-proc constAnd*(
-  lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstAnd", dynlib: LLVMLib.}
-
-proc constOr*(
-  lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstOr", dynlib: LLVMLib.}
-
 proc constXor*(
   lHSConstant: ValueRef, rHSConstant: ValueRef
 ): ValueRef {.importc: "LLVMConstXor", dynlib: LLVMLib.}
@@ -2525,14 +2621,6 @@ proc constShl*(
   lHSConstant: ValueRef, rHSConstant: ValueRef
 ): ValueRef {.importc: "LLVMConstShl", dynlib: LLVMLib.}
 
-proc constLShr*(
-  lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstLShr", dynlib: LLVMLib.}
-
-proc constAShr*(
-  lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstAShr", dynlib: LLVMLib.}
-
 proc constGEP2*(
   ty: TypeRef, constantVal: ValueRef, constantIndices: ptr ValueRef, numIndices: cuint
 ): ValueRef {.importc: "LLVMConstGEP2", dynlib: LLVMLib.}
@@ -2544,38 +2632,6 @@ proc constInBoundsGEP2*(
 proc constTrunc*(
   constantVal: ValueRef, toType: TypeRef
 ): ValueRef {.importc: "LLVMConstTrunc", dynlib: LLVMLib.}
-
-proc constSExt*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstSExt", dynlib: LLVMLib.}
-
-proc constZExt*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstZExt", dynlib: LLVMLib.}
-
-proc constFPTrunc*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstFPTrunc", dynlib: LLVMLib.}
-
-proc constFPExt*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstFPExt", dynlib: LLVMLib.}
-
-proc constUIToFP*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstUIToFP", dynlib: LLVMLib.}
-
-proc constSIToFP*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstSIToFP", dynlib: LLVMLib.}
-
-proc constFPToUI*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstFPToUI", dynlib: LLVMLib.}
-
-proc constFPToSI*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstFPToSI", dynlib: LLVMLib.}
 
 proc constPtrToInt*(
   constantVal: ValueRef, toType: TypeRef
@@ -2593,14 +2649,6 @@ proc constAddrSpaceCast*(
   constantVal: ValueRef, toType: TypeRef
 ): ValueRef {.importc: "LLVMConstAddrSpaceCast", dynlib: LLVMLib.}
 
-proc constZExtOrBitCast*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstZExtOrBitCast", dynlib: LLVMLib.}
-
-proc constSExtOrBitCast*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstSExtOrBitCast", dynlib: LLVMLib.}
-
 proc constTruncOrBitCast*(
   constantVal: ValueRef, toType: TypeRef
 ): ValueRef {.importc: "LLVMConstTruncOrBitCast", dynlib: LLVMLib.}
@@ -2608,14 +2656,6 @@ proc constTruncOrBitCast*(
 proc constPointerCast*(
   constantVal: ValueRef, toType: TypeRef
 ): ValueRef {.importc: "LLVMConstPointerCast", dynlib: LLVMLib.}
-
-proc constIntCast*(
-  constantVal: ValueRef, toType: TypeRef, isSigned: Bool
-): ValueRef {.importc: "LLVMConstIntCast", dynlib: LLVMLib.}
-
-proc constFPCast*(
-  constantVal: ValueRef, toType: TypeRef
-): ValueRef {.importc: "LLVMConstFPCast", dynlib: LLVMLib.}
 
 proc constExtractElement*(
   vectorConstant: ValueRef, indexConstant: ValueRef
@@ -3593,6 +3633,84 @@ proc mDNode*(
 ##  @}
 ##
 ##
+##  @defgroup LLVMCCoreOperandBundle Operand Bundles
+##
+##  Functions in this group operate on LLVMOperandBundleRef instances that
+##  correspond to llvm::OperandBundleDef instances.
+##
+##  @see llvm::OperandBundleDef
+##
+##  @{
+##
+##
+##  Create a new operand bundle.
+##
+##  Every invocation should be paired with LLVMDisposeOperandBundle() or memory
+##  will be leaked.
+##
+##  @param Tag Tag name of the operand bundle
+##  @param TagLen Length of Tag
+##  @param Args Memory address of an array of bundle operands
+##  @param NumArgs Length of Args
+##
+
+proc createOperandBundle*(
+  tag: cstring, tagLen: csize_t, args: ptr ValueRef, numArgs: cuint
+): OperandBundleRef {.importc: "LLVMCreateOperandBundle", dynlib: LLVMLib.}
+
+##
+##  Destroy an operand bundle.
+##
+##  This must be called for every created operand bundle or memory will be
+##  leaked.
+##
+
+proc disposeOperandBundle*(
+  bundle: OperandBundleRef
+) {.importc: "LLVMDisposeOperandBundle", dynlib: LLVMLib.}
+
+##
+##  Obtain the tag of an operand bundle as a string.
+##
+##  @param Bundle Operand bundle to obtain tag of.
+##  @param Len Out parameter which holds the length of the returned string.
+##  @return The tag name of Bundle.
+##  @see OperandBundleDef::getTag()
+##
+
+proc getOperandBundleTag*(
+  bundle: OperandBundleRef, len: ptr csize_t
+): cstring {.importc: "LLVMGetOperandBundleTag", dynlib: LLVMLib.}
+
+##
+##  Obtain the number of operands for an operand bundle.
+##
+##  @param Bundle Operand bundle to obtain operand count of.
+##  @return The number of operands.
+##  @see OperandBundleDef::input_size()
+##
+
+proc getNumOperandBundleArgs*(
+  bundle: OperandBundleRef
+): cuint {.importc: "LLVMGetNumOperandBundleArgs", dynlib: LLVMLib.}
+
+##
+##  Obtain the operand for an operand bundle at the given index.
+##
+##  @param Bundle Operand bundle to obtain operand of.
+##  @param Index An operand index, must be less than
+##  LLVMGetNumOperandBundleArgs().
+##  @return The operand.
+##
+
+proc getOperandBundleArgAtIndex*(
+  bundle: OperandBundleRef, index: cuint
+): ValueRef {.importc: "LLVMGetOperandBundleArgAtIndex", dynlib: LLVMLib.}
+
+##
+##  @}
+##
+##
 ##  @defgroup LLVMCCoreValueBasicBlock Basic Block
 ##
 ##  A basic block represents a single entry single exit section of code.
@@ -4176,6 +4294,29 @@ proc getCalledValue*(
 ): ValueRef {.importc: "LLVMGetCalledValue", dynlib: LLVMLib.}
 
 ##
+##  Obtain the number of operand bundles attached to this instruction.
+##
+##  This only works on llvm::CallInst and llvm::InvokeInst instructions.
+##
+##  @see llvm::CallBase::getNumOperandBundles()
+##
+
+proc getNumOperandBundles*(
+  c: ValueRef
+): cuint {.importc: "LLVMGetNumOperandBundles", dynlib: LLVMLib.}
+
+##
+##  Obtain the operand bundle attached to this instruction at the given index.
+##  Use LLVMDisposeOperandBundle to free the operand bundle.
+##
+##  This only works on llvm::CallInst and llvm::InvokeInst instructions.
+##
+
+proc getOperandBundleAtIndex*(
+  c: ValueRef, index: cuint
+): OperandBundleRef {.importc: "LLVMGetOperandBundleAtIndex", dynlib: LLVMLib.}
+
+##
 ##  Obtain whether a call instruction is a tail call.
 ##
 ##  This only works on llvm::CallInst instructions.
@@ -4198,6 +4339,26 @@ proc isTailCall*(
 proc setTailCall*(
   callInst: ValueRef, isTailCall: Bool
 ) {.importc: "LLVMSetTailCall", dynlib: LLVMLib.}
+
+##
+##  Obtain a tail call kind of the call instruction.
+##
+##  @see llvm::CallInst::setTailCallKind()
+##
+
+proc getTailCallKind*(
+  callInst: ValueRef
+): TailCallKind {.importc: "LLVMGetTailCallKind", dynlib: LLVMLib.}
+
+##
+##  Set the call kind of the call instruction.
+##
+##  @see llvm::CallInst::getTailCallKind()
+##
+
+proc setTailCallKind*(
+  callInst: ValueRef, kind: TailCallKind
+) {.importc: "LLVMSetTailCallKind", dynlib: LLVMLib.}
 
 ##
 ##  Return the normal destination basic block.
@@ -4652,6 +4813,19 @@ proc buildInvoke2*(
   name: cstring,
 ): ValueRef {.importc: "LLVMBuildInvoke2", dynlib: LLVMLib.}
 
+proc buildInvokeWithOperandBundles*(
+  a1: BuilderRef,
+  ty: TypeRef,
+  fn: ValueRef,
+  args: ptr ValueRef,
+  numArgs: cuint,
+  then: BasicBlockRef,
+  catch: BasicBlockRef,
+  bundles: ptr OperandBundleRef,
+  numBundles: cuint,
+  name: cstring,
+): ValueRef {.importc: "LLVMBuildInvokeWithOperandBundles", dynlib: LLVMLib.}
+
 proc buildUnreachable*(
   a1: BuilderRef
 ): ValueRef {.importc: "LLVMBuildUnreachable", dynlib: LLVMLib.}
@@ -4945,6 +5119,75 @@ proc setExact*(
   divOrShrInst: ValueRef, isExact: Bool
 ) {.importc: "LLVMSetExact", dynlib: LLVMLib.}
 
+##
+##  Gets if the instruction has the non-negative flag set.
+##  Only valid for zext instructions.
+##
+
+proc getNNeg*(nonNegInst: ValueRef): Bool {.importc: "LLVMGetNNeg", dynlib: LLVMLib.}
+##
+##  Sets the non-negative flag for the instruction.
+##  Only valid for zext instructions.
+##
+
+proc setNNeg*(
+  nonNegInst: ValueRef, isNonNeg: Bool
+) {.importc: "LLVMSetNNeg", dynlib: LLVMLib.}
+
+##
+##  Get the flags for which fast-math-style optimizations are allowed for this
+##  value.
+##
+##  Only valid on floating point instructions.
+##  @see LLVMCanValueUseFastMathFlags
+##
+
+proc getFastMathFlags*(
+  fPMathInst: ValueRef
+): FastMathFlags {.importc: "LLVMGetFastMathFlags", dynlib: LLVMLib.}
+
+##
+##  Sets the flags for which fast-math-style optimizations are allowed for this
+##  value.
+##
+##  Only valid on floating point instructions.
+##  @see LLVMCanValueUseFastMathFlags
+##
+
+proc setFastMathFlags*(
+  fPMathInst: ValueRef, fmf: FastMathFlags
+) {.importc: "LLVMSetFastMathFlags", dynlib: LLVMLib.}
+
+##
+##  Check if a given value can potentially have fast math flags.
+##
+##  Will return true for floating point arithmetic instructions, and for select,
+##  phi, and call instructions whose type is a floating point type, or a vector
+##  or array thereof. See https://llvm.org/docs/LangRef.html#fast-math-flags
+##
+
+proc canValueUseFastMathFlags*(
+  inst: ValueRef
+): Bool {.importc: "LLVMCanValueUseFastMathFlags", dynlib: LLVMLib.}
+
+##
+##  Gets whether the instruction has the disjoint flag set.
+##  Only valid for or instructions.
+##
+
+proc getIsDisjoint*(
+  inst: ValueRef
+): Bool {.importc: "LLVMGetIsDisjoint", dynlib: LLVMLib.}
+
+##
+##  Sets the disjoint flag for the instruction.
+##  Only valid for or instructions.
+##
+
+proc setIsDisjoint*(
+  inst: ValueRef, isDisjoint: Bool
+) {.importc: "LLVMSetIsDisjoint", dynlib: LLVMLib.}
+
 ##  Memory
 
 proc buildMalloc*(
@@ -5191,6 +5434,17 @@ proc buildCall2*(
   numArgs: cuint,
   name: cstring,
 ): ValueRef {.importc: "LLVMBuildCall2", dynlib: LLVMLib.}
+
+proc buildCallWithOperandBundles*(
+  a1: BuilderRef,
+  a2: TypeRef,
+  fn: ValueRef,
+  args: ptr ValueRef,
+  numArgs: cuint,
+  bundles: ptr OperandBundleRef,
+  numBundles: cuint,
+  name: cstring,
+): ValueRef {.importc: "LLVMBuildCallWithOperandBundles", dynlib: LLVMLib.}
 
 proc buildSelect*(
   a1: BuilderRef, `if`: ValueRef, then: ValueRef, `else`: ValueRef, name: cstring

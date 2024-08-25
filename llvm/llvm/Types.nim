@@ -137,6 +137,12 @@ type PassManagerRef* = ptr OpaquePassManager
 type UseRef* = ptr OpaqueUse
 
 ##
+##  @see llvm::OperandBundleDef
+##
+
+type OperandBundleRef* = ptr OpaqueOperandBundle
+
+##
 ##  Used to represent an attributes.
 ##
 ##  @see llvm::Attribute

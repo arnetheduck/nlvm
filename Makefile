@@ -7,9 +7,9 @@ LLVMPATH=../ext
 
 #NIMFLAGS=--opt:speed --gc:markandsweep
 #NIMFLAGS=-d:release
-NIMFLAGS=--debuginfo --linedir:on
+NIMFLAGS=--debuginfo --linedir:on --cc=clang
 
-NLVMFLAGS= --debuginfo --linedir:on
+NLVMFLAGS= --debuginfo --linedir:on  --cc=clang
 
 LLVM_MAJ:=$(shell cat llvm/llvm.version | cut -f1 -d.)
 LLVM_MIN:=$(shell cat llvm/llvm.version | cut -f2 -d.)
@@ -22,7 +22,7 @@ ifdef STATIC_LLVM
 	LLVM_DEP=ext/$(LLVM_DIR)/sta/bin/llvm-config
 	export PATH := $(PWD)/ext/$(LLVM_DIR)/sta/bin:$(PATH)
 else
-	LLVM_DEP=ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so
+	LLVM_DEP=ext/$(LLVM_DIR)/sha/lib/libLLVM.so.$(LLVM_MAJ).$(LLVM_MIN)
 	NLVMCFLAGS?=
 endif
 
@@ -101,7 +101,7 @@ self: nlvm/nlvm.self
 clean:
 	rm -rf $(NLVMC) $(NLVMR) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self Nim/testresults/
 
-ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
+ext/$(LLVM_DIR)/sha/lib/libLLVM.so.$(LLVM_MAJ).$(LLVM_MIN):
 	sh ./make-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sha \
 		-DLLVM_BUILD_LLVM_DYLIB=1 \
 		-DLLVM_LINK_LLVM_DYLIB=1 \
@@ -111,7 +111,13 @@ ext/$(LLVM_DIR)/sha/lib/libLLVM-$(LLVM_MAJ).so:
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 ext/$(LLVM_DIR)/sta/bin/llvm-config:
-	sh ./dl-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sta
+	sh ./make-llvm.sh $(LLVM_MAJ) $(LLVM_MIN) $(LLVM_PAT) sta \
+		-DLLVM_BUILD_LLVM_DYLIB=0 \
+		-DLLVM_LINK_LLVM_DYLIB=0 \
+		-DLLVM_ENABLE_ASSERTIONS=0 \
+		-DLLVM_INCLUDE_TESTS=Off \
+		-DLLVM_INCLUDE_BENCHMARKS=Off \
+		-DCMAKE_BUILD_TYPE=Release
 
 .PHONY: prepare-llvm
 prepare-llvm: $(LLVM_DEP)

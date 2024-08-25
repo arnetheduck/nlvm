@@ -357,7 +357,7 @@ type OrcLookupStateRef* = ptr OrcOpaqueLookupState
 ##  into.
 ##
 ##  The JDLookupFlags argument can be inspected to determine whether the original
-##  lookup included non-exported symobls.
+##  lookup included non-exported symbols.
 ##
 ##  Finally, the LookupSet argument contains the set of symbols that could not
 ##  be found in JD already (the set of generation candidates).
@@ -544,7 +544,7 @@ proc orcSymbolStringPoolClearDeadEntries*(
 ##  Intern a string in the ExecutionSession's SymbolStringPool and return a
 ##  reference to it. This increments the ref-count of the pool entry, and the
 ##  returned value should be released once the client is done with it by
-##  calling LLVMOrReleaseSymbolStringPoolEntry.
+##  calling LLVMOrcReleaseSymbolStringPoolEntry.
 ##
 ##  Since strings are uniqued within the SymbolStringPool
 ##  LLVMOrcSymbolStringPoolEntryRefs can be compared by value to test string
@@ -903,7 +903,7 @@ proc orcDisposeSymbols*(
 ##  method returns an error then clients should log it and call
 ##  LLVMOrcMaterializationResponsibilityFailMaterialization. If no dependencies
 ##  have been registered for the symbols covered by this
-##  MaterializationResponsibiility then this method is guaranteed to return
+##  MaterializationResponsibility then this method is guaranteed to return
 ##  LLVMErrorSuccess.
 ##
 
@@ -925,7 +925,7 @@ proc orcMaterializationResponsibilityNotifyResolved*(
 ##  method returns an error then clients should log it and call
 ##  LLVMOrcMaterializationResponsibilityFailMaterialization.
 ##  If no dependencies have been registered for the symbols covered by this
-##  MaterializationResponsibiility then this method is guaranteed to return
+##  MaterializationResponsibility then this method is guaranteed to return
 ##  LLVMErrorSuccess.
 ##
 
@@ -960,7 +960,7 @@ proc orcMaterializationResponsibilityDefineMaterializing*(
 ##
 ##  Notify all not-yet-emitted covered by this MaterializationResponsibility
 ##  instance that an error has occurred.
-##  This will remove all symbols covered by this MaterializationResponsibilty
+##  This will remove all symbols covered by this MaterializationResponsibility
 ##  from the target JITDylib, and send an error to any queries waiting on
 ##  these symbols.
 ##
