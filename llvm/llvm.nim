@@ -30,8 +30,8 @@ else:
   {.passL: fmt"-lLLVM".}
   {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
 
-{.passC: "-I" & LLVMOut & "include".}
-{.passC: "-I" & LLVMRoot & "include".}
+  {.passC: "-I" & LLVMOut & "include".}
+  {.passC: "-I" & LLVMRoot & "include".}
 
 {.passC: "-I" & LLDRoot & "include".}
 
