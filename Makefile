@@ -31,10 +31,10 @@ all: $(NLVMC)
 
 Nim/koch:
 	cd Nim ;\
-	[ -d csources_v1 ] || git clone -q --depth 1 -b master https://github.com/nim-lang/csources_v1.git ;\
-	cd csources_v1 ;\
+	[ -d csources_v2 ] || git clone -q --depth 1 -b master https://github.com/nim-lang/csources_v2.git ;\
+	cd csources_v2 ;\
 	git pull ;\
-	make -f makefile -j4
+	$(MAKE) -f makefile
 	cd Nim ; bin/nim c koch
 
 $(NIMC): Nim/koch Nim/compiler/*.nim

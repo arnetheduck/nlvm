@@ -39,6 +39,8 @@ const
     @["riscv64"],
     @["esp"],
     @["wasm32"],
+    @["e2k"],
+    @["loongarch64"],
   ]
   osNames: array[TSystemOS, seq[string]] = [
     @["unknown"],
@@ -74,6 +76,7 @@ const
     @["nintendoswitch"], # ?,
     @["freertos"], # ?,
     @["zephyr"], # ?
+    @["nuttx"], # ?
     @["any"],
   ]
 
