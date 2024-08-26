@@ -153,6 +153,8 @@ type
     done: HashSet[int] ## Symbols that we have emitted a definition for
     round: int
 
+    mangledPrcs*: HashSet[string]
+
   LLValue = object
     v: llvm.ValueRef
     lode: PNode # Origin node of this value
@@ -240,23 +242,23 @@ proc deepTyp(n: PNode): PType =
 
 proc nn(g: LLGen, s: string, li: TLineInfo): string =
   # later on, we'll just return an empty string here
-  let x = int(g.fileInfos.high)
-  let fn =
-    if int(li.fileIndex) in {0 .. x}:
-      "." & g.fileInfos[int(li.fileIndex)].shortName
-    else:
-      ""
-
-  let ln =
-    if li.line >= 0.uint16:
-      "." & $li.line
-    else:
-      ""
-  let col =
-    if li.col >= 0:
-      "." & $li.col
-    else:
-      ""
+  let
+    fi = int(li.fileIndex)
+    fn =
+      if fi >= 0 and fi < g.fileInfos.len:
+        "." & g.fileInfos[fi].shortName
+      else:
+        ""
+    ln =
+      if li.line >= 0.uint16:
+        "." & $li.line
+      else:
+        ""
+    col =
+      if li.col >= 0:
+        "." & $li.col
+      else:
+        ""
 
   s & fn & ln & col
 
@@ -490,7 +492,7 @@ proc addPrivateConstant*(m: ModuleRef, ty: llvm.TypeRef, name: cstring): llvm.Va
 proc idOrSig(g: LLGen, s: PSym): Rope =
   # from ccgtypes.nim
   if s.kind in routineKinds and s.typ != nil:
-    let sig = hashProc(s, g.config)
+    let sig = sigHash(s, g.config)
     result = rope($sig)
     let counter = g.sigConflicts.getOrDefault(sig)
     if counter != 0:
@@ -521,7 +523,96 @@ proc mangleName(g: LLGen, s: PSym): Rope =
     add(result, g.idOrSig(s))
     s.loc.r = result
 
-proc llName(s: PSym): string =
+proc encodeName*(name: string): string =
+  result = mangle(name)
+  result = $result.len & result
+
+proc makeUnique(g: LLGen, s: PSym, name: string = ""): string =
+  result = if name == "": s.name.s else: name
+  result.add "__"
+  result.add g.graph.ifaces[s.itemId.module].uniqueName
+  result.add "_u"
+  result.add $s.itemId.item
+
+proc encodeSym(g: LLGen, s: PSym, makeUnique: bool = false): string =
+  #Module::Type
+  var name = s.name.s
+  if makeUnique:
+    name = makeUnique(g, s, name)
+  "N" & encodeName(s.skipGenericOwner.name.s) & encodeName(name) & "E"
+
+proc encodeType*(g: LLGen, t: PType): string =
+  result = ""
+  var kindName = ($t.kind)[2 ..^ 1]
+  kindName[0] = toLower($kindName[0])[0]
+  case t.kind
+  of tyObject, tyEnum, tyDistinct, tyUserTypeClass, tyGenericParam:
+    result = encodeSym(g, t.sym)
+  of tyGenericInst, tyUserTypeClassInst, tyGenericBody:
+    result = encodeName(t[0].sym.name.s)
+    result.add "I"
+    for i in 1 ..< t.len - 1:
+      result.add encodeType(g, t[i])
+    result.add "E"
+  of tySequence, tyOpenArray, tyArray, tyVarargs, tyTuple, tyProc, tySet, tyTypeDesc,
+      tyPtr, tyRef, tyVar, tyLent, tySink, tyStatic, tyUncheckedArray, tyOr, tyAnd,
+      tyBuiltInTypeClass:
+    result =
+      case t.kind
+      of tySequence:
+        encodeName("seq")
+      else:
+        encodeName(kindName)
+    result.add "I"
+    for i in 0 ..< t.len:
+      let s = t[i]
+      if s.isNil:
+        continue
+      result.add encodeType(g, s)
+    result.add "E"
+  of tyRange:
+    var val = "range_"
+    if t.n[0].typ.kind in {tyFloat .. tyFloat128}:
+      val.addFloat t.n[0].floatVal
+      val.add "_"
+      val.addFloat t.n[1].floatVal
+    else:
+      val.add $t.n[0].intVal & "_" & $t.n[1].intVal
+    result = encodeName(val)
+  of tyString .. tyUInt64, tyPointer, tyBool, tyChar, tyVoid, tyAnything, tyNil, tyEmpty:
+    result = encodeName(kindName)
+  of tyAlias, tyInferred, tyOwned:
+    result = encodeType(g, t.elementType)
+  else:
+    assert false, "encodeType " & $t.kind
+
+proc mangleProc(g: LLGen, s: PSym, makeUnique: bool): string =
+  result = "_Z" # Common prefix in Itanium ABI
+  result.add encodeSym(g, s, makeUnique)
+  if s.typ.len > 1: #we dont care about the return param
+    for i in 1 ..< s.typ.len:
+      if s.typ[i].isNil:
+        continue
+      result.add encodeType(g, s.typ[i])
+
+  if result in g.mangledPrcs:
+    result = mangleProc(g, s, true)
+  else:
+    g.mangledPrcs.incl(result)
+
+proc llName(g: LLGen, s: PSym): string =
+  if s.loc.r == "":
+    var result: Rope
+    if s.kind in routineKinds:
+      result = mangleProc(g, s, false).rope
+    else:
+      result = s.name.s.mangle.rope
+      result.add "__"
+      result.add g.graph.ifaces[s.itemId.module].uniqueName
+      result.add "_u"
+      result.addInt s.itemId.item # s.disamb #
+    s.loc.r = result
+
   result = $s.loc.r
 
   # NCSTRING is a char*, so functions that return const char* need this ugly
@@ -542,12 +633,12 @@ func assignCopy(sym: PSym): set[TAssignmentFlag] =
   else:
     {needToCopy}
 
-proc typeName(typ: PType): Rope =
+proc typeName(typ: PType, result: var Rope) =
   let typ = typ.skipTypes(irrelevantForBackend)
+  result.add $typ.kind
   if typ.sym != nil and typ.kind in {tyObject, tyEnum}:
-    rope($typ.kind & '_' & typ.sym.name.s.mangle)
-  else:
-    rope($typ.kind)
+    result.add "_"
+    result.add typ.sym.name.s.mangle
 
 proc supportsCopyMem(typ: PType): bool =
   not (containsGarbageCollectedRef(typ) or hasDestructor(typ))
@@ -563,22 +654,25 @@ proc llName(g: LLGen, typ: PType, sig: SigHash): string =
   var t = typ
   while true:
     if t.sym != nil and {sfImportc, sfExportc} * t.sym.flags != {}:
-      return $t.sym.loc.r
+      return t.sym.loc.r
 
     if t.kind in irrelevantForBackend:
       t = t.lastSon
     else:
       break
   let typ = if typ.kind in {tyAlias, tySink, tyOwned}: typ.lastSon else: typ
-  if typ.loc.r == nil:
-    typ.loc.r = typ.typeName & $sig
+  if typ.loc.r == "":
+    typ.typeName(typ.loc.r)
+    typ.loc.r.add $sig
   else:
     when defined(debugSigHashes):
       # check consistency:
-      assert($typ.loc.r == $(typ.typeName & $sig))
-  if typ.loc.r == nil:
+      var tn = newRopeAppender()
+      typ.typeName(tn)
+      assert($typ.loc.r == $(tn & $sig))
+  result = typ.loc.r
+  if result == "":
     internalError(g.config, "getTypeName: " & $typ.kind)
-  $typ.loc.r
 
 iterator procParams(typ: PType): PNode =
   for a in typ.n.sons[1 ..^ 1]:
@@ -1709,10 +1803,10 @@ proc debugVariable(g: LLGen, sym: PSym, v: llvm.ValueRef, argNo = -1) =
     (df, line) = g.debugGetLine(sym)
     vd =
       if argNo == -1:
-        g.d.dIBuilderCreateAutoVariable(scope, sym.llName, df, line, dt, false, 0, 0)
+        g.d.dIBuilderCreateAutoVariable(scope, g.llName(sym), df, line, dt, false, 0, 0)
       else:
         g.d.dIBuilderCreateParameterVariable(
-          scope, sym.llName, argNo.cuint, df, line, dt, false, 0
+          scope, g.llName(sym), argNo.cuint, df, line, dt, false, 0
         )
 
   discard g.d.dIBuilderInsertDeclareAtEnd(
@@ -1729,7 +1823,7 @@ proc debugGlobal(g: LLGen, sym: PSym, v: llvm.ValueRef) =
 
   let
     dt = g.debugType(sym.typ)
-    linkageName = sym.llName()
+    linkageName = g.llName(sym)
     name = if sym.name.s.len == 0: linkageName else: sym.name.s
     (df, line) = g.debugGetLine(sym)
 
@@ -2625,7 +2719,7 @@ proc genMarkerProc(g: LLGen, typ: PType, sig: SigHash): llvm.ValueRef =
 
 proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
   let
-    name = ".marker.g." & sym.llName
+    name = ".marker.g." & g.llName(sym)
     ft = llvm.functionType(g.voidTy, @[], false)
 
   if sym.id in g.gmarkers:
@@ -2657,7 +2751,7 @@ proc genGlobalMarkerProc(g: LLGen, sym: PSym, v: llvm.ValueRef): llvm.ValueRef =
     g.finalize()
 
 proc registerGcRoot(g: LLGen, sym: PSym, v: llvm.ValueRef) =
-  if g.config.selectedGC in {gcMarkAndSweep, gcHooks, gcV2, gcRefc} and
+  if g.config.selectedGC in {gcMarkAndSweep, gcHooks, gcRefc} and
       optOwnedRefs notin g.config.globalOptions and sym.typ.containsGarbageCollectedRef() and
       sym.id notin g.gmarkers:
     g.gcRoots.add((sym, v))
@@ -3506,7 +3600,7 @@ proc externGlobal(g: LLGen, s: PSym): LLValue =
   # These are typically "nodecl", "importc" and/or "header" tagged in
   # the std library
   let
-    name = s.llName
+    name = g.llName(s)
     t = g.llType(s.typ)
 
   case name
@@ -3535,7 +3629,7 @@ proc genLocal(g: LLGen, n: PNode): LLValue =
 
   let
     t = g.llType(s.typ)
-    v = g.localAlloca(t, s.llName)
+    v = g.localAlloca(t, g.llName(s))
   g.debugVariable(s, v)
 
   if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
@@ -3550,7 +3644,7 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
 
   if s.id in g.symbols:
     let
-      name = s.llName
+      name = g.llName(s)
       t = g.llType(s.typ.skipTypes(abstractInst))
 
     return g.refGlobal(g.symbols[s.id], name, t)
@@ -3558,7 +3652,7 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   if s.loc.k == locNone:
     fillLoc(s.loc, locGlobalVar, n, g.mangleName(s), if isConst: OnStatic else: OnHeap)
 
-  let name = s.llName
+  let name = g.llName(s)
 
   # Couldn't find by id - should we get by name also? this seems to happen for
   # stderr for example which turns up with two different id:s.. what a shame!
@@ -4541,7 +4635,7 @@ proc callAssign(
 proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
   ## Add a function prototype for a nim function to the given module
   let
-    name = sym.llName
+    name = g.llName(sym)
     typ = sym.typ.skipTypes(abstractInst)
     ty = g.llProcType(typ, typ.callConv == ccClosure)
 
@@ -4629,13 +4723,13 @@ proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
 proc genFunction(g: LLGen, s: PSym): LLValue =
   if s.id in g.symbols:
     let
-      name = s.llName
+      name = g.llName(s)
       typ = s.typ.skipTypes(abstractInst)
       ty = g.llProcType(typ, typ.callConv == ccClosure)
     return g.refFunction(g.symbols[s.id], name, ty)
 
   fillLoc(s.loc, locProc, s.ast[namePos], g.mangleName(s), OnStack)
-  let name = s.llName
+  let name = g.llName(s)
 
   # Some compiler proc's have two syms essentially, because of an importc trick
   # in system.nim...
@@ -4734,7 +4828,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
         p("a", param.sym.typ, g.depth + 2)
 
         let arg = result.v.getParam(i.cuint)
-        arg.setValueName(param.sym.llName)
+        arg.setValueName(g.llName(param.sym))
 
         let symTyp = param.sym.typ.skipTypes({tyGenericInst})
         if skipTypes(symTyp, {tyVar, tyLent, tySink}).kind in {tyOpenArray, tyVarargs}:
@@ -4745,7 +4839,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
           i += 1
 
           let argLen = result.v.getParam(i.cuint)
-          argLen.setValueName(param.sym.llName & "len")
+          argLen.setValueName(g.llName(param.sym) & "len")
 
           let av = g.localAlloca(g.llOpenArrayType(), g.nn("arg", arg))
           discard g.b.buildStore(arg, g.buildOpenArrayDataGEP(av))
@@ -4795,7 +4889,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
       g.b.buildBrFallthrough(g.section(g.f, secBody))
 
     g.withBlock(g.section(g.f, secBody)):
-      var procBody = transformBody(g.graph, g.idgen, s, cache = false)
+      var procBody = transformBody(g.graph, g.idgen, s, dontUseCache)
       if sfInjectDestructors in s.flags:
         procBody = injectDestructorCalls(g.graph, g.idgen, s, procBody)
 
@@ -4842,7 +4936,7 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue, load: bool): bool =
     return false
 
   let s = nf.sym
-  if s.originatingModule.name.s == "system":
+  if s.originatingModule.name.s == "sysatomics":
     if s.name.s == "atomicLoad":
       let
         p0 = g.genNode(n[1], true).v
@@ -4946,7 +5040,7 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue, load: bool): bool =
 
       o = LLValue(v: g.buildI8(ok))
       return true
-
+  elif s.originatingModule.name.s == "system":
     if s.name.s in ["likelyProc", "unlikelyProc"]:
       let tmp = g.genNode(n[1], true)
       o = LLValue(v: g.callExpect(tmp.v, s.name.s == "likelyProc"))
@@ -5194,9 +5288,16 @@ proc genOpenArrayConv(
   #      around it here by introducing special mSlice handling, but that seems
   #      wrong...
   let
+    # TODO https://github.com/nim-lang/Nim/issues/23945
+    n =
+      if n.kind == nkWhenStmt:
+        n[1][0]
+      else:
+        n
     # The nkHiddenAddr here may appear with the wrong type, ie tyOpenArray
     # and not tySequence! It doesn't matter for the code though
     typ = n.typ.skipTypes(abstractVar + {tyStatic})
+
   let (data, len) =
     case typ.kind
     of tyString, tySequence:
@@ -5247,7 +5348,7 @@ proc genOpenArrayConv(
       raiseAssert "unreachable"
   (data, len)
 
-from compiler/dfa import aliases, AliasKind
+from compiler/aliasanalysis import aliases, AliasKind
 
 proc potentialAlias(n: PNode, potentialWrites: seq[PNode]): bool =
   for p in potentialWrites:
@@ -5272,7 +5373,7 @@ proc getPotentialWrites(n: PNode, mutate: bool, result: var seq[PNode]) =
   of nkSym:
     if mutate:
       result.add n
-  of nkAsgn, nkFastAsgn:
+  of nkAsgn, nkFastAsgn, nkSinkAsgn:
     getPotentialWrites(n[0], true, result)
     getPotentialWrites(n[1], mutate, result)
   of nkAddr, nkHiddenAddr:
@@ -5324,9 +5425,6 @@ proc genCallArgs(
         if not needTmp[i - 1]:
           needTmp[i - 1] = potentialAlias(n, potentialWrites)
       getPotentialWrites(n[i], false, potentialWrites)
-    if n[i].kind in {nkHiddenAddr, nkAddr}:
-      # Optimization: don't use a temp, if we would only take the address anyway
-      needTmp[i - 1] = false
 
   var args: seq[ValueRef] = @[]
 
@@ -5587,7 +5685,9 @@ proc genAssignment(g: LLGen, dest, src: LLValue, typ: PType, flags: TAssignmentF
   of tyString:
     if optSeqDestructors in g.config.globalOptions:
       discard g.b.buildStore(src.v, dest.v)
-    elif (needToCopy notin flags and src.storage != OnStatic) or canMove(g, src.lode):
+    elif ({needToCopy} * flags == {} and src.storage != OnStatic) or canMove(
+      g, src.lode
+    ):
       g.genRefAssign(dest, src.v)
     else:
       if (dest.storage == OnStack and g.config.selectedGC != gcGo) or
@@ -5956,7 +6056,7 @@ proc genFakeConstInitializer(g: LLGen, typ: PType, constr: PNode, v: LLValue) =
   of tyArray:
     if constr != nil:
       let ty = g.llType(typ)
-      doAssert constr.kind == nkBracket
+      doAssert constr.kind == nkBracket, $constr.kind
       for i in 0 ..< constr.len:
         let gep = g.b.buildInboundsGEP2(
           ty, v, [g.gep0, g.constGEPIdx(i)], g.nn("bracket.n", constr)
@@ -5973,11 +6073,11 @@ proc genFakeConstInitializer(g: LLGen, typ: PType, constr: PNode, v: LLValue) =
 proc genConst(g: LLGen, n: PNode): LLValue =
   let
     sym = n.sym
-    init = sym.ast
+    init = sym.astdef
 
   if sym.id in g.symbols:
     let
-      name = sym.llName
+      name = g.llName(sym)
       ty = g.llType(sym.typ)
     return g.refGlobal(g.symbols[sym.id], name, ty)
 
@@ -6020,7 +6120,7 @@ proc genConst(g: LLGen, n: PNode): LLValue =
         g.f.nestedTryStmts = nts
   else:
     let ty = g.llType(sym.typ)
-    result = LLValue(v: g.localAlloca(ty, sym.llName), storage: OnStack)
+    result = LLValue(v: g.localAlloca(ty, g.llName(sym)), storage: OnStack)
     # Some initializers expect value to be null, so we always set it so
     g.buildStoreNull(ty, result.v)
     g.genObjectInit(sym.typ, result.v)
@@ -8018,7 +8118,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
     result = g.genMagicAccessEnv(n, load)
   of mWasMoved:
     g.genMagicWasMoved(n)
-  of mDefault:
+  of mDefault, mZeroDefault:
     result = g.genMagicDefault(n, load)
   of mReset:
     g.genMagicReset(n)
@@ -8043,6 +8143,8 @@ proc genMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
     result = g.genCall(nil, n, load, dest)
   of mSlice:
     result = g.genMagicSlice(n, load)
+  of mEnsureMove:
+    result = g.genNode(n[1], load)
   else:
     g.config.internalError(n.info, "Unhandled magic: " & $op)
 
@@ -10318,7 +10420,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     return
 
   g.withModule(m):
-    let disp = generateMethodDispatchers(graph)
+    let disp = generateMethodDispatchers(graph, g.idgen)
     for x in disp:
       discard g.genFunctionWithBody(x.sym)
 

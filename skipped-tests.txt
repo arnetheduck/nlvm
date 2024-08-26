@@ -1,35 +1,152 @@
 compiler/nim.nim c
-lib/pure/nimtracker.nim c
+lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --outdir:tests/dll
+lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --mm:refc --outdir:tests/dll
+lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --outdir:tests/dll
+lib/nimrtl.nim c  -d:nimDebugDlOpen --gc:boehm --outdir:tests/dll
+lib/nimrtl.nim c  -d:nimDebugDlOpen --mm:refc --outdir:tests/dll
+lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll
+lib/pure/memfiles.nim c
 tests/align/talign.nim c
+tests/align/tillegalalign.nim c
+tests/arc/t14383.nim c
+tests/arc/t14472.nim c
+tests/arc/t14864.nim c
+tests/arc/t15909.nim c
+tests/arc/t16033.nim c --gc:arc
+tests/arc/t16458.nim c --gc:orc --d:useNimRtl
+tests/arc/t16558.nim c --gc:arc
+tests/arc/t17025.nim c
+tests/arc/t17173.nim c --gc:arc
+tests/arc/t17812.nim c --gc:arc
+tests/arc/t17812.nim c --gc:refc
+tests/arc/t18645.nim c --gc:arc
+tests/arc/t18971.nim c
+tests/arc/t18977.nim c --mm:arc
+tests/arc/t19231.nim c --mm:orc
+tests/arc/t19364.nim c
+tests/arc/t19401.nim c --mm:arc
+tests/arc/t19402.nim c --mm:arc
+tests/arc/t19435.nim c --gc:arc
+tests/arc/t19457.nim c --gc:arc
+tests/arc/t19862.nim c --gc:arc
+tests/arc/t20456.nim c
+tests/arc/t20588.nim c
+tests/arc/t21184.nim c --mm:orc
+tests/arc/t22218.nim c
+tests/arc/t22237.nim c --mm:arc
+tests/arc/t22237.nim c --mm:orc
+tests/arc/t9650.nim c --gc:arc
+tests/arc/taliased_reassign.nim c --mm:orc
+tests/arc/tamemfiles.nim c
+tests/arc/tamodule.nim c
 tests/arc/tarcmisc.nim c
+tests/arc/tarc_orc.nim c --mm:arc
+tests/arc/tarc_orc.nim c --mm:orc
+tests/arc/tasyncawait.nim c
+tests/arc/tasyncleak2.nim c
+tests/arc/tasyncleak3.nim c
+tests/arc/tasyncleak4.nim c
 tests/arc/tasyncleak.nim c
+tests/arc/tasyncorc.nim c
 tests/arc/tcaseobjcopy.nim c
 tests/arc/tcaseobj.nim c
+tests/arc/tclosureiter.nim c
+tests/arc/tcomputedgotocopy.nim c
+tests/arc/tcomputedgoto.nim c
+tests/arc/tconst_to_sink.nim c --gc:arc
+tests/arc/tcontrolflow.nim c
+tests/arc/tcursor_field_obj_constr.nim c
+tests/arc/tcursorloop.nim c
+tests/arc/tcursor_on_localvar.nim c
+tests/arc/tcustomtrace.nim c
 tests/arc/tdeepcopy.nim c
+tests/arc/tdestroy_in_loopcond.nim c
+tests/arc/tdup.nim c
+tests/arc/texceptions.nim c
+tests/arc/texplicit_sink.nim c
+tests/arc/tfuncobj.nim c
+tests/arc/thamming_orc.nim c
+tests/arc/thamming_thinout.nim c
 tests/arc/thard_alignment.nim c
+tests/arc/thavlak_orc_stress.nim c
+tests/arc/theavy_recursion.nim c
+tests/arc/timportedobj.nim c
+tests/arc/tkeys_lent.nim c
+tests/arc/tmalloc.nim c --mm:arc
+tests/arc/tmalloc.nim c --mm:arc -d:useMalloc
 tests/arc/tmarshal.nim c
-tests/assert/tassert_c.nim c
+tests/arc/tmovebugcopy.nim c
+tests/arc/tmovebug.nim c
+tests/arc/tnewseq_legacy.nim c
+tests/arc/topenarray.nim c --gc:arc
+tests/arc/topenarray.nim c --gc:arc -d:useMalloc
+tests/arc/top_no_cursor2.nim c
+tests/arc/topt_cursor2.nim c
+tests/arc/topt_cursor.nim c
+tests/arc/topt_no_cursor.nim c
+tests/arc/topt_refcursors.nim c
+tests/arc/topt_wasmoved_destroy_pairs.nim c
+tests/arc/torc_basic_test.nim c
+tests/arc/torcbench.nim c
+tests/arc/torcmisc.nim c
+tests/arc/torc_selfcycles.nim c
+tests/arc/tref_cast_error.nim c
+tests/arc/trepr.nim c
+tests/arc/trtree.nim c
+tests/arc/tshared_ptr_crash.nim c
+tests/arc/tstrformat.nim c
+tests/arc/tthread.nim c
+tests/arc/tunref_cycle.nim c
+tests/arc/tweavecopy.nim c
+tests/arc/tweave.nim c
+tests/arc/twrong_sinkinference.nim c
+tests/array/t20248.nim c
+tests/array/t9932.nim c
+tests/array/tinvalidarrayaccess2.nim c
+tests/array/tinvalidarrayaccess.nim c
+tests/array/tlargeindex.nim c
+tests/assert/t21195.nim c --verbosity:0 --os:standalone --mm:none
+tests/assert/tassert_c.nim c -d:nimPreviewSlimSystem --stackTrace:on --excessiveStackTrace:off
+tests/async/tasync_noasync.nim c
 tests/async/tasync_traceback.nim c
 tests/avr/thello.nim c
 tests/casestmt/t7699.nim c
+tests/casestmt/tcaseexpr1.nim c
+tests/casestmt/tincompletecaseobject2.nim c
 tests/ccgbugs2/tinefficient_const_table.nim c
-tests/ccgbugs/t10964.nim c
+tests/ccgbugs/t13062.nim c --mm:orc
 tests/ccgbugs/t15428.nim c
 tests/ccgbugs/t16027.nim c
+tests/ccgbugs/t16374.nim c --gc:orc
 tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445
-tests/ccgbugs/tassign_nil_strings.nim c
+tests/ccgbugs/targ_lefttoright.nim c
+tests/ccgbugs/tassign_nil_strings.nim c --mm:refc
+tests/ccgbugs/tcgbug.nim c --mm:orc
+tests/ccgbugs/tcgbug.nim c --mm:refc
 tests/ccgbugs/tcodegenbug_bool.nim c
 tests/ccgbugs/tcodegendecllambda.nim c
+tests/ccgbugs/tctypes.nim c --gc:arc
 tests/ccgbugs/tcvarargs.nim c
+tests/ccgbugs/tdeepcopy_addr_rval.nim c --mm:orc --deepcopy:on
+tests/ccgbugs/tderefblock.nim c --mm:orc -d:useMalloc -d:release -d:danger
 tests/ccgbugs/tforward_decl_only.nim c
+tests/ccgbugs/tlvalueconv.nim c --gc:arc
 tests/ccgbugs/tmangle_field.nim c
 tests/ccgbugs/tmissingvolatile.nim c
 tests/ccgbugs/tnoalias.nim c
 tests/ccgbugs/tprogmem.nim c
 tests/ccgbugs/tunsafeaddr.nim c
+tests/ccgbugs/twrong_tupleconv.nim c --gc:arc
 tests/closure/ttimeinfo.nim c
+tests/codegen/titaniummangle.nim c --debugger:native
+tests/collections/tseq.nim c --mm:orc
 tests/compiler/t12684.nim c
+tests/compiler/tasm.nim c
 tests/compiler/tcmdlineclib.nim c
+tests/compiles/tstaticlib.nim c
+tests/concepts/tconcepts_issues.nim c
+tests/controlflow/tunamedbreak.nim c
+tests/controlflow/tunreachable.nim c
 tests/converter/tgenericconverter.nim c
 tests/coroutines/tgc.nim c --gc:arc
 tests/coroutines/tgc.nim c --gc:orc
@@ -39,38 +156,182 @@ tests/coroutines/twait.nim c --gc:orc
 tests/coroutines/twait.nim c --gc:refc
 tests/cpp/t10148.nim c
 tests/cpp/texportc.nim c
+tests/c/temit.nim c
+tests/destructor/t12037.nim c
+tests/destructor/t16607.nim c --gc:arc
+tests/destructor/t17198.nim c
+tests/destructor/t23748.nim c --gc:arc
+tests/destructor/t5342.nim c --mm:arc
+tests/destructor/t9440.nim c --gc:arc
+tests/destructor/t9440.nim c --gc:orc
+tests/destructor/tarc2.nim c
+tests/destructor/tarc3.nim c
+tests/destructor/tarc.nim c
+tests/destructor/tarctypesections.nim c
+tests/destructor/tarray_indexing.nim c
+tests/destructor/tasync_prototype_cyclic.nim c
+tests/destructor/tasync_prototype.nim c
+tests/destructor/tbintree2.nim c
+tests/destructor/tcaseobj_transitions.nim c
+tests/destructor/tcomplexobjconstr.nim c
+tests/destructor/tconsume_twice.nim c
+tests/destructor/tcycle1.nim c
+tests/destructor/tcycle2.nim c
+tests/destructor/tcycle3.nim c
+tests/destructor/tdangingref_simple.nim c
+tests/destructor/tdont_return_unowned_from_owned.nim c
+tests/destructor/terror_module.nim c
 tests/destructor/texceptions.nim c
+tests/destructor/tfinalizer.nim c
+tests/destructor/tgcdestructors.nim c
+tests/destructor/tgcleak4.nim c
+tests/destructor/tglobaldestructor.nim c
+tests/destructor/tgotoexceptions2.nim c
+tests/destructor/tgotoexceptions3.nim c
+tests/destructor/tgotoexceptions4.nim c
+tests/destructor/tgotoexceptions5.nim c
+tests/destructor/tgotoexceptions6.nim c
+tests/destructor/tgotoexceptions7.nim c
+tests/destructor/tgotoexceptions8.nim c
+tests/destructor/tgotoexceptions.nim c
+tests/destructor/tinvalid_rebind.nim c
+tests/destructor/tnewruntime_misc.nim c
+tests/destructor/tnewruntime_strutils.nim c
+tests/destructor/tnonvardestructor.nim c --mm:arc
+tests/destructor/tnonvardestructor.nim c --mm:orc
+tests/destructor/towned_binary_tree.nim c
+tests/destructor/tselect.nim c
+tests/destructor/tsetjmp_raise.nim c
+tests/destructor/tsimpleclosure.nim c
+tests/destructor/tsink.nim c --mm:arc
 tests/destructor/turn_destroy_into_finalizer.nim c
+tests/destructor/tuse_ownedref_after_move.nim c
+tests/destructor/tv2_cast.nim c
 tests/destructor/tv2_raise.nim c
-tests/dll/client.nim c  -d:release --gc:boehm --threads:on
-tests/dll/client.nim c  -d:release --threads:on
-tests/dll/client.nim c  --gc:boehm --threads:on
-tests/dll/client.nim c  --threads:on
-tests/dll/nimhcr_unit.nim c
-tests/dll/nimhcr_unit.nim c  -d:release
-tests/dll/nimhcr_unit.nim c  -d:release --gc:boehm
-tests/dll/nimhcr_unit.nim c  --gc:boehm
-tests/dll/visibility.nim c
-tests/dll/visibility.nim c  -d:release
-tests/dll/visibility.nim c  -d:release --gc:boehm
-tests/dll/visibility.nim c  --gc:boehm
+tests/destructor/twasmoved_error.nim c
+tests/destructor/twasmoved.nim c
+tests/destructor/twidgets.nim c
+tests/destructor/twidgets_unown.nim c
+tests/discard/tillegaldiscardtypes.nim c
+tests/distinct/tinvalidborrow.nim c
+tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:on
+tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:on
+tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --threads:on
+tests/dll/client.nim c  -d:nimDebugDlOpen --gc:boehm --threads:on
+tests/dll/client.nim c  -d:nimDebugDlOpen --mm:refc --threads:on
+tests/dll/client.nim c  -d:nimDebugDlOpen --threads:on
+tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off --forceBuild --hotCodeReloading:on
+tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen --mm:refc --threads:off --forceBuild --hotCodeReloading:on
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:off
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --threads:off
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --gc:boehm --threads:off
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --mm:refc --threads:off
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --threads:off
+tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:off
+tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off
+tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --threads:off
+tests/dll/visibility.nim c  -d:nimDebugDlOpen --gc:boehm --threads:off
+tests/dll/visibility.nim c  -d:nimDebugDlOpen --mm:refc --threads:off
+tests/dll/visibility.nim c  -d:nimDebugDlOpen --threads:off
+tests/effects/tdiagnostic_messages.nim c
+tests/effects/teffects1.nim c
+tests/effects/tnestedprocs.nim c
 tests/effects/tstrict_funcs_imports.nim c
+tests/enum/t21863.nim c
+tests/enum/tambiguousoverloads.nim c
+tests/enum/tenum_no_rtti.nim c
+tests/enum/tredefinition.nim c
+tests/errmsgs/t10251.nim c
+tests/errmsgs/t10734.nim c
+tests/errmsgs/t10735.nim c
+tests/errmsgs/t12844.nim c
 tests/errmsgs/t14444.nim c --hints:off
+tests/errmsgs/t16654.nim c
+tests/errmsgs/t17460.nim c
+tests/errmsgs/t18886.nim c
+tests/errmsgs/t19224.nim c
+tests/errmsgs/t22753.nim c
+tests/errmsgs/t23536.nim c --stackTrace:on --excessiveStackTrace:off
+tests/errmsgs/t2614.nim c
+tests/errmsgs/t5167_5.nim c
+tests/errmsgs/t8794.nim c
 tests/errmsgs/tcall_with_default_arg.nim c
-tests/errmsgs/tproper_stacktrace2.nim c
-tests/errmsgs/tproper_stacktrace3.nim c
-tests/errmsgs/tproper_stacktrace.nim c
+tests/errmsgs/tcase_stmt.nim c
+tests/errmsgs/tdetailed_position.nim c
+tests/errmsgs/tdistinct_nil.nim c
+tests/errmsgs/tgcsafety.nim c
+tests/errmsgs/tinconsistentgensym.nim c
+tests/errmsgs/tinteger_literals.nim c
+tests/errmsgs/tinvalidinout.nim c
+tests/errmsgs/tmetaobjectfields.nim c
+tests/errmsgs/tproc_mismatch.nim c
+tests/errmsgs/tproper_stacktrace2.nim c --stackTrace:on
+tests/errmsgs/tproper_stacktrace3.nim c --stackTrace:on
+tests/errmsgs/tproper_stacktrace.nim c --stackTrace:on --hint:all:off --warnings:off
 tests/errmsgs/treportunused.nim c --hint:all:off --hint:XDeclaredButNotUsed
+tests/errmsgs/tsigmatch2.nim c
+tests/errmsgs/tsigmatch.nim c
+tests/errmsgs/ttypeAllowed.nim c
+tests/errmsgs/tundeclared_field.nim c
+tests/errmsgs/tundeclared_routine.nim c
+tests/errmsgs/tunknown_named_parameter.nim c
 tests/exception/t13115.nim c
 tests/exception/t18620.nim c --gc:arc
 tests/exception/t18620.nim c --gc:refc
+tests/exception/t21261.nim c
+tests/exception/t22469.nim c
+tests/exception/texception_inference.nim c
 tests/exception/texceptions.nim c -d:nimBuiltinSetjmp
 tests/exception/texceptions.nim c -d:nimSigSetjmp
 tests/exception/tunhandledexc.nim c
 tests/float/tfloat3.nim c
 tests/float/tfloats.nim c -d:nimPreviewFloatRoundtrip
+tests/gc/closureleak c  --gc:orc
+tests/gc/closureleak c  --gc:orc -d:release
+tests/gc/cyclecollector c  --gc:orc
+tests/gc/cyclecollector c  --gc:orc -d:release
+tests/gc/cycleleak c  --gc:orc
+tests/gc/cycleleak c  --gc:orc -d:release
+tests/gc/foreign_thr c  --gc:orc
+tests/gc/foreign_thr c  --gc:orc -d:release
+tests/gc/gcbench c  --gc:orc
+tests/gc/gcbench c  --gc:orc -d:release
+tests/gc/gcemscripten c  --gc:orc
+tests/gc/gcemscripten c  --gc:orc -d:release
+tests/gc/gcleak2 c  --gc:orc
+tests/gc/gcleak2 c  --gc:orc -d:release
+tests/gc/gcleak3 c  --gc:orc
+tests/gc/gcleak3 c  --gc:orc -d:release
+tests/gc/gcleak4 c  --gc:orc
+tests/gc/gcleak4 c  --gc:orc -d:release
+tests/gc/gcleak c  --gc:orc
+tests/gc/gcleak c  --gc:orc -d:release
+tests/gc/growobjcrash c  --gc:orc
+tests/gc/growobjcrash c  --gc:orc -d:release
+tests/gc/refarrayleak c  --gc:orc
+tests/gc/refarrayleak c  --gc:orc -d:release
+tests/gc/stackrefleak c  --gc:orc
+tests/gc/stackrefleak c  --gc:orc -d:release
 tests/gc/thavlak c  -d:release --gc:markAndSweep
+tests/gc/thavlak c  --gc:orc
+tests/gc/thavlak c  --gc:orc -d:release
+tests/gc/tlists c  --gc:orc
+tests/gc/tlists c  --gc:orc -d:release
+tests/gc/trace_globals c  --gc:orc
+tests/gc/trace_globals c  --gc:orc -d:release
+tests/gc/weakrefs c  --gc:orc
+tests/gc/weakrefs c  --gc:orc -d:release
+tests/generics/tarc_misc.nim c
 tests/generics/tforwardgeneric.nim c
+tests/generics/tgenerics_issues.nim c
+tests/generics/tmetafield.nim c
+tests/generics/tparam_binding.nim c --mm:arc
+tests/generics/tpointerprocs.nim c
+tests/generics/tstatic_constrained.nim c
+tests/generics/tthread_generic.nim c --mm:orc
+tests/generics/tuninstantiated_failure.nim c
+tests/global/t3505.nim c
 tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/ic/tconverter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/ic/tgenerics_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
@@ -78,69 +339,286 @@ tests/ic/thallo_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/ic/timports_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
 tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/iter/tshallowcopy_closures.nim c
+tests/init/tlet_uninit3.nim c
+tests/init/toutparam_subtype.nim c
+tests/isolate/tisolated_lock.nim c
+tests/iter/t22148.nim c
+tests/iter/tshallowcopy_closures.nim c --mm:refc
 tests/lent/tbasic_lent_check.nim c
 tests/let/timportc.nim c
+tests/lookups/tambiguousemit.nim c
+tests/lookups/tambiguousemit.nim c --backend:js
+tests/lookups/tambprocvar.nim c
+tests/macros/t18203.nim c --hint:SuccessX:off --hint:Link:off --hint:Conf:off --hint:CC:off --hint:XDeclaredButNotUsed:on
+tests/macros/tfail_parse.nim c
 tests/macros/tmemit.nim c
+tests/macros/tstaticparamsmacro.nim c
 tests/manyloc/keineschweine/keineschweine.nim c
 tests/manyloc/nake/nakefile.nim c
 tests/manyloc/standalone2/tavr.nim c
 tests/manyloc/standalone/barebone.nim c
+tests/metatype/tstaticparammacro.nim c
+tests/metatype/tstaticvector.nim c --mm:orc
+tests/metatype/ttypedesc3.nim c --mm:arc
+tests/method/tgeneric_methods.nim c --mm:arc
 tests/method/tmethod_issues.nim c --mm:arc
 tests/method/tmethod_issues.nim c --mm:refc
+tests/method/tmethod_various.nim c --mm:arc
+tests/method/tsingle_methods.nim c --mm:arc --multimethods:off
 tests/misc/t15955.nim c
+tests/misc/t17286.nim c
 tests/misc/t18077.nim c
+tests/misc/t18079.nim c --mm:orc
 tests/misc/t19046.nim c --threads:on
+tests/misc/t20883.nim c
 tests/misc/t9710.nim c --debugger:native
 tests/misc/tapp_lib_staticlib.nim c
-tests/misc/temit.nim c
-tests/misc/tidentconcatenations.nim c
-tests/misc/tinvalidarrayaccess2.nim c
-tests/misc/tinvalidarrayaccess.nim c
 tests/misc/tjoinable.nim c
+tests/misc/tnoforward.nim c
 tests/misc/trunner.nim c
+tests/misc/trunner_special.nim c
 tests/misc/tsizeof3.nim c
 tests/misc/tsizeof.nim c
 tests/misc/tstrace.nim c
 tests/misc/ttlsemulation.nim c -d:nimTtlsemulationCase1 --threads --tlsEmulation:on
-tests/modules/tmodule_name_clashes.nim c
-tests/navigator/tincludefile_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off
-tests/navigator/tnav1_temp.nim c  --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off
+tests/modules/t8665.nim c
+tests/modules/tmodule_name_clashes.nim c --mm:refc
+tests/modules/tmodulesymtype.nim c
+tests/modules/treorder.nim c -d:testdef
 tests/newconfig/tfoo.nim c
 tests/nimdoc/t15916.nim c
 tests/nimdoc/t17615.nim c
-tests/nimdoc/trunnableexamples2.nim c
 tests/nimdoc/trunnableexamples.nim c
-tests/niminaction/Chapter7/Tweeter/src/createDatabase.nim c
-tests/niminaction/Chapter7/Tweeter/src/tweeter.nim c
-tests/niminaction/Chapter7/Tweeter/tests/database_test.nim c
 tests/niminaction/Chapter8/sdl/sdl_test.nim c
-tests/objects/twhen1.nim c
+tests/objects/t17437.nim c
+tests/objects/t20972.nim c --mm:orc -d:release
+tests/objects/tdefaultfieldscheck.nim c
+tests/objects/tobject_default_value.nim c -d:nimPreviewRangeDefault --warningAsError:ProveInit --mm:orc
+tests/objvariant/t14581.nim c --gc:arc
 tests/osproc/treadlines.nim c
-tests/overflw/tdistinct_range.nim c
+tests/overflow/tdistinct_range.nim c
+tests/overflow/toverflow.nim c --overflowChecks:off
+tests/overflow/toverflow.nim c --overflowChecks:off --b:js
+tests/overflow/toverflow_reorder.nim c
 tests/overload/t8829.nim c
 tests/overload/tstatic_with_converter.nim c
-tests/parallel/tdeepcopy2.nim c
-tests/parallel/tdeepcopy.nim c
-tests/parallel/tmissing_deepcopy.nim c
+tests/parallel/t10913.nim c --mm:orc
+tests/parallel/t7535.nim c --mm:orc
+tests/parallel/t9691.nim c --mm:orc
+tests/parallel/tdeepcopy2.nim c --mm:refc
+tests/parallel/tdeepcopy.nim c --mm:refc
+tests/parallel/tmissing_deepcopy.nim c --mm:refc
+tests/parser/t15667.nim c
+tests/parser/t20922.nim c
+tests/pragmas/t8741.nim c
 tests/pragmas/tbitsize.nim c
-tests/pragmas/tnoreturn.nim c
+tests/pragmas/tinvalidcustompragma.nim c
+tests/pragmas/tnoreturn.nim c --mm:refc
+tests/pragmas/tpush.nim c
+tests/pragmas/treorder.nim c
+tests/proc/t19795.nim c --mm:arc
+tests/proc/tillegalreturntype.nim c
+tests/range/t19678.nim c
+tests/range/tcompiletime_range_checks.nim c
+tests/range/tenums.nim c
 tests/realtimeGC/tmain.nim c
+tests/refc/tsinkbug.nim c --gc:arc
+tests/refc/tsinkbug.nim c --gc:refc
 tests/sets/t20997.nim c
+tests/sets/t5792.nim c --gc:arc
+tests/specialops/terrmsgs.nim c
+tests/specialops/terrmsgs.nim c -d:testWithout
+tests/specialops/terrmsgs.nim c --mm:refc
+tests/statictypes/tstatictypes.nim c --hints:off --mm:orc
+tests/stdlib/concurrency/tatomics.nim c --mm:orc
+tests/stdlib/concurrency/tatomics_size.nim c --mm:orc
+tests/stdlib/t15663.nim c
+tests/stdlib/talgorithm.nim c --mm:orc
+tests/stdlib/tarithmetics.nim c --mm:orc
+tests/stdlib/tasynchttpserver_transferencoding.nim c --mm:arc
+tests/stdlib/tasynchttpserver_transferencoding.nim c --mm:arc -d:danger
+tests/stdlib/tbase64.nim c --mm:orc
+tests/stdlib/tbitops.nim c --mm:orc
+tests/stdlib/tbitops_utils.nim c --mm:orc
+tests/stdlib/tcasts.nim c
+tests/stdlib/tcgi.nim c --mm:orc
+tests/stdlib/tcmdline.nim c --mm:orc
+tests/stdlib/tcomplex.nim c --mm:orc
+tests/stdlib/tcookies.nim c --mm:orc
+tests/stdlib/tcritbits.nim c --mm:orc
+tests/stdlib/tcstring.nim c --gc:arc
+tests/stdlib/tcstrutils.nim c --mm:orc
+tests/stdlib/tdecls.nim c --mm:orc
+tests/stdlib/tdeques.nim c --mm:orc
+tests/stdlib/tdiff.nim c --mm:orc
+tests/stdlib/tdochelpers.nim c --mm:orc
+tests/stdlib/teditdistance.nim c --mm:orc
+tests/stdlib/tencodings.nim c --mm:orc
+tests/stdlib/tenumerate.nim c --mm:orc
+tests/stdlib/tenumutils.nim c --mm:orc
+tests/stdlib/tenvvars.nim c --mm:orc
+tests/stdlib/texitprocs.nim c --mm:orc
+tests/stdlib/tfdleak.nim c
+tests/stdlib/tfdleak.nim c -d:nimInheritHandles
+tests/stdlib/tfdleak.nim c --mm:refc
+tests/stdlib/tfrexp1.nim c --mm:orc
+tests/stdlib/tgenast.nim c --mm:orc
+tests/stdlib/tgetaddrinfo.nim c --mm:orc
+tests/stdlib/tgetfileinfo.nim c --mm:orc
+tests/stdlib/tgetprotobyname.nim c --mm:orc
+tests/stdlib/tglobs.nim c --mm:orc
+tests/stdlib/thashes.nim c --backend:js --jsbigint64:off
+tests/stdlib/thashes.nim c --backend:js --jsbigint64:on
+tests/stdlib/thashes.nim c --mm:orc
+tests/stdlib/theapqueue.nim c --mm:orc
+tests/stdlib/thighlite.nim c --mm:orc
+tests/stdlib/thtmlparser.nim c --mm:orc
+tests/stdlib/thttpcore.nim c --mm:orc
+tests/stdlib/timportutils.nim c --mm:orc
+tests/stdlib/tio.nim c --mm:orc
+tests/stdlib/tisolation.nim c --gc:orc
+tests/stdlib/tjsonmacro.nim c --mm:orc
+tests/stdlib/tjsonutils.nim c --mm:orc
+tests/stdlib/tlists.nim c --mm:orc
+tests/stdlib/tlocks.nim c --mm:orc
 tests/stdlib/tlwip.nim c
-tests/stdlib/tosproc.nim c
-tests/stdlib/tsqlitebindatas.nim c
+tests/stdlib/tmacros.nim c --mm:orc
+tests/stdlib/tmarshal.nim c --mm:orc
+tests/stdlib/tmath.nim c
+tests/stdlib/tmath.nim c -d:danger
+tests/stdlib/tmath.nim c --mm:refc
+tests/stdlib/tmemfiles1.nim c
+tests/stdlib/tmemfiles2.nim c
+tests/stdlib/tmemlinesBuf.nim c
+tests/stdlib/tmemlines.nim c
+tests/stdlib/tmemmapstreams.nim c
+tests/stdlib/tmemslices.nim c
+tests/stdlib/tmget.nim c --mm:orc
+tests/stdlib/tmimetypes.nim c --mm:orc
+tests/stdlib/tmisc_issues.nim c --mm:orc
+tests/stdlib/tmitems.nim c --mm:orc
+tests/stdlib/tmonotimes.nim c --mm:orc
+tests/stdlib/tnativesockets.nim c --mm:orc
+tests/stdlib/tnetbind.nim c --mm:orc
+tests/stdlib/tnet_ll.nim c --mm:orc
+tests/stdlib/tnet.nim c --mm:orc
+tests/stdlib/tnre.nim c --mm:orc
+tests/stdlib/tntpath.nim c --mm:orc
+tests/stdlib/toids.nim c --mm:orc
+tests/stdlib/topenssl.nim c --mm:orc
+tests/stdlib/toptions.nim c --mm:orc
+tests/stdlib/tosenv.nim c --mm:arc
+tests/stdlib/tos.nim c --mm:orc
+tests/stdlib/tosproc.nim c --mm:orc
+tests/stdlib/tosproc.nim c --mm:refc
+tests/stdlib/tosprocterminate.nim c --mm:orc
+tests/stdlib/tpackedsets.nim c --mm:orc
+tests/stdlib/tparsecfg.nim c --mm:orc
+tests/stdlib/tparsecsv.nim c --mm:orc
+tests/stdlib/tparseipv6.nim c --mm:orc
+tests/stdlib/tparsesql.nim c --mm:orc
+tests/stdlib/tparseuints.nim c --mm:orc
+tests/stdlib/tparseutils.nim c --mm:orc
+tests/stdlib/tpathnorm.nim c --mm:orc
+tests/stdlib/tpaths.nim c --mm:orc
+tests/stdlib/tpegs.nim c --mm:orc
+tests/stdlib/tposix.nim c --mm:orc
+tests/stdlib/trandom.nim c --backend:js --jsbigint64:off
+tests/stdlib/trandom.nim c --backend:js --jsbigint64:on
+tests/stdlib/trandom.nim c --mm:orc
+tests/stdlib/trationals.nim c --mm:orc
+tests/stdlib/tregex.nim c --mm:orc
+tests/stdlib/tre.nim c --mm:orc
+tests/stdlib/trepr.nim c --mm:arc
+tests/stdlib/tropes.nim c --mm:orc
+tests/stdlib/trstgen.nim c --mm:orc
+tests/stdlib/trst.nim c --mm:orc
+tests/stdlib/tsequtils.nim c --mm:orc
+tests/stdlib/tsetutils.nim c --mm:orc
+tests/stdlib/tsharedlist.nim c --mm:orc
+tests/stdlib/tsharedtable.nim c --mm:orc
+tests/stdlib/tsocketstreams.nim c --mm:orc
+tests/stdlib/tsortcall.nim c --mm:orc
+tests/stdlib/tsqlparser.nim c --mm:orc
+tests/stdlib/tssl.nim c --mm:orc
 tests/stdlib/tstackframes.nim c
-tests/stdlib/tstdlib_various.nim c
-tests/stdlib/tvarints.nim c
+tests/stdlib/tstats.nim c --mm:orc
+tests/stdlib/tstdlib_issues.nim c --mm:orc
+tests/stdlib/tstdlib_various.nim c --mm:refc
+tests/stdlib/tstrbasics.nim c --mm:orc
+tests/stdlib/tstreams.nim c --mm:orc
+tests/stdlib/tstrformat.nim c --mm:orc
+tests/stdlib/tstrimpl.nim c --mm:orc
+tests/stdlib/tstring.nim c --mm:orc
+tests/stdlib/tstrmiscs.nim c --mm:orc
+tests/stdlib/tstrscans.nim c --mm:orc
+tests/stdlib/tstrset.nim c --mm:orc
+tests/stdlib/tstrtabs2.nim c --mm:orc
+tests/stdlib/tstrtabs.nim c --mm:orc
+tests/stdlib/tstrutils.nim c --mm:orc
+tests/stdlib/tsugar.nim c --mm:orc
+tests/stdlib/tsums.nim c --mm:orc
+tests/stdlib/tsystem.nim c --mm:orc
+tests/stdlib/ttables.nim c --mm:orc
+tests/stdlib/ttasks.nim c --gc:orc --threads:off
+tests/stdlib/ttempfiles.nim c --mm:orc
+tests/stdlib/tthreadpool.nim c --mm:arc
+tests/stdlib/ttimes.nim c --backend:js --jsbigint64:off
+tests/stdlib/ttimes.nim c --backend:js --jsbigint64:on
+tests/stdlib/ttimes.nim c --mm:orc
+tests/stdlib/ttypeinfo.nim c --mm:orc
+tests/stdlib/ttypetraits.nim c --mm:orc
+tests/stdlib/tunicode.nim c --mm:orc
+tests/stdlib/tunittest.nim c --mm:orc
+tests/stdlib/tunittestpass.nim c --mm:orc
+tests/stdlib/turi.nim c --mm:orc
+tests/stdlib/tuserlocks.nim c --mm:orc
+tests/stdlib/tvarargs.nim c --mm:orc
+tests/stdlib/tvarints.nim c --mm:orc
+tests/stdlib/tvarints.nim c --mm:refc
+tests/stdlib/tvmutils.nim c --mm:orc
+tests/stdlib/twchartoutf8.nim c --mm:orc
+tests/stdlib/twith.nim c --mm:orc
+tests/stdlib/twordwrap.nim c --mm:orc
+tests/stdlib/twrapnils.nim c --mm:orc
+tests/stdlib/txmltree.nim c --mm:orc
+tests/stdlib/tyield.nim c --mm:orc
+tests/strictnotnil/tnilcheck_no_warnings.nim c
+tests/system/tdeepcopy.nim c --mm:orc --deepcopy:on
+tests/system/tdollars.nim c --mm:orc
+tests/system/tensuremove1.nim c --cursorinference:off
+tests/system/tensuremove1.nim c --cursorinference:on
+tests/system/tensuremove.nim c --cursorinference:off
+tests/system/tensuremove.nim c --cursorinference:on
 tests/system/tgogc.nim c
+tests/system/tlocals.nim c --mm:orc
+tests/system/tnew.nim c --mm:orc
 tests/system/tnim_stacktrace_override.nim c
+tests/system/tslimsystem.nim c -d:nimPreviewSlimSystem --mm:arc
+tests/template/t1027.nim c
+tests/template/taliassyntaxerrors.nim c
+tests/template/tcallsitelineinfo2.nim c
+tests/template/tcallsitelineinfo.nim c
+tests/template/tidentconcatenations.nim c
+tests/testament/tinlinemsg.nim c --errorMax:0 --styleCheck:error
 tests/testament/tjoinable.nim c
 tests/testament/tshould_not_work.nim c
-tests/typerel/tnoargopenarray.nim c
+tests/threads/tonthreadcreation.nim c  --threads:on -d:release --mm:orc --deepcopy:on
+tests/threads/tonthreadcreation.nim c  --threads:on --mm:orc --deepcopy:on
+tests/threads/tonthreadcreation.nim c  --threads:on --tlsEmulation:on --mm:orc --deepcopy:on
+tests/tools/tnimgrep.nim c
+tests/typerel/ttypedesc_as_genericparam1_orc.nim c --mm:orc
+tests/types/tinheritgenericparameter.nim c
+tests/valgrind/tbasic_valgrind.nim c
+tests/valgrind/tleak_arc.nim c
+tests/views/t19986.nim c
 tests/views/tcan_compile_nim.nim c
 tests/views/tconst_views.nim c
+tests/views/tdont_mutate.nim c
+tests/views/tsplit_into_openarray.nim c
 tests/views/tsplit_into_seq.nim c
+tests/vm/t9622.nim c --mm:arc
+tests/vm/tcompilesetting.nim c
 tests/vm/tvmmisc.nim c
 tests/vm/tvmops.nim c
 tools/nimgrep c  --debugger:on

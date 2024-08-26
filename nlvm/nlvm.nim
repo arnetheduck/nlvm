@@ -9,8 +9,7 @@ import "."/llgen, llvm/llvm
 import
   compiler/[
     ast, cmdlinehelper, commands, condsyms, extccomp, idents, lexer, lineinfos,
-    llstream, modulegraphs, modules, msgs, options, passes, passaux, pathutils,
-    platform, sem,
+    llstream, modulegraphs, modules, msgs, options, passes, passaux, pathutils, platform,
   ]
 proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
@@ -173,7 +172,7 @@ proc commandCompile(graph: ModuleGraph) =
   semanticPasses(graph)
   registerPass(graph, llgen.llgenPass)
 
-  modules.compileProject(graph)
+  passes.compileProject(graph)
 
 proc commandScan(conf: ConfigRef) =
   var f = addFileExt(mainCommandArg(conf), NimExt)
@@ -197,7 +196,7 @@ proc commandCheck(graph: ModuleGraph) =
   graph.config.errorMax = high(int) # do not stop after first error
   defineSymbol(graph.config.symbols, "nimcheck")
   semanticPasses(graph) # use an empty backend for semantic checking only
-  modules.compileProject(graph)
+  passes.compileProject(graph)
 
 proc interactivePasses(graph: ModuleGraph) =
   initDefines(graph.config.symbols)
@@ -331,6 +330,12 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   # nlvm exception handling mostly resembles C++ but setjmp avoids some
   # C++-specific quirks
   conf.exc = excSetjmp
+
+  if conf.selectedGC == gcUnselected:
+    # ORC runtime not yet well-supported
+    unregisterArcOrc(conf)
+    defineSymbol(conf.symbols, "gcrefc")
+    conf.selectedGC = gcRefc
 
   if conf.cmd == cmdCrun:
     conf.verbosity = 0

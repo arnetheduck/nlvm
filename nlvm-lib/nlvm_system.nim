@@ -230,15 +230,16 @@ proc nlvmExceptionCleanup(
 
 var ehGlobals {.threadvar.}: NlvmEhGlobals
 
+include system/rawquits
 proc unhandledException() {.noreturn.} =
   c_fprintf(cstderr, "Error: unhandled exception: [foreign]\n")
 
-  quit(1) # TODO alternatively, quitOrDebug
+  rawQuit(1) # TODO alternatively, quitOrDebug
 
 proc unhandledException(e: ref Exception) {.noreturn.} =
   c_fprintf(cstderr, "Error: unhandled exception: %s [%s]\n", cstring(e.msg), e.name)
 
-  quit(1) # TODO alternatively, quitOrDebug
+  rawQuit(1) # TODO alternatively, quitOrDebug
 
 func getNimTypePtr(
     ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8, ctx: UnwindContext
@@ -292,7 +293,7 @@ when defined(nimV2):
 
     if suffixLen <= sLen:
       result =
-        memcmp(cstring(unsafeAddr s[sLen - suffixLen]), suffix, csize_t(suffixLen)) == 0
+        memcmp(cast[cstring](addr s[sLen - suffixLen]), suffix, csize_t(suffixLen)) == 0
 
   proc isObj(obj: PNimTypeV2, subclass: cstring): bool {.compilerRtl, inl.} =
     endsWith(obj.name, subclass)
