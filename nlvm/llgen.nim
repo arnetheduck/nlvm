@@ -13,7 +13,8 @@ import
   ],
   llvm/llvm,
   lllink,
-  llplatform
+  llplatform,
+  ../Nim/dist/checksums/src/checksums/md5
 
 type
   SectionKind = enum
@@ -761,6 +762,9 @@ proc constInt8(g: LLGen, v: int8): ValueRef =
 
 proc constUInt8(g: LLGen, v: uint8): ValueRef =
   llvm.constInt(g.primitives[tyUInt8], v.culonglong, llvm.False)
+
+proc constInt16(g: LLGen, v: int16): ValueRef =
+  llvm.constInt(g.primitives[tyInt16], v.culonglong, llvm.False)
 
 proc constInt32(g: LLGen, v: int32): ValueRef =
   llvm.constInt(g.primitives[tyInt32], v.culonglong, llvm.False)
@@ -3275,6 +3279,42 @@ proc genHook(g: LLGen, t: PType, op: TTypeAttachedOp): llvm.ValueRef =
   else:
     constNull(g.ptrTy)
 
+proc getObjDepth(t: PType): int16 =
+  var x = t
+  result = -1
+  while x != nil:
+    x = skipTypes(x, skipPtrs)
+    x = x[0]
+    inc(result)
+
+proc genDisplayElem(d: MD5Digest): uint32 =
+  result = 0
+  for i in 0 .. 3:
+    result += uint32(d[i])
+    result = result shl 8
+
+proc genDisplay(g: LLGen, t: PType, depth: int): llvm.ValueRef =
+  var x = t
+  var seqs = newSeq[llvm.ValueRef](depth + 1)
+  var i = 0
+  while x != nil:
+    x = skipTypes(x, skipPtrs)
+    seqs[seqs.len - i - 1] = llvm.constInt(
+      g.primitives[tyUInt32],
+      genDisplayElem(MD5Digest(hashType(x, g.config))).culonglong,
+      llvm.False,
+    )
+    x = x[0]
+    inc i
+
+  let
+    ty = llvm.arrayType2(g.primitives[tyUInt32], seqs.len.uint64)
+    display =
+      g.m.addPrivateConstant(ty, g.nn(".display." & g.llName(t, hashType(t, g.config))))
+
+  display.setInitializer(llvm.constArray(g.primitives[tyUInt32], seqs))
+  display
+
 proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
   let
     origType = typ
@@ -3306,11 +3346,22 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
         g.constNimInt(dl.aBISizeOfType(lt).int)
     alignVar =
       if lt == nil:
-        g.constNimInt(1)
+        g.constInt16(1)
       else:
-        g.constNimInt(dl.preferredAlignmentOfType(lt).int)
+        g.constInt16(dl.preferredAlignmentOfType(lt).int16)
+    depth =
+      if typ.kind == tyObject:
+        getObjDepth(typ)
+      else:
+        -1
+    depthVar = g.constInt16(depth)
+    displayVar =
+      if depth >= 0:
+        g.genDisplay(typ, depth)
+      else:
+        constNull(g.ptrTy)
     nameVar =
-      if typ.kind in {tyObject, tyDistinct}:
+      if isDefined(g.config, "nimTypeNames") and typ.kind in {tyObject, tyDistinct}:
         if incompleteType(typ):
           g.config.internalError(
             "request for RTTI generation for incomplete object: " & typeToString(typ)
@@ -3326,8 +3377,17 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
       else:
         constNull(g.ptrTy)
     flagsVar = g.constNimInt(flags)
-
-    values = [destroyImpl, sizeVar, alignVar, nameVar, traceImpl, v1Var, flagsVar]
+    values =
+      if isDefined(g.config, "nimTypeNames"):
+        @[
+          destroyImpl, sizeVar, alignVar, depthVar, displayVar, nameVar, traceImpl,
+          v1Var, flagsVar,
+        ]
+      else:
+        @[
+          destroyImpl, sizeVar, alignVar, depthVar, displayVar, traceImpl, v1Var,
+          flagsVar,
+        ]
 
   result.setInitializer(llvm.constNamedStruct(nimTypeTy, values))
 
@@ -3943,13 +4003,20 @@ proc callIsObj(g: LLGen, v: llvm.ValueRef, typ: PType): llvm.ValueRef =
   let
     # Type resides at the start of the object
     mtype = g.b.buildLoad2(g.ptrTy, v)
-    cmpTo =
-      if optTinyRtti in g.config.globalOptions:
-        g.constCStringPtr(g.genTypeInfo2Name(typ))
-      else:
-        g.genTypeInfo(typ)
 
-  g.callCompilerProc("isObj", [mtype, cmpTo])
+  if optTinyRtti in g.config.globalOptions:
+    let
+      cmpTo = g.constInt16(getObjDepth(typ))
+      elem = llvm.constInt(
+        g.primitives[tyUInt32],
+        genDisplayElem(MD5Digest(hashType(typ, g.config))).culonglong,
+        llvm.False,
+      )
+
+    g.callCompilerProc("isObjDisplayCheck", [mtype, cmpTo, elem])
+  else:
+    let cmpTo = g.genTypeInfo(typ)
+    g.callCompilerProc("isObj", [mtype, cmpTo])
 
 # These are taken from cgen and take care of some of the fallout from the
 # beautiful copy-on-write string literal pessimisation :/
@@ -4972,6 +5039,17 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue, load: bool): bool =
         ord = getOrdering(n[3])
         ax = g.b.buildStore(p1, p0)
       ax.setOrdering(ord)
+      return true
+
+    if s.name.s == "atomicExchangeN":
+      let
+        p0 = g.genNode(n[1], true).v
+        p1 = g.genNode(n[2], true).v
+        ord = getOrdering(n[3])
+
+      o =
+        LLValue(v: g.b.buildAtomicRMW(llvm.AtomicRMWBinOpXchg, p0, p1, ord, llvm.False))
+
       return true
 
     if s.name.s == "atomicAddFetch":
@@ -8740,7 +8818,7 @@ proc genNodeDot(g: LLGen, n: PNode, load: bool): LLValue =
   p("genDotExpr", n[1].sym, g.depth + 1)
   let
     v = g.genNode(n[0], false)
-    typ = skipTypes(n[0].typ, abstractInst + tyUserTypeClasses)
+    typ = skipTypes(n[0].typ, abstractInstOwned + tyUserTypeClasses)
     gep =
       LLValue(v: g.toGEP(v.v, g.fieldIndex(typ, n[1].sym), "dot"), storage: v.storage)
 
@@ -8750,7 +8828,7 @@ proc genNodeCheckedField(g: LLGen, n: PNode, load: bool): LLValue =
   if optFieldCheck in g.config.options:
     let
       v = g.genNode(n[0][0], false)
-      typ = skipTypes(n[0][0].typ, abstractInst + tyUserTypeClasses)
+      typ = skipTypes(n[0][0].typ, abstractInstOwned + tyUserTypeClasses)
 
       gep = LLValue(
         v: g.toGEP(v.v, g.fieldIndex(typ, n[0][1].sym), "dot"), storage: v.storage

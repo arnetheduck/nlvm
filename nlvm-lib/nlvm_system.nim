@@ -262,12 +262,14 @@ func getNimTypePtr(
 
 when defined(nimV2):
   type
-    DestructorProc = proc(p: pointer) {.nimcall, benign, raises: [].}
-    TNimTypeV2 = object
+    TNimTypeV2 {.compilerproc.} = object
       destructor: pointer
       size: int
-      align: int
-      name: cstring
+      align: int16
+      depth: int16
+      display: ptr UncheckedArray[uint32] # classToken
+      when defined(nimTypeNames) or defined(nimArcIds):
+        name: cstring
       traceImpl: pointer
       typeInfoV1: pointer # for backwards compat, usually nil
       flags: int
@@ -284,22 +286,13 @@ when defined(nimV2):
   ): PNimTypeV2 =
     cast[PNimTypeV2](getNimTypePtr(ttypeIndex, classInfo, ttypeEncoding, ctx))
 
-  proc memcmp(str1, str2: cstring, n: csize_t): cint {.importc, header: "<string.h>".}
-
-  func endsWith(s, suffix: cstring): bool {.inline.} =
-    let
-      sLen = s.len
-      suffixLen = suffix.len
-
-    if suffixLen <= sLen:
-      result =
-        memcmp(cast[cstring](addr s[sLen - suffixLen]), suffix, csize_t(suffixLen)) == 0
-
-  proc isObj(obj: PNimTypeV2, subclass: cstring): bool {.compilerRtl, inl.} =
-    endsWith(obj.name, subclass)
+  proc isObjDisplayCheck(
+      source: PNimTypeV2, targetDepth: int16, token: uint32
+  ): bool {.compilerRtl, inline.} =
+    targetDepth <= source.depth and source.display[targetDepth] == token
 
   func canCatch(catchType, thrownType: PNimTypeV2): bool =
-    isObj(thrownType, catchType.name)
+    isObjDisplayCheck(thrownType, catchType.depth, catchType.display[catchType.depth])
 else:
   func exceptionType(e: ref Exception): PNimType =
     # return the dynamic type of an exception, which nlvm stores at the beginning
