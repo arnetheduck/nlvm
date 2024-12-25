@@ -25,4 +25,6 @@ for a in $HEADERS; do
 
   sed -i -e "s/uintptrT/uint/" $OUT
 
+nph llvm
+
 done

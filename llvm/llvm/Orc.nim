@@ -185,6 +185,15 @@ type OrcCDependenceMapPair* {.bycopy.} = object
 type OrcCDependenceMapPairs* = ptr OrcCDependenceMapPair
 
 ##
+##  A set of symbols that share dependencies.
+##
+
+type OrcCSymbolDependenceGroup* {.bycopy.} = object
+  symbols*: OrcCSymbolsList
+  dependencies*: OrcCDependenceMapPairs
+  numDependencies*: csize_t
+
+##
 ##  Lookup kind. This can be used by definition generators when deciding whether
 ##  to produce a definition for a requested symbol.
 ##
@@ -920,6 +929,19 @@ proc orcMaterializationResponsibilityNotifyResolved*(
 ##  that all symbols covered by this MaterializationResponsibility instance
 ##  have been emitted.
 ##
+##  This function takes ownership of the symbols in the Dependencies struct.
+##  This allows the following pattern...
+##
+##    LLVMOrcSymbolStringPoolEntryRef Names[] = {...};
+##    LLVMOrcCDependenceMapPair Dependence = {JD, {Names, sizeof(Names)}}
+##    LLVMOrcMaterializationResponsibilityAddDependencies(JD, Name, &Dependence,
+##  1);
+##
+##  ... without requiring cleanup of the elements of the Names array afterwards.
+##
+##  The client is still responsible for deleting the Dependencies.Names arrays,
+##  and the Dependencies array itself.
+##
 ##  This method will return an error if any symbols being resolved have been
 ##  moved to the error state due to the failure of a dependency. If this
 ##  method returns an error then clients should log it and call
@@ -930,7 +952,9 @@ proc orcMaterializationResponsibilityNotifyResolved*(
 ##
 
 proc orcMaterializationResponsibilityNotifyEmitted*(
-  mr: OrcMaterializationResponsibilityRef
+  mr: OrcMaterializationResponsibilityRef,
+  symbolDepGroups: ptr OrcCSymbolDependenceGroup,
+  numSymbolDepGroups: csize_t,
 ): ErrorRef {.
   importc: "LLVMOrcMaterializationResponsibilityNotifyEmitted", dynlib: LLVMLib
 .}
@@ -998,46 +1022,6 @@ proc orcMaterializationResponsibilityDelegate*(
   numSymbols: csize_t,
   result: ptr OrcMaterializationResponsibilityRef,
 ): ErrorRef {.importc: "LLVMOrcMaterializationResponsibilityDelegate", dynlib: LLVMLib.}
-
-##
-##  Adds dependencies to a symbol that the MaterializationResponsibility is
-##  responsible for.
-##
-##  This function takes ownership of Dependencies struct. The Names
-##  array have been retained for this function. This allows the following
-##  pattern...
-##
-##    LLVMOrcSymbolStringPoolEntryRef Names[] = {...};
-##    LLVMOrcCDependenceMapPair Dependence = {JD, {Names, sizeof(Names)}}
-##    LLVMOrcMaterializationResponsibilityAddDependencies(JD, Name, &Dependence,
-##  1);
-##
-##  ... without requiring cleanup of the elements of the Names array afterwards.
-##
-##  The client is still responsible for deleting the Dependencies.Names array
-##  itself.
-##
-
-proc orcMaterializationResponsibilityAddDependencies*(
-  mr: OrcMaterializationResponsibilityRef,
-  name: OrcSymbolStringPoolEntryRef,
-  dependencies: OrcCDependenceMapPairs,
-  numPairs: csize_t,
-) {.importc: "LLVMOrcMaterializationResponsibilityAddDependencies", dynlib: LLVMLib.}
-
-##
-##  Adds dependencies to all symbols that the MaterializationResponsibility is
-##  responsible for. See LLVMOrcMaterializationResponsibilityAddDependencies for
-##  notes about memory responsibility.
-##
-
-proc orcMaterializationResponsibilityAddDependenciesForAll*(
-  mr: OrcMaterializationResponsibilityRef,
-  dependencies: OrcCDependenceMapPairs,
-  numPairs: csize_t,
-) {.
-  importc: "LLVMOrcMaterializationResponsibilityAddDependenciesForAll", dynlib: LLVMLib
-.}
 
 ##
 ##  Create a "bare" JITDylib.

@@ -68,6 +68,7 @@ type
   comdat {.pure, final.} = object
   opaqueModuleFlagEntry {.pure, final.} = object
   OpaqueBinary {.pure, final.} = object
+  OpaqueDbgRecord {.pure, final.} = object
   OpaqueError {.pure, final.} = object
   OpaquePassBuilderOptions {.pure, final.} = object
 
