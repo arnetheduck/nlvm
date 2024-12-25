@@ -8,7 +8,6 @@ lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll
 lib/pure/memfiles.nim c
 tests/align/talign.nim c
 tests/align/tillegalalign.nim c
-tests/arc/t14472.nim c
 tests/arc/t16458.nim c --gc:orc --d:useNimRtl
 tests/arc/t17812.nim c --gc:refc
 tests/arc/t18977.nim c --mm:arc
@@ -48,6 +47,7 @@ tests/ccgbugs/t13062.nim c --mm:orc
 tests/ccgbugs/t15428.nim c
 tests/ccgbugs/t16027.nim c
 tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445
+tests/ccgbugs/t23796.nim c
 tests/ccgbugs/tassign_nil_strings.nim c --mm:refc
 tests/ccgbugs/tcgbug.nim c --mm:orc
 tests/ccgbugs/tcgbug.nim c --mm:refc
@@ -71,6 +71,7 @@ tests/compiles/tstaticlib.nim c
 tests/concepts/tconcepts_issues.nim c
 tests/controlflow/tunamedbreak.nim c
 tests/controlflow/tunreachable.nim c
+tests/converter/tconverter_unique_ptr.nim c
 tests/converter/tgenericconverter.nim c
 tests/coroutines/tgc.nim c --gc:arc
 tests/coroutines/tgc.nim c --gc:orc
@@ -81,6 +82,8 @@ tests/coroutines/twait.nim c --gc:refc
 tests/cpp/t10148.nim c
 tests/cpp/texportc.nim c
 tests/c/temit.nim c
+tests/destructor/tconst_smart_ptr.nim c
+tests/destructor/tcycle3.nim c
 tests/destructor/tdont_return_unowned_from_owned.nim c
 tests/destructor/terror_module.nim c
 tests/destructor/texceptions.nim c
@@ -91,6 +94,7 @@ tests/destructor/tv2_raise.nim c
 tests/destructor/twasmoved.nim c
 tests/destructor/twidgets.nim c
 tests/destructor/twidgets_unown.nim c
+tests/discard/tfinallyerrmsg.nim c
 tests/discard/tillegaldiscardtypes.nim c
 tests/distinct/tinvalidborrow.nim c
 tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:on
@@ -131,6 +135,7 @@ tests/errmsgs/t18886.nim c
 tests/errmsgs/t19224.nim c
 tests/errmsgs/t22753.nim c
 tests/errmsgs/t23536.nim c --stackTrace:on --excessiveStackTrace:off
+tests/errmsgs/t24258.nim c
 tests/errmsgs/t2614.nim c
 tests/errmsgs/t5167_5.nim c
 tests/errmsgs/t8794.nim c
@@ -154,6 +159,7 @@ tests/errmsgs/ttypeAllowed.nim c
 tests/errmsgs/tundeclared_field.nim c
 tests/errmsgs/tundeclared_routine.nim c
 tests/errmsgs/tunknown_named_parameter.nim c
+tests/errmsgs/tuntypedoverload.nim c
 tests/exception/t13115.nim c
 tests/exception/t18620.nim c --gc:arc
 tests/exception/t18620.nim c --gc:refc
@@ -231,7 +237,6 @@ tests/overflow/tdistinct_range.nim c
 tests/overflow/toverflow.nim c --overflowChecks:off
 tests/overflow/toverflow.nim c --overflowChecks:off --b:js
 tests/overflow/toverflow_reorder.nim c
-tests/overload/t8829.nim c
 tests/overload/tstatic_with_converter.nim c
 tests/parallel/tdeepcopy2.nim c --mm:refc
 tests/parallel/tdeepcopy.nim c --mm:refc
