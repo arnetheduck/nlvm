@@ -181,5 +181,11 @@ type JITEventListenerRef* = ptr OpaqueJITEventListener
 type BinaryRef* = ptr OpaqueBinary
 
 ##
+##  @see llvm::DbgRecord
+##
+
+type DbgRecordRef* = ptr OpaqueDbgRecord
+
+##
 ##  @}
 ##

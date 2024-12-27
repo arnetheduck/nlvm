@@ -181,6 +181,7 @@ type
     InstructionValueKind
     PoisonValueValueKind
     ConstantTargetNoneValueKind
+    ConstantPtrAuthValueKind
 
   IntPredicate* {.size: sizeof(cint).} = enum
     IntEQ = 32 ## < equal
@@ -265,34 +266,40 @@ type
     AtomicRMWBinOpXor ## < Xor a value and return the old one
     AtomicRMWBinOpMax
       ## < Sets the value if it's greater than the
-      ##                              original using a signed comparison and return
-      ##                              the old one
+      ##                             original using a signed comparison and return
+      ##                             the old one
     AtomicRMWBinOpMin
       ## < Sets the value if it's Smaller than the
-      ##                              original using a signed comparison and return
-      ##                              the old one
+      ##                             original using a signed comparison and return
+      ##                             the old one
     AtomicRMWBinOpUMax
       ## < Sets the value if it's greater than the
-      ##                              original using an unsigned comparison and return
-      ##                              the old one
+      ##                            original using an unsigned comparison and return
+      ##                            the old one
     AtomicRMWBinOpUMin
       ## < Sets the value if it's greater than the
-      ##                               original using an unsigned comparison and return
-      ##                               the old one
+      ##                             original using an unsigned comparison and return
+      ##                             the old one
     AtomicRMWBinOpFAdd
       ## < Add a floating point value and return the
-      ##                               old one
+      ##                             old one
     AtomicRMWBinOpFSub
       ## < Subtract a floating point value and return the
-      ##                             old one
+      ##                           old one
     AtomicRMWBinOpFMax
       ## < Sets the value if it's greater than the
-      ##                              original using an floating point comparison and
-      ##                              return the old one
+      ##                            original using an floating point comparison and
+      ##                            return the old one
     AtomicRMWBinOpFMin
       ## < Sets the value if it's smaller than the
-      ##                              original using an floating point comparison and
-      ##                              return the old one
+      ##                            original using an floating point comparison and
+      ##                            return the old one
+    AtomicRMWBinOpUIncWrap
+      ## < Increments the value, wrapping back to zero
+      ##                                when incremented above input value
+    AtomicRMWBinOpUDecWrap
+      ## < Decrements the value, wrapping back to
+      ##                                the input value when decremented below zero
 
   DiagnosticSeverity* {.size: sizeof(cint).} = enum
     DSError
@@ -360,6 +367,8 @@ const
     ##  LLVMAttributeFunctionIndex = ~0U,
   AttributeFunctionIndex* = -1
 
+type AttributeIndex* = cuint
+
 ##
 ##  Tail call kind for LLVMSetTailCallKind and LLVMGetTailCallKind.
 ##
@@ -368,14 +377,11 @@ const
 ##  @see CallInst::TailCallKind
 ##
 
-type
-  TailCallKind* {.size: sizeof(cint).} = enum
-    TailCallKindNone = 0
-    TailCallKindTail = 1
-    TailCallKindMustTail = 2
-    TailCallKindNoTail = 3
-
-  AttributeIndex* = cuint
+type TailCallKind* {.size: sizeof(cint).} = enum
+  TailCallKindNone = 0
+  TailCallKindTail = 1
+  TailCallKindMustTail = 2
+  TailCallKindNoTail = 3
 
 const
   FastMathAllowReassoc* = (1 shl 0)
@@ -398,6 +404,20 @@ const
 ##
 
 type FastMathFlags* = cuint
+
+const
+  GEPFlagInBounds* = (1 shl 0)
+  GEPFlagNUSW* = (1 shl 1)
+  GEPFlagNUW* = (1 shl 2)
+
+##
+##  Flags that constrain the allowed wrap semantics of a getelementptr
+##  instruction.
+##
+##  See https://llvm.org/docs/LangRef.html#getelementptr-instruction
+##
+
+type GEPNoWrapFlags* = cuint
 
 ##
 ##  @}
@@ -617,6 +637,21 @@ proc getTypeAttributeValue*(
 ): TypeRef {.importc: "LLVMGetTypeAttributeValue", dynlib: LLVMLib.}
 
 ##
+##  Create a ConstantRange attribute.
+##
+##  LowerWords and UpperWords need to be NumBits divided by 64 rounded up
+##  elements long.
+##
+
+proc createConstantRangeAttribute*(
+  c: ContextRef,
+  kindID: cuint,
+  numBits: cuint,
+  lowerWords: ptr uint64,
+  upperWords: ptr uint64,
+): AttributeRef {.importc: "LLVMCreateConstantRangeAttribute", dynlib: LLVMLib.}
+
+##
 ##  Create a string attribute.
 ##
 
@@ -717,6 +752,30 @@ proc cloneModule*(
 ##
 
 proc disposeModule*(m: ModuleRef) {.importc: "LLVMDisposeModule", dynlib: LLVMLib.}
+##
+##  Soon to be deprecated.
+##  See https://llvm.org/docs/RemoveDIsDebugInfo.html#c-api-changes
+##
+##  Returns true if the module is in the new debug info mode which uses
+##  non-instruction debug records instead of debug intrinsics for variable
+##  location tracking.
+##
+
+proc isNewDbgInfoFormat*(
+  m: ModuleRef
+): Bool {.importc: "LLVMIsNewDbgInfoFormat", dynlib: LLVMLib.}
+
+##
+##  Soon to be deprecated.
+##  See https://llvm.org/docs/RemoveDIsDebugInfo.html#c-api-changes
+##
+##  Convert module into desired debug info format.
+##
+
+proc setIsNewDbgInfoFormat*(
+  m: ModuleRef, useNewFormat: Bool
+) {.importc: "LLVMSetIsNewDbgInfoFormat", dynlib: LLVMLib.}
+
 ##
 ##  Obtain the identifier of a module.
 ##
@@ -1863,6 +1922,47 @@ proc getVectorSize*(
 ): cuint {.importc: "LLVMGetVectorSize", dynlib: LLVMLib.}
 
 ##
+##  Get the pointer value for the associated ConstantPtrAuth constant.
+##
+##  @see llvm::ConstantPtrAuth::getPointer
+##
+
+proc getConstantPtrAuthPointer*(
+  ptrAuth: ValueRef
+): ValueRef {.importc: "LLVMGetConstantPtrAuthPointer", dynlib: LLVMLib.}
+
+##
+##  Get the key value for the associated ConstantPtrAuth constant.
+##
+##  @see llvm::ConstantPtrAuth::getKey
+##
+
+proc getConstantPtrAuthKey*(
+  ptrAuth: ValueRef
+): ValueRef {.importc: "LLVMGetConstantPtrAuthKey", dynlib: LLVMLib.}
+
+##
+##  Get the discriminator value for the associated ConstantPtrAuth constant.
+##
+##  @see llvm::ConstantPtrAuth::getDiscriminator
+##
+
+proc getConstantPtrAuthDiscriminator*(
+  ptrAuth: ValueRef
+): ValueRef {.importc: "LLVMGetConstantPtrAuthDiscriminator", dynlib: LLVMLib.}
+
+##
+##  Get the address discriminator value for the associated ConstantPtrAuth
+##  constant.
+##
+##  @see llvm::ConstantPtrAuth::getAddrDiscriminator
+##
+
+proc getConstantPtrAuthAddrDiscriminator*(
+  ptrAuth: ValueRef
+): ValueRef {.importc: "LLVMGetConstantPtrAuthAddrDiscriminator", dynlib: LLVMLib.}
+
+##
 ##  @}
 ##
 ##
@@ -1941,6 +2041,56 @@ proc targetExtTypeInContext*(
 ): TypeRef {.importc: "LLVMTargetExtTypeInContext", dynlib: LLVMLib.}
 
 ##
+##  Obtain the name for this target extension type.
+##
+##  @see llvm::TargetExtType::getName()
+##
+
+proc getTargetExtTypeName*(
+  targetExtTy: TypeRef
+): cstring {.importc: "LLVMGetTargetExtTypeName", dynlib: LLVMLib.}
+
+##
+##  Obtain the number of type parameters for this target extension type.
+##
+##  @see llvm::TargetExtType::getNumTypeParameters()
+##
+
+proc getTargetExtTypeNumTypeParams*(
+  targetExtTy: TypeRef
+): cuint {.importc: "LLVMGetTargetExtTypeNumTypeParams", dynlib: LLVMLib.}
+
+##
+##  Get the type parameter at the given index for the target extension type.
+##
+##  @see llvm::TargetExtType::getTypeParameter()
+##
+
+proc getTargetExtTypeTypeParam*(
+  targetExtTy: TypeRef, idx: cuint
+): TypeRef {.importc: "LLVMGetTargetExtTypeTypeParam", dynlib: LLVMLib.}
+
+##
+##  Obtain the number of int parameters for this target extension type.
+##
+##  @see llvm::TargetExtType::getNumIntParameters()
+##
+
+proc getTargetExtTypeNumIntParams*(
+  targetExtTy: TypeRef
+): cuint {.importc: "LLVMGetTargetExtTypeNumIntParams", dynlib: LLVMLib.}
+
+##
+##  Get the int parameter at the given index for the target extension type.
+##
+##  @see llvm::TargetExtType::getIntParameter()
+##
+
+proc getTargetExtTypeIntParam*(
+  targetExtTy: TypeRef, idx: cuint
+): cuint {.importc: "LLVMGetTargetExtTypeIntParam", dynlib: LLVMLib.}
+
+##
 ##  @}
 ##
 ##
@@ -1966,11 +2116,14 @@ proc targetExtTypeInContext*(
 ##
 ##  @{
 ##
+##  Currently, clang-format tries to format the LLVM_FOR_EACH_VALUE_SUBCLASS
+##  macro in a progressively-indented fashion, which is not desired
+##  clang-format off
 
 template for_Each_Value_Subclass*(`macro`: untyped): untyped =
   `macro`(argument)
 
-## !!!Ignored construct:  macro ( BasicBlock ) macro ( InlineAsm ) macro ( User ) macro ( Constant ) macro ( BlockAddress ) macro ( ConstantAggregateZero ) macro ( ConstantArray ) macro ( ConstantDataSequential ) macro ( ConstantDataArray ) macro ( ConstantDataVector ) macro ( ConstantExpr ) macro ( ConstantFP ) macro ( ConstantInt ) macro ( ConstantPointerNull ) macro ( ConstantStruct ) macro ( ConstantTokenNone ) macro ( ConstantVector ) macro ( GlobalValue ) macro ( GlobalAlias ) macro ( GlobalObject ) macro ( Function ) macro ( GlobalVariable ) macro ( GlobalIFunc ) macro ( UndefValue ) macro ( PoisonValue ) macro ( Instruction ) macro ( UnaryOperator ) macro ( BinaryOperator ) macro ( CallInst ) macro ( IntrinsicInst ) macro ( DbgInfoIntrinsic ) macro ( DbgVariableIntrinsic ) macro ( DbgDeclareInst ) macro ( DbgLabelInst ) macro ( MemIntrinsic ) macro ( MemCpyInst ) macro ( MemMoveInst ) macro ( MemSetInst ) macro ( CmpInst ) macro ( FCmpInst ) macro ( ICmpInst ) macro ( ExtractElementInst ) macro ( GetElementPtrInst ) macro ( InsertElementInst ) macro ( InsertValueInst ) macro ( LandingPadInst ) macro ( PHINode ) macro ( SelectInst ) macro ( ShuffleVectorInst ) macro ( StoreInst ) macro ( BranchInst ) macro ( IndirectBrInst ) macro ( InvokeInst ) macro ( ReturnInst ) macro ( SwitchInst ) macro ( UnreachableInst ) macro ( ResumeInst ) macro ( CleanupReturnInst ) macro ( CatchReturnInst ) macro ( CatchSwitchInst ) macro ( CallBrInst ) macro ( FuncletPadInst ) macro ( CatchPadInst ) macro ( CleanupPadInst ) macro ( UnaryInstruction ) macro ( AllocaInst ) macro ( CastInst ) macro ( AddrSpaceCastInst ) macro ( BitCastInst ) macro ( FPExtInst ) macro ( FPToSIInst ) macro ( FPToUIInst ) macro ( FPTruncInst ) macro ( IntToPtrInst ) macro ( PtrToIntInst ) macro ( SExtInst ) macro ( SIToFPInst ) macro ( TruncInst ) macro ( UIToFPInst ) macro ( ZExtInst ) macro ( ExtractValueInst ) macro ( LoadInst ) macro ( VAArgInst ) macro ( FreezeInst ) macro ( AtomicCmpXchgInst ) macro ( AtomicRMWInst ) macro ( FenceInst ) [NewLine]
+## !!!Ignored construct:  macro ( BasicBlock ) macro ( InlineAsm ) macro ( User ) macro ( Constant ) macro ( BlockAddress ) macro ( ConstantAggregateZero ) macro ( ConstantArray ) macro ( ConstantDataSequential ) macro ( ConstantDataArray ) macro ( ConstantDataVector ) macro ( ConstantExpr ) macro ( ConstantFP ) macro ( ConstantInt ) macro ( ConstantPointerNull ) macro ( ConstantStruct ) macro ( ConstantTokenNone ) macro ( ConstantVector ) macro ( ConstantPtrAuth ) macro ( GlobalValue ) macro ( GlobalAlias ) macro ( GlobalObject ) macro ( Function ) macro ( GlobalVariable ) macro ( GlobalIFunc ) macro ( UndefValue ) macro ( PoisonValue ) macro ( Instruction ) macro ( UnaryOperator ) macro ( BinaryOperator ) macro ( CallInst ) macro ( IntrinsicInst ) macro ( DbgInfoIntrinsic ) macro ( DbgVariableIntrinsic ) macro ( DbgDeclareInst ) macro ( DbgLabelInst ) macro ( MemIntrinsic ) macro ( MemCpyInst ) macro ( MemMoveInst ) macro ( MemSetInst ) macro ( CmpInst ) macro ( FCmpInst ) macro ( ICmpInst ) macro ( ExtractElementInst ) macro ( GetElementPtrInst ) macro ( InsertElementInst ) macro ( InsertValueInst ) macro ( LandingPadInst ) macro ( PHINode ) macro ( SelectInst ) macro ( ShuffleVectorInst ) macro ( StoreInst ) macro ( BranchInst ) macro ( IndirectBrInst ) macro ( InvokeInst ) macro ( ReturnInst ) macro ( SwitchInst ) macro ( UnreachableInst ) macro ( ResumeInst ) macro ( CleanupReturnInst ) macro ( CatchReturnInst ) macro ( CatchSwitchInst ) macro ( CallBrInst ) macro ( FuncletPadInst ) macro ( CatchPadInst ) macro ( CleanupPadInst ) macro ( UnaryInstruction ) macro ( AllocaInst ) macro ( CastInst ) macro ( AddrSpaceCastInst ) macro ( BitCastInst ) macro ( FPExtInst ) macro ( FPToSIInst ) macro ( FPToUIInst ) macro ( FPTruncInst ) macro ( IntToPtrInst ) macro ( PtrToIntInst ) macro ( SExtInst ) macro ( SIToFPInst ) macro ( TruncInst ) macro ( UIToFPInst ) macro ( ZExtInst ) macro ( ExtractValueInst ) macro ( LoadInst ) macro ( VAArgInst ) macro ( FreezeInst ) macro ( AtomicCmpXchgInst ) macro ( AtomicRMWInst ) macro ( FenceInst ) [NewLine]  clang-format on
 ##  @defgroup LLVMCCoreValueGeneral General APIs
 ##
 ##  Functions in this section work on all LLVMValueRef instances,
@@ -2032,6 +2185,17 @@ proc dumpValue*(val: ValueRef) {.importc: "LLVMDumpValue", dynlib: LLVMLib.}
 proc printValueToString*(
   val: ValueRef
 ): cstring {.importc: "LLVMPrintValueToString", dynlib: LLVMLib.}
+
+##
+##  Return a string representation of the DbgRecord. Use
+##  LLVMDisposeMessage to free the string.
+##
+##  @see llvm::DbgRecord::print()
+##
+
+proc printDbgRecordToString*(
+  record: DbgRecordRef
+): cstring {.importc: "LLVMPrintDbgRecordToString", dynlib: LLVMLib.}
 
 ##
 ##  Replace all uses of a value with another one.
@@ -2404,12 +2568,24 @@ proc constRealGetDouble*(
 ##
 ##  Create a ConstantDataSequential and initialize it with a string.
 ##
+##  @deprecated LLVMConstStringInContext is deprecated in favor of the API
+##  accurate LLVMConstStringInContext2
 ##  @see llvm::ConstantDataArray::getString()
 ##
 
 proc constStringInContext*(
   c: ContextRef, str: cstring, length: cuint, dontNullTerminate: Bool
 ): ValueRef {.importc: "LLVMConstStringInContext", dynlib: LLVMLib.}
+
+##
+##  Create a ConstantDataSequential and initialize it with a string.
+##
+##  @see llvm::ConstantDataArray::getString()
+##
+
+proc constStringInContext2*(
+  c: ContextRef, str: cstring, length: csize_t, dontNullTerminate: Bool
+): ValueRef {.importc: "LLVMConstStringInContext2", dynlib: LLVMLib.}
 
 ##
 ##  Create a ConstantDataSequential with string content in the global context.
@@ -2535,6 +2711,16 @@ proc constVector*(
 ): ValueRef {.importc: "LLVMConstVector", dynlib: LLVMLib.}
 
 ##
+##  Create a ConstantPtrAuth constant with the given values.
+##
+##  @see llvm::ConstantPtrAuth::get()
+##
+
+proc constantPtrAuth*(
+  `ptr`: ValueRef, key: ValueRef, disc: ValueRef, addrDisc: ValueRef
+): ValueRef {.importc: "LLVMConstantPtrAuth", dynlib: LLVMLib.}
+
+##
 ##  @}
 ##
 ##
@@ -2560,10 +2746,6 @@ proc constNeg*(
 proc constNSWNeg*(
   constantVal: ValueRef
 ): ValueRef {.importc: "LLVMConstNSWNeg", dynlib: LLVMLib.}
-
-proc constNUWNeg*(
-  constantVal: ValueRef
-): ValueRef {.importc: "LLVMConstNUWNeg", dynlib: LLVMLib.}
 
 proc constNot*(
   constantVal: ValueRef
@@ -2609,18 +2791,6 @@ proc constXor*(
   lHSConstant: ValueRef, rHSConstant: ValueRef
 ): ValueRef {.importc: "LLVMConstXor", dynlib: LLVMLib.}
 
-proc constICmp*(
-  predicate: IntPredicate, lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstICmp", dynlib: LLVMLib.}
-
-proc constFCmp*(
-  predicate: RealPredicate, lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstFCmp", dynlib: LLVMLib.}
-
-proc constShl*(
-  lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstShl", dynlib: LLVMLib.}
-
 proc constGEP2*(
   ty: TypeRef, constantVal: ValueRef, constantIndices: ptr ValueRef, numIndices: cuint
 ): ValueRef {.importc: "LLVMConstGEP2", dynlib: LLVMLib.}
@@ -2628,6 +2798,21 @@ proc constGEP2*(
 proc constInBoundsGEP2*(
   ty: TypeRef, constantVal: ValueRef, constantIndices: ptr ValueRef, numIndices: cuint
 ): ValueRef {.importc: "LLVMConstInBoundsGEP2", dynlib: LLVMLib.}
+
+##
+##  Creates a constant GetElementPtr expression. Similar to LLVMConstGEP2, but
+##  allows specifying the no-wrap flags.
+##
+##  @see llvm::ConstantExpr::getGetElementPtr()
+##
+
+proc constGEPWithNoWrapFlags*(
+  ty: TypeRef,
+  constantVal: ValueRef,
+  constantIndices: ptr ValueRef,
+  numIndices: cuint,
+  noWrapFlags: GEPNoWrapFlags,
+): ValueRef {.importc: "LLVMConstGEPWithNoWrapFlags", dynlib: LLVMLib.}
 
 proc constTrunc*(
   constantVal: ValueRef, toType: TypeRef
@@ -2672,6 +2857,22 @@ proc constShuffleVector*(
 proc blockAddress*(
   f: ValueRef, bb: BasicBlockRef
 ): ValueRef {.importc: "LLVMBlockAddress", dynlib: LLVMLib.}
+
+##
+##  Gets the function associated with a given BlockAddress constant value.
+##
+
+proc getBlockAddressFunction*(
+  blockAddr: ValueRef
+): ValueRef {.importc: "LLVMGetBlockAddressFunction", dynlib: LLVMLib.}
+
+##
+##  Gets the basic block associated with a given BlockAddress constant value.
+##
+
+proc getBlockAddressBasicBlock*(
+  blockAddr: ValueRef
+): BasicBlockRef {.importc: "LLVMGetBlockAddressBasicBlock", dynlib: LLVMLib.}
 
 ##  Deprecated: Use LLVMGetInlineAsm instead.
 
@@ -3219,6 +3420,62 @@ proc getGC*(fn: ValueRef): cstring {.importc: "LLVMGetGC", dynlib: LLVMLib.}
 ##
 
 proc setGC*(fn: ValueRef, name: cstring) {.importc: "LLVMSetGC", dynlib: LLVMLib.}
+##
+##  Gets the prefix data associated with a function. Only valid on functions, and
+##  only if LLVMHasPrefixData returns true.
+##  See https://llvm.org/docs/LangRef.html#prefix-data
+##
+
+proc getPrefixData*(
+  fn: ValueRef
+): ValueRef {.importc: "LLVMGetPrefixData", dynlib: LLVMLib.}
+
+##
+##  Check if a given function has prefix data. Only valid on functions.
+##  See https://llvm.org/docs/LangRef.html#prefix-data
+##
+
+proc hasPrefixData*(
+  fn: ValueRef
+): Bool {.importc: "LLVMHasPrefixData", dynlib: LLVMLib.}
+
+##
+##  Sets the prefix data for the function. Only valid on functions.
+##  See https://llvm.org/docs/LangRef.html#prefix-data
+##
+
+proc setPrefixData*(
+  fn: ValueRef, prefixData: ValueRef
+) {.importc: "LLVMSetPrefixData", dynlib: LLVMLib.}
+
+##
+##  Gets the prologue data associated with a function. Only valid on functions,
+##  and only if LLVMHasPrologueData returns true.
+##  See https://llvm.org/docs/LangRef.html#prologue-data
+##
+
+proc getPrologueData*(
+  fn: ValueRef
+): ValueRef {.importc: "LLVMGetPrologueData", dynlib: LLVMLib.}
+
+##
+##  Check if a given function has prologue data. Only valid on functions.
+##  See https://llvm.org/docs/LangRef.html#prologue-data
+##
+
+proc hasPrologueData*(
+  fn: ValueRef
+): Bool {.importc: "LLVMHasPrologueData", dynlib: LLVMLib.}
+
+##
+##  Sets the prologue data for the function. Only valid on functions.
+##  See https://llvm.org/docs/LangRef.html#prologue-data
+##
+
+proc setPrologueData*(
+  fn: ValueRef, prologueData: ValueRef
+) {.importc: "LLVMSetPrologueData", dynlib: LLVMLib.}
+
 ##
 ##  Add an attribute to a function.
 ##
@@ -4138,8 +4395,7 @@ proc getInstructionOpcode*(
 ##
 ##  Obtain the predicate of an instruction.
 ##
-##  This is only valid for instructions that correspond to llvm::ICmpInst
-##  or llvm::ConstantExpr whose opcode is llvm::Instruction::ICmp.
+##  This is only valid for instructions that correspond to llvm::ICmpInst.
 ##
 ##  @see llvm::ICmpInst::getPredicate()
 ##
@@ -4151,8 +4407,7 @@ proc getICmpPredicate*(
 ##
 ##  Obtain the float predicate of an instruction.
 ##
-##  This is only valid for instructions that correspond to llvm::FCmpInst
-##  or llvm::ConstantExpr whose opcode is llvm::Instruction::FCmp.
+##  This is only valid for instructions that correspond to llvm::FCmpInst.
 ##
 ##  @see llvm::FCmpInst::getPredicate()
 ##
@@ -4415,6 +4670,37 @@ proc setUnwindDest*(
 ) {.importc: "LLVMSetUnwindDest", dynlib: LLVMLib.}
 
 ##
+##  Get the default destination of a CallBr instruction.
+##
+##  @see llvm::CallBrInst::getDefaultDest()
+##
+
+proc getCallBrDefaultDest*(
+  callBr: ValueRef
+): BasicBlockRef {.importc: "LLVMGetCallBrDefaultDest", dynlib: LLVMLib.}
+
+##
+##  Get the number of indirect destinations of a CallBr instruction.
+##
+##  @see llvm::CallBrInst::getNumIndirectDests()
+##
+##
+
+proc getCallBrNumIndirectDests*(
+  callBr: ValueRef
+): cuint {.importc: "LLVMGetCallBrNumIndirectDests", dynlib: LLVMLib.}
+
+##
+##  Get the indirect destination of a CallBr instruction at the given index.
+##
+##  @see llvm::CallBrInst::getIndirectDest()
+##
+
+proc getCallBrIndirectDest*(
+  callBr: ValueRef, idx: cuint
+): BasicBlockRef {.importc: "LLVMGetCallBrIndirectDest", dynlib: LLVMLib.}
+
+##
 ##  @}
 ##
 ##
@@ -4555,6 +4841,26 @@ proc getGEPSourceElementType*(
 ): TypeRef {.importc: "LLVMGetGEPSourceElementType", dynlib: LLVMLib.}
 
 ##
+##  Get the no-wrap related flags for the given GEP instruction.
+##
+##  @see llvm::GetElementPtrInst::getNoWrapFlags
+##
+
+proc gEPGetNoWrapFlags*(
+  gep: ValueRef
+): GEPNoWrapFlags {.importc: "LLVMGEPGetNoWrapFlags", dynlib: LLVMLib.}
+
+##
+##  Set the no-wrap related flags for the given GEP instruction.
+##
+##  @see llvm::GetElementPtrInst::setNoWrapFlags
+##
+
+proc gEPSetNoWrapFlags*(
+  gep: ValueRef, noWrapFlags: GEPNoWrapFlags
+) {.importc: "LLVMGEPSetNoWrapFlags", dynlib: LLVMLib.}
+
+##
 ##  @}
 ##
 ##
@@ -4652,13 +4958,39 @@ proc createBuilderInContext*(
 ): BuilderRef {.importc: "LLVMCreateBuilderInContext", dynlib: LLVMLib.}
 
 proc createBuilder*(): BuilderRef {.importc: "LLVMCreateBuilder", dynlib: LLVMLib.}
+##
+##  Set the builder position before Instr but after any attached debug records,
+##  or if Instr is null set the position to the end of Block.
+##
+
 proc positionBuilder*(
   builder: BuilderRef, `block`: BasicBlockRef, instr: ValueRef
 ) {.importc: "LLVMPositionBuilder", dynlib: LLVMLib.}
 
+##
+##  Set the builder position before Instr and any attached debug records,
+##  or if Instr is null set the position to the end of Block.
+##
+
+proc positionBuilderBeforeDbgRecords*(
+  builder: BuilderRef, `block`: BasicBlockRef, inst: ValueRef
+) {.importc: "LLVMPositionBuilderBeforeDbgRecords", dynlib: LLVMLib.}
+
+##
+##  Set the builder position before Instr but after any attached debug records.
+##
+
 proc positionBuilderBefore*(
   builder: BuilderRef, instr: ValueRef
 ) {.importc: "LLVMPositionBuilderBefore", dynlib: LLVMLib.}
+
+##
+##  Set the builder position before Instr and any attached debug records.
+##
+
+proc positionBuilderBeforeInstrAndDbgRecords*(
+  builder: BuilderRef, instr: ValueRef
+) {.importc: "LLVMPositionBuilderBeforeInstrAndDbgRecords", dynlib: LLVMLib.}
 
 proc positionBuilderAtEnd*(
   builder: BuilderRef, `block`: BasicBlockRef
@@ -4801,6 +5133,20 @@ proc buildSwitch*(
 proc buildIndirectBr*(
   b: BuilderRef, `addr`: ValueRef, numDests: cuint
 ): ValueRef {.importc: "LLVMBuildIndirectBr", dynlib: LLVMLib.}
+
+proc buildCallBr*(
+  b: BuilderRef,
+  ty: TypeRef,
+  fn: ValueRef,
+  defaultDest: BasicBlockRef,
+  indirectDests: ptr BasicBlockRef,
+  numIndirectDests: cuint,
+  args: ptr ValueRef,
+  numArgs: cuint,
+  bundles: ptr OperandBundleRef,
+  numBundles: cuint,
+  name: cstring,
+): ValueRef {.importc: "LLVMBuildCallBr", dynlib: LLVMLib.}
 
 proc buildInvoke2*(
   a1: BuilderRef,
@@ -5089,10 +5435,6 @@ proc buildNSWNeg*(
   b: BuilderRef, v: ValueRef, name: cstring
 ): ValueRef {.importc: "LLVMBuildNSWNeg", dynlib: LLVMLib.}
 
-proc buildNUWNeg*(
-  b: BuilderRef, v: ValueRef, name: cstring
-): ValueRef {.importc: "LLVMBuildNUWNeg", dynlib: LLVMLib.}
-
 proc buildFNeg*(
   a1: BuilderRef, v: ValueRef, name: cstring
 ): ValueRef {.importc: "LLVMBuildFNeg", dynlib: LLVMLib.}
@@ -5276,6 +5618,23 @@ proc buildInBoundsGEP2*(
   numIndices: cuint,
   name: cstring,
 ): ValueRef {.importc: "LLVMBuildInBoundsGEP2", dynlib: LLVMLib.}
+
+##
+##  Creates a GetElementPtr instruction. Similar to LLVMBuildGEP2, but allows
+##  specifying the no-wrap flags.
+##
+##  @see llvm::IRBuilder::CreateGEP()
+##
+
+proc buildGEPWithNoWrapFlags*(
+  b: BuilderRef,
+  ty: TypeRef,
+  pointer: ValueRef,
+  indices: ptr ValueRef,
+  numIndices: cuint,
+  name: cstring,
+  noWrapFlags: GEPNoWrapFlags,
+): ValueRef {.importc: "LLVMBuildGEPWithNoWrapFlags", dynlib: LLVMLib.}
 
 proc buildStructGEP2*(
   b: BuilderRef, ty: TypeRef, pointer: ValueRef, idx: cuint, name: cstring

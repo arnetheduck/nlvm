@@ -1813,7 +1813,7 @@ proc debugVariable(g: LLGen, sym: PSym, v: llvm.ValueRef, argNo = -1) =
           scope, g.llName(sym), argNo.cuint, df, line, dt, false, 0
         )
 
-  discard g.d.dIBuilderInsertDeclareAtEnd(
+  discard g.d.dIBuilderInsertDeclareRecordAtEnd(
     v,
     vd,
     g.d.dIBuilderCreateExpression(nil, 0),
@@ -2670,7 +2670,7 @@ proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
           vd = g.d.dIBuilderCreateParameterVariable(
             llf.ds, $v.getValueName(), 1, df, line, dt, false, 0
           )
-        discard g.d.dIBuilderInsertDeclareAtEnd(
+        discard g.d.dIBuilderInsertDeclareRecordAtEnd(
           vs,
           vd,
           g.d.dIBuilderCreateExpression(nil, 0),
@@ -2681,7 +2681,7 @@ proc genMarkerProcBody(g: LLGen, f: llvm.ValueRef, typ: PType) =
         let opd = g.d.dIBuilderCreateParameterVariable(
           llf.ds, $op.getValueName(), 2, df, line, g.dtypes[tyInt], false, 0
         )
-        discard g.d.dIBuilderInsertDeclareAtEnd(
+        discard g.d.dIBuilderInsertDeclareRecordAtEnd(
           ops,
           opd,
           g.d.dIBuilderCreateExpression(nil, 0),
@@ -10202,7 +10202,7 @@ proc genMain(g: LLGen) =
           false,
           0,
         )
-        discard g.d.dIBuilderInsertDeclareAtEnd(
+        discard g.d.dIBuilderInsertDeclareRecordAtEnd(
           argc, vd0, g.d.dIBuilderCreateExpression(nil, 0), dl, g.b.getInsertBlock()
         )
 
@@ -10216,7 +10216,7 @@ proc genMain(g: LLGen) =
           false,
           0,
         )
-        discard g.d.dIBuilderInsertDeclareAtEnd(
+        discard g.d.dIBuilderInsertDeclareRecordAtEnd(
           argv, vd1, g.d.dIBuilderCreateExpression(nil, 0), dl, g.b.getInsertBlock()
         )
 
