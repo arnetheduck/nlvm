@@ -397,3 +397,5 @@ conf.prefixDir = AbsoluteDir(tmp / "Nim")
 conf.searchPaths.insert(conf.prefixDir / RelativeDir"../nlvm-lib", 0)
 
 handleCmdLine(cache, conf)
+
+msgQuit(int8(conf.errorCounter > 0))
