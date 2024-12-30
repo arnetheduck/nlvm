@@ -4735,7 +4735,9 @@ proc callAssign(
       fty = f.globalGetValueType()
     discard g.b.buildCall2(fty, f, [dest, src, shallow], "")
 
-const noUnwinds = toHashSet(
+# TODO using a constant here results in compile-time differences in hash member
+#      order which is weird
+let noUnwinds = toHashSet(
   [
     ("ansi_c", "c_memchr"),
     ("ansi_c", "c_memcmp"),
@@ -4819,7 +4821,9 @@ proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
       else:
         16
 
-    const allocDefaultAlignedFns = toTable(
+    # TODO using a constant here results in compile-time differences in hash member
+    #      order which is weird
+    let allocDefaultAlignedFns = toTable(
       {
         "allocImpl": (AllocFnKindUninitialized, allocsize(0)),
         "allocSharedImpl": (AllocFnKindUninitialized, allocsize(0)),
@@ -4834,7 +4838,9 @@ proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
       }
     )
 
-    const allocParamAlignedFns = toTable(
+    # TODO using a constant here results in compile-time differences in hash member
+    #      order which is weird
+    let allocParamAlignedFns = toTable(
       {
         "nimNewObj": (AllocFnKindZeroed, allocsize(0), 1),
         "nimNewObjUninit": (AllocFnKindUninitialized, allocsize(0), 1),
