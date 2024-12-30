@@ -164,6 +164,7 @@ type
   # Same as cgen, for easier genAssignment comparison
   TAssignmentFlag = enum
     needToCopy
+    needToCopySinkParam
 
   TAssignmentFlags = set[TAssignmentFlag]
 
@@ -4734,6 +4735,31 @@ proc callAssign(
       fty = f.globalGetValueType()
     discard g.b.buildCall2(fty, f, [dest, src, shallow], "")
 
+# TODO using a constant here results in compile-time differences in hash member
+#      order which is weird
+let noUnwinds = toHashSet(
+  [
+    ("ansi_c", "c_memchr"),
+    ("ansi_c", "c_memcmp"),
+    ("ansi_c", "c_memcpy"),
+    ("ansi_c", "c_memmove"),
+    ("ansi_c", "c_memset"),
+    ("ansi_c", "c_strcmp"),
+    ("ansi_c", "c_strlen"),
+    ("ansi_c", "c_strstr"),
+    ("ansi_c", "c_abort"),
+    ("ansi_c", "c_malloc"),
+    ("ansi_c", "c_calloc"),
+    ("ansi_c", "c_free"),
+    ("ansi_c", "c_realloc"),
+    ("nlvm_system", "mmap"),
+    ("nlvm_system", "munmap"),
+    ("system", "mmap"),
+    ("system", "munmap"),
+    ("system", "rawQuit"),
+  ]
+)
+
 proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
   ## Add a function prototype for a nim function to the given module
   let
@@ -4742,6 +4768,18 @@ proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
     ty = g.llProcType(typ, typ.callConv == ccClosure)
 
     f = g.addNimFunction(name, ty)
+
+  if sfImportc in sym.flags:
+    if typ[0] != nil and typ[0].kind in {tyTuple, tyObject} and
+        g.config.getSize(typ[0]) <= 16:
+      # TODO https://github.com/llvm/llvm-project/blob/6cbc64ed922cc69bc292d394ba5c681fa309f404/clang/lib/CodeGen/Targets/X86.cpp#L1783
+      # TODO https://github.com/ziglang/zig/pull/9443
+      g.config.message(
+        sym.info,
+        warnUser,
+        "TODO: C ABI for small struct returns not implemented - there may be issues: " &
+          $name,
+      )
 
   if sfNoReturn in sym.flags:
     f.addFuncAttribute(g.attrNoReturn)
@@ -4761,64 +4799,98 @@ proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
   ]:
     f.addFuncAttribute(g.attrCold)
 
-  if (sym.originatingModule.name.s, sym.name.s) in
-      [("system", "quit"), ("ansi_c", "c_abort")]:
+  # C functions known to not raise exceptions - can't enable for all importc
+  # functions because they might take a callback or use a global to cause
+  # unwinding :/
+  if (sym.originatingModule.name.s, sym.name.s) in noUnwinds:
     f.addFuncAttribute(g.attrNoUnwind)
 
   if sym.originatingModule.name.s == "system" and g.config.selectedGC notin {gcRegions}:
-    if sym.name.s in ["allocImpl", "allocSharedImpl"]:
+    template allocsize(size, count: uint32): uint64 =
+      uint64(size) shl 32 or uint64(count)
+
+    template allocsize(size: uint32): uint64 =
+      allocsize(size, not 0'u32)
+
+    # TODO this constant should be set based on the _target_, not `nlvm` itself
+    const MemAlign =
+      when defined(nimMemAlignTiny):
+        4
+      elif defined(useMalloc):
+        when defined(amd64): 16 else: 8
+      else:
+        16
+
+    # TODO using a constant here results in compile-time differences in hash member
+    #      order which is weird
+    let allocDefaultAlignedFns = toTable(
+      {
+        "allocImpl": (AllocFnKindUninitialized, allocsize(0)),
+        "allocSharedImpl": (AllocFnKindUninitialized, allocsize(0)),
+        "alloc0Impl": (AllocFnKindZeroed, allocsize(0)),
+        "allocShared0Impl": (AllocFnKindZeroed, allocsize(0)),
+        "newObj": (AllocFnKindZeroed, allocsize(1)),
+        "newObjRC1": (AllocFnKindZeroed, allocsize(1)),
+        "newObjNoInit": (AllocFnKindUninitialized, allocsize(1)),
+        "rawNewObj": (AllocFnKindUninitialized, allocsize(1)),
+        "alloc": (AllocFnKindUninitialized, allocsize(1)),
+        "rawAlloc": (AllocFnKindUninitialized, allocsize(1)),
+      }
+    )
+
+    # TODO using a constant here results in compile-time differences in hash member
+    #      order which is weird
+    let allocParamAlignedFns = toTable(
+      {
+        "nimNewObj": (AllocFnKindZeroed, allocsize(0), 1),
+        "nimNewObjUninit": (AllocFnKindUninitialized, allocsize(0), 1),
+        "alignedAlloc": (AllocFnKindUninitialized, allocsize(0), 1),
+        "alignedAlloc0": (AllocFnKindZeroed, allocsize(0), 1),
+      }
+    )
+
+    if sym.name.s in allocDefaultAlignedFns:
+      let attrs = allocDefaultAlignedFns[sym.name.s]
+      f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
+      f.addFuncAttribute(
+        g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or attrs[0])
+      )
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, attrs[1]))
+      f.addAttributeAtIndex(
+        AttributeIndex(AttributeReturnIndex),
+        g.lc.createEnumAttribute(attrAlign, MemAlign),
+      )
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
+      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
+    elif sym.name.s in allocParamAlignedFns:
+      let attrs = allocParamAlignedFns[sym.name.s]
       f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
       f.addFuncAttribute(
         g.lc.createEnumAttribute(
-          attrAllockind, AllocFnKindAlloc or AllocFnKindUninitialized
+          attrAllockind, AllocFnKindAlloc or AllocFnKindAligned or attrs[0]
         )
       )
-      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)))
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, attrs[1]))
       f.addAttributeAtIndex(
-        AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16)
+        AttributeIndex(attrs[2] + 1), g.lc.createEnumAttribute(attrAllocalign, 0)
       )
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
       f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
-    elif sym.name.s in ["alloc0Impl", "allocShared0Impl"]:
+    elif sym.name.s in ["dealloc", "deallocShared"]:
+      f.addFuncAttribute(g.attrNoUnwind)
       f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
-      f.addFuncAttribute(
-        g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindZeroed)
-      )
-      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllocsize, cast[uint32](-1)))
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindFree))
+
       f.addAttributeAtIndex(
-        AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16)
+        AttributeIndex(typ.len - 1), g.lc.createEnumAttribute(attrAllocptr, 0)
       )
-      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
-      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
-    elif sym.name.s in ["alloc0", "newObj", "newObjRC1", "rawAlloc0", "allocShared0"]:
+    elif sym.name.s in ["rawDealloc"]:
+      f.addFuncAttribute(g.attrNoUnwind)
       f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
-      f.addFuncAttribute(
-        g.lc.createEnumAttribute(attrAllockind, AllocFnKindAlloc or AllocFnKindZeroed)
-      )
-      f.addFuncAttribute(
-        g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1))
-      )
+      f.addFuncAttribute(g.lc.createEnumAttribute(attrAllockind, AllocFnKindFree))
       f.addAttributeAtIndex(
-        AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16)
+        AttributeIndex(2), g.lc.createEnumAttribute(attrAllocptr, 0)
       )
-      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
-      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
-    elif sym.name.s in
-        ["alloc", "rawAlloc", "newObjNoInit", "rawNewObj", "rawAlloc", "allocShared"]:
-      f.addFuncAttribute(g.lc.createStringAttribute("alloc-family", "nimgc"))
-      f.addFuncAttribute(
-        g.lc.createEnumAttribute(
-          attrAllockind, AllocFnKindAlloc or AllocFnKindUninitialized
-        )
-      )
-      f.addFuncAttribute(
-        g.lc.createEnumAttribute(attrAllocsize, uint64(1 shl 32) + cast[uint32](-1))
-      )
-      f.addAttributeAtIndex(
-        AttributeIndex(AttributeReturnIndex), g.lc.createEnumAttribute(attrAlign, 16)
-      )
-      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNonnull)
-      f.addAttributeAtIndex(AttributeIndex(AttributeReturnIndex), g.attrNoalias)
 
   f
 
@@ -5388,7 +5460,7 @@ proc genBoundsCheckArray(g: LLGen, arr, firstOrd, lastOrd, a, b: llvm.ValueRef) 
 
 proc buildLoadVar(g: LLGen, typ: PType, v: llvm.ValueRef): llvm.ValueRef =
   if typ.skipTypes(abstractInst).kind in {tyVar, tyLent}:
-    g.b.buildLoad2(g.ptrTy, v)
+    g.b.buildLoad2(g.llType(last(typ.skipTypes(abstractInst))), v)
   else:
     v
 
@@ -5427,14 +5499,12 @@ proc genOpenArrayConv(
           else:
             axp.v
         v = g.buildLoadVar(n.typ, ax)
-
       (g.getNimSeqDataPtr(seqTy, v), g.loadNimSeqLen(v))
     of tyOpenArray, tyVarargs:
-      let ax = g.buildLoadVar(n.typ, g.genNode(n, false).v)
-
+      let ax = g.buildLoadVar(n.typ, g.genNode(n, true).v)
       (
-        g.b.buildLoad2(g.ptrTy, g.buildOpenArrayDataGEP(ax)),
-        g.b.buildLoad2(g.intTy, g.buildOpenArrayLenGEP(ax)),
+        g.b.buildExtractValue(ax, 0, g.nn("p", ax)),
+        g.b.buildExtractValue(ax, 1, g.nn("l", ax)),
       )
     of tyArray, tyUncheckedArray:
       var v = g.genNode(n, true).v
@@ -5798,9 +5868,8 @@ proc genAssignment(g: LLGen, dest, src: LLValue, typ: PType, flags: TAssignmentF
   of tyString:
     if optSeqDestructors in g.config.globalOptions:
       discard g.b.buildStore(src.v, dest.v)
-    elif ({needToCopy} * flags == {} and src.storage != OnStatic) or canMove(
-      g, src.lode
-    ):
+    elif ({needToCopy, needToCopySinkParam} * flags == {} and src.storage != OnStatic) or
+        canMove(g, src.lode):
       g.genRefAssign(dest, src.v)
     else:
       if (dest.storage == OnStack and g.config.selectedGC != gcGo) or
@@ -5961,9 +6030,15 @@ proc genConstBracket(g: LLGen, n: PNode): llvm.ValueRef =
     for i, s in n.sons:
       vals[i] = g.genConstInitializer(s)
     let s = constArray(et, vals)
-    if typ.kind in {tyArray, tyUncheckedArray}:
+    case typ.kind
+    of tyArray, tyUncheckedArray:
       s
-    else:
+    of tyOpenArray:
+      let lit = g.m.addPrivateConstant(s.typeOfX, g.nn(".oa", n))
+      lit.setInitializer(s)
+
+      llvm.constNamedStruct(g.llOpenArrayType(), [lit, g.constInt64(vals.len)])
+    of tySequence:
       let
         ll = g.constNimInt(vals.len)
         cap = g.constNimInt(vals.len + g.strLitFlag)
@@ -5980,6 +6055,8 @@ proc genConstBracket(g: LLGen, n: PNode): llvm.ValueRef =
           lit = g.m.addPrivateConstant(payload.typeOfX, g.nn(".seq", n))
         lit.setInitializer(payload)
         lit
+    else:
+      raiseAssert "Unexpected const bracket: " & $typ.kind
 
 proc genConstObjConstr(g: LLGen, n: PNode): llvm.ValueRef =
   let
@@ -6747,6 +6824,8 @@ proc genMagicLengthStr(g: LLGen, n: PNode): LLValue =
   let
     fty = llvm.functionType(g.csizetTy, [g.primitives[tyCString]])
     f = g.m.getOrInsertFunction("strlen", fty)
+
+  f.addFuncAttribute(g.attrNoUnwind)
 
   let v1 = g.buildTruncOrExt(
     g.b.buildCall2(fty, f, [v], g.nn("str.len.call", n)), g.primitives[tyInt], false
@@ -7790,13 +7869,49 @@ proc genMagicMove(g: LLGen, n: PNode, load: bool): LLValue =
 
     g.buildStoreNull(ty, tmpx.v)
     g.genObjectInit(n[1].typ, tmpx.v)
-    let flags =
-      if not canMove(g, n[1]):
-        {needToCopy}
+    if g.config.selectedGC in {gcArc, gcAtomicArc, gcOrc}:
+      g.genAssignment(tmpx, g.maybeLoadValue(ty, ax, lx), n[1].typ, {})
+      var op = getAttachedOp(g.graph, n.typ, attachedWasMoved)
+      if op == nil:
+        g.callReset(n[1].skipAddr.typ, ax)
       else:
-        {}
-    g.genAssignment(tmpx, g.maybeLoadValue(ty, ax, lx), n[1].typ, flags)
-    g.callReset(n[1].skipAddr.typ, ax)
+        case skipTypes(n[1].skipAddr.typ, abstractVar + {tyStatic}).kind
+        of tyOpenArray, tyVarargs:
+          # todo fixme generated `wasMoved` hooks for
+          # openarrays, but it probably shouldn't?
+          raiseAssert "TODO"
+          # var s: string
+          # if reifiedOpenArray(a.lode):
+          #   if a.t.kind in {tyVar, tyLent}:
+          #     s = "$1->Field0, $1->Field1" % [rdLoc(a)]
+          #   else:
+          #     s = "$1.Field0, $1.Field1" % [rdLoc(a)]
+          # else:
+          #   s = "$1, $1Len_0" % [rdLoc(a)]
+          # linefmt(p, cpsStmts, "$1($2);$n", [rdLoc(b), s])
+        else:
+          let
+            f = g.genFunctionWithBody(op).v
+            fty = f.globalGetValueType()
+          discard g.b.buildCall2(fty, f, [ax.v], "")
+    else:
+      if n[1].kind == nkSym and isSinkParam(n[1].sym):
+        let ty2 = g.llType(n[1].typ.skipTypes({tySink}))
+        let tmp2 =
+          LLValue(v: g.localAlloca(ty2, g.nn("move.tmp2", n[1])), storage: OnStack)
+
+        g.buildStoreNull(ty2, tmp2.v)
+        g.genObjectInit(n[1].typ.skipTypes({tySink}), tmp2.v)
+
+        g.genAssignment(
+          tmp2, g.maybeLoadValue(ty, ax, lx), n[1].typ, {needToCopySinkParam}
+        )
+        g.genAssignment(tmpx, g.buildLoadValue(ty2, tmp2), n[1].typ, {})
+        g.callReset(n[1].typ.skipTypes({tySink}), tmp2)
+      else:
+        g.genAssignment(tmpx, g.maybeLoadValue(ty, ax, lx), n[1].typ, {})
+      g.callReset(n[1].skipAddr.typ, ax)
+
     g.maybeLoadValue(ty, tmpx, load)
 
 proc genMagicDestroy(g: LLGen, n: PNode) =

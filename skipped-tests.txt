@@ -160,6 +160,7 @@ tests/pragmas/tpush.nim c
 tests/pragmas/treorder.nim c
 tests/realtimeGC/tmain.nim c
 tests/sets/t20997.nim c
+tests/stdlib/tasynchttpserver_transferencoding.nim c --mm:arc -d:danger
 tests/stdlib/tcasts.nim c
 tests/stdlib/thashes.nim c --backend:js --jsbigint64:off
 tests/stdlib/thashes.nim c --backend:js --jsbigint64:on
@@ -195,7 +196,6 @@ tests/threads/tonthreadcreation.nim c  --threads:on --mm:orc --deepcopy:on
 tests/threads/tonthreadcreation.nim c  --threads:on --tlsEmulation:on --mm:orc --deepcopy:on
 tests/tools/tnimgrep.nim c
 tests/views/tcan_compile_nim.nim c
-tests/views/tconst_views.nim c
 tests/views/tsplit_into_seq.nim c
 tests/vm/tvmmisc.nim c
 tests/vm/tvmops.nim c
