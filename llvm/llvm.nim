@@ -622,6 +622,7 @@ let
   attrAllockind* = getEnumAttrKind("allockind")
   attrAllocsize* = getEnumAttrKind("allocsize")
   attrAllocptr* = getEnumAttrKind("allocptr")
+  attrAllocalign* = getEnumAttrKind("allocalign")
   attrAlign* = getEnumAttrKind("align")
   attrNonnull* = getEnumAttrKind("nonnull")
   attrNoalias* = getEnumAttrKind("noalias")
