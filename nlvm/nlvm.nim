@@ -179,9 +179,8 @@ proc commandScan(conf: ConfigRef) =
   var stream = llStreamOpen(f.AbsoluteFile, fmRead)
   if stream != nil:
     var
-      L: Lexer
-      tok: Token
-    initToken(tok)
+      L: Lexer = default(Lexer)
+      tok: Token = default(Token)
     openLexer(L, f.AbsoluteFile, stream, newIdentCache(), conf)
     while true:
       rawGetTok(L, tok)
@@ -332,10 +331,7 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   conf.exc = excSetjmp
 
   if conf.selectedGC == gcUnselected:
-    # ORC runtime not yet well-supported
-    unregisterArcOrc(conf)
-    defineSymbol(conf.symbols, "gcrefc")
-    conf.selectedGC = gcRefc
+    initOrcDefines(conf)
 
   if conf.cmd == cmdCrun:
     conf.verbosity = 0
