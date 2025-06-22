@@ -3410,16 +3410,17 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
       else:
         constNull(g.ptrTy)
     flagsVar = g.constNimInt(flags)
+    vtableVar = constArray(g.ptrTy, [])
     values =
       if isDefined(g.config, "nimTypeNames"):
         @[
           destroyImpl, sizeVar, alignVar, depthVar, displayVar, nameVar, traceImpl,
-          v1Var, flagsVar,
+          v1Var, flagsVar, vtableVar
         ]
       else:
         @[
           destroyImpl, sizeVar, alignVar, depthVar, displayVar, traceImpl, v1Var,
-          flagsVar,
+          flagsVar, vtableVar
         ]
 
   result.setInitializer(llvm.constNamedStruct(nimTypeTy, values))
@@ -7815,14 +7816,15 @@ proc genMagicParallel(g: LLGen, n: PNode) =
   g.genNode(n2)
 
 proc genMagicSwap(g: LLGen, n: PNode) =
+  g.cowBracket(n[1]) # prepare strings for assignment before loading pointers
+  g.cowBracket(n[2])
+
   let
     ax = g.genNode(n[1], false)
     bx = g.genNode(n[2], false)
     lx = g.loadAssignment(n[1].typ)
     ty = g.llType(n[1].typ)
     tmpx = LLValue(v: g.localAlloca(ty, g.nn("swap.tmp", n)), storage: OnStack)
-  g.cowBracket(n[1])
-  g.cowBracket(n[2])
 
   g.buildStoreNull(ty, tmpx.v)
   g.genObjectInit(n[1].typ, tmpx.v)

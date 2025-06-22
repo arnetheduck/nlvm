@@ -273,6 +273,11 @@ when defined(nimV2):
       traceImpl: pointer
       typeInfoV1: pointer # for backwards compat, usually nil
       flags: int
+      when defined(gcDestructors):
+        when defined(cpp):
+          vTable: ptr UncheckedArray[pointer] # vtable for types
+        else:
+          vTable: UncheckedArray[pointer] # vtable for types
 
     PNimTypeV2 = ptr TNimTypeV2
 
