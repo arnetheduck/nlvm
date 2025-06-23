@@ -1,7 +1,5 @@
 lib/nimhcr.nim c  -d:nimDebugDlOpen -d:release --threads:off --outdir:tests/dll
 lib/nimhcr.nim c  -d:nimDebugDlOpen --threads:off --outdir:tests/dll
-lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --outdir:tests/dll
-lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll
 tests/align/talign.nim c
 tests/arc/t16458.nim c --gc:orc --d:useNimRtl
 tests/arc/t18977.nim c --mm:arc
@@ -12,7 +10,6 @@ tests/arc/tcaseobj.nim c
 tests/arc/tclosureiter.nim c
 tests/arc/tdeepcopy.nim c
 tests/arc/thard_alignment.nim c
-tests/array/tarray.nim c
 tests/assert/t21195.nim c --verbosity:0 --os:standalone --mm:none
 tests/assert/tassert_c.nim c -d:nimPreviewSlimSystem --stackTrace:on --excessiveStackTrace:off
 tests/async/tasync_traceback2.nim c
@@ -198,7 +195,6 @@ tests/stdlib/tsetutils.nim c --mm:orc
 tests/stdlib/tsetutils.nim c --mm:refc
 tests/stdlib/tstackframes.nim c
 tests/stdlib/tstdlib_various.nim c --mm:refc
-tests/stdlib/tstring.nim c --mm:orc
 tests/stdlib/tstrutils.nim js --backend:js --jsbigint64:off -d:nimStringHash2
 tests/stdlib/tstrutils.nim js --backend:js --jsbigint64:on
 tests/stdlib/ttimes.nim js --backend:js --jsbigint64:off -d:nimStringHash2
@@ -218,10 +214,8 @@ tests/threads/tonthreadcreation.nim c  --threads:on --mm:orc --deepcopy:on
 tests/threads/tonthreadcreation.nim c  --threads:on --tlsEmulation:on --mm:orc --deepcopy:on
 tests/tools/tctags.nim c
 tests/tools/tnimgrep.nim c
-tests/views/tsplit_into_openarray.nim c
 tests/views/tsplit_into_seq.nim c
 tests/views/tsplit_into_table.nim c
 tests/vm/tcaseobj.nim c
 tests/vm/tvmmisc.nim c
 tests/vm/tvmops.nim c
-tools/nimgrep c  --debugger:on
