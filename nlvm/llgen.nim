@@ -3415,12 +3415,12 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
       if isDefined(g.config, "nimTypeNames"):
         @[
           destroyImpl, sizeVar, alignVar, depthVar, displayVar, nameVar, traceImpl,
-          v1Var, flagsVar, vtableVar
+          v1Var, flagsVar, vtableVar,
         ]
       else:
         @[
           destroyImpl, sizeVar, alignVar, depthVar, displayVar, traceImpl, v1Var,
-          flagsVar, vtableVar
+          flagsVar, vtableVar,
         ]
 
   result.setInitializer(llvm.constNamedStruct(nimTypeTy, values))
