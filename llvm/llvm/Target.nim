@@ -168,7 +168,7 @@ proc intPtrTypeForASInContext*(
   c: ContextRef, td: TargetDataRef, `as`: cuint
 ): TypeRef {.importc: "LLVMIntPtrTypeForASInContext", dynlib: LLVMLib.}
 
-##  Computes the size of a type in bytes for a target.
+##  Computes the size of a type in bits for a target.
 ##     See the method llvm::DataLayout::getTypeSizeInBits.
 
 proc sizeOfXTypeInBits*(

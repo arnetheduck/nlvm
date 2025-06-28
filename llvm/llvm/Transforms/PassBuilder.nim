@@ -43,6 +43,17 @@ proc runPasses*(
 ): ErrorRef {.importc: "LLVMRunPasses", dynlib: LLVMLib.}
 
 ##
+##  Construct and run a set of passes over a function.
+##
+##  This function behaves the same as LLVMRunPasses, but operates on a single
+##  function instead of an entire module.
+##
+
+proc runPassesOnFunction*(
+  f: ValueRef, passes: cstring, tm: TargetMachineRef, options: PassBuilderOptionsRef
+): ErrorRef {.importc: "LLVMRunPassesOnFunction", dynlib: LLVMLib.}
+
+##
 ##  Create a new set of options for a PassBuilder
 ##
 ##  Ownership of the returned instance is given to the client, and they are
@@ -70,6 +81,16 @@ proc passBuilderOptionsSetVerifyEach*(
 proc passBuilderOptionsSetDebugLogging*(
   options: PassBuilderOptionsRef, debugLogging: Bool
 ) {.importc: "LLVMPassBuilderOptionsSetDebugLogging", dynlib: LLVMLib.}
+
+##
+##  Specify a custom alias analysis pipeline for the PassBuilder to be used
+##  instead of the default one. The string argument is not copied; the caller
+##  is responsible for ensuring it outlives the PassBuilderOptions instance.
+##
+
+proc passBuilderOptionsSetAAPipeline*(
+  options: PassBuilderOptionsRef, aAPipeline: cstring
+) {.importc: "LLVMPassBuilderOptionsSetAAPipeline", dynlib: LLVMLib.}
 
 proc passBuilderOptionsSetLoopInterleaving*(
   options: PassBuilderOptionsRef, loopInterleaving: Bool

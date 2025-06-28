@@ -50,6 +50,14 @@ proc getErrorTypeId*(
 
 proc consumeError*(err: ErrorRef) {.importc: "LLVMConsumeError", dynlib: LLVMLib.}
 ##
+##  Report a fatal error if Err is a failure value.
+##
+##  This function can be used to wrap calls to fallible functions ONLY when it is
+##  known that the Error will always be a success value.
+##
+
+proc cantFail*(err: ErrorRef) {.importc: "LLVMCantFail", dynlib: LLVMLib.}
+##
 ##  Returns the given string's error message. This operation consumes the error,
 ##  and the given LLVMErrorRef value is not usable once this call returns.
 ##  The caller is responsible for disposing of the string by calling
