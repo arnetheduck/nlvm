@@ -48,27 +48,28 @@ type
   ##  @see Module::ModFlagBehavior::Error
   ##
   TypeKind* {.size: sizeof(cint).} = enum
-    VoidTypeKind ## < type with no size
-    HalfTypeKind ## < 16 bit floating point type
-    FloatTypeKind ## < 32 bit floating point type
-    DoubleTypeKind ## < 64 bit floating point type
-    X86FP80TypeKind ## < 80 bit floating point type (X87)
-    FP128TypeKind ## < 128 bit floating point type (112-bit mantissa)
-    PPC_FP128TypeKind ## < 128 bit floating point type (two 64-bits)
-    LabelTypeKind ## < Labels
-    IntegerTypeKind ## < Arbitrary bit width integers
-    FunctionTypeKind ## < Functions
-    StructTypeKind ## < Structures
-    ArrayTypeKind ## < Arrays
-    PointerTypeKind ## < Pointers
-    VectorTypeKind ## < Fixed width SIMD vector type
-    MetadataTypeKind ## < Metadata
-    X86MMXTypeKind ## < X86 MMX
-    TokenTypeKind ## < Tokens
-    ScalableVectorTypeKind ## < Scalable SIMD vector type
-    BFloatTypeKind ## < 16 bit brain floating point type
-    X86AMXTypeKind ## < X86 AMX
-    TargetExtTypeKind ## < Target extension type
+    VoidTypeKind = 0 ## < type with no size
+    HalfTypeKind = 1 ## < 16 bit floating point type
+    FloatTypeKind = 2 ## < 32 bit floating point type
+    DoubleTypeKind = 3 ## < 64 bit floating point type
+    X86FP80TypeKind = 4 ## < 80 bit floating point type (X87)
+    FP128TypeKind = 5 ## < 128 bit floating point type (112-bit mantissa)
+    PPC_FP128TypeKind = 6 ## < 128 bit floating point type (two 64-bits)
+    LabelTypeKind = 7 ## < Labels
+    IntegerTypeKind = 8 ## < Arbitrary bit width integers
+    FunctionTypeKind = 9 ## < Functions
+    StructTypeKind = 10 ## < Structures
+    ArrayTypeKind = 11 ## < Arrays
+    PointerTypeKind = 12 ## < Pointers
+    VectorTypeKind = 13 ## < Fixed width SIMD vector type
+    MetadataTypeKind = 14
+      ## < Metadata
+      ##  15 previously used by LLVMX86_MMXTypeKind
+    TokenTypeKind = 16 ## < Tokens
+    ScalableVectorTypeKind = 17 ## < Scalable SIMD vector type
+    BFloatTypeKind = 18 ## < 16 bit brain floating point type
+    X86AMXTypeKind = 19 ## < X86 AMX
+    TargetExtTypeKind = 20 ## < Target extension type
 
   Linkage* {.size: sizeof(cint).} = enum
     ExternalLinkage ## < Externally visible function
@@ -300,6 +301,10 @@ type
     AtomicRMWBinOpUDecWrap
       ## < Decrements the value, wrapping back to
       ##                                the input value when decremented below zero
+    AtomicRMWBinOpUSubCond
+      ## <Subtracts the value only if no unsigned
+      ##                                  overflow
+    AtomicRMWBinOpUSubSat ## <Subtracts the value, clamping to zero
 
   DiagnosticSeverity* {.size: sizeof(cint).} = enum
     DSError
@@ -574,6 +579,14 @@ proc getMDKindIDInContext*(
 proc getMDKindID*(
   name: cstring, sLen: cuint
 ): cuint {.importc: "LLVMGetMDKindID", dynlib: LLVMLib.}
+
+##
+##  Maps a synchronization scope name to a ID unique within this context.
+##
+
+proc getSyncScopeID*(
+  c: ContextRef, name: cstring, sLen: csize_t
+): cuint {.importc: "LLVMGetSyncScopeID", dynlib: LLVMLib.}
 
 ##
 ##  Return an unique id given the name of a enum attribute,
@@ -1295,6 +1308,18 @@ proc getNamedFunction*(
 ): ValueRef {.importc: "LLVMGetNamedFunction", dynlib: LLVMLib.}
 
 ##
+##  Obtain a Function value from a Module by its name.
+##
+##  The returned value corresponds to a llvm::Function value.
+##
+##  @see llvm::Module::getFunction()
+##
+
+proc getNamedFunctionWithLength*(
+  m: ModuleRef, name: cstring, length: csize_t
+): ValueRef {.importc: "LLVMGetNamedFunctionWithLength", dynlib: LLVMLib.}
+
+##
 ##  Obtain an iterator to the first Function in a Module.
 ##
 ##  @see llvm::Module::begin()
@@ -1987,14 +2012,6 @@ proc labelTypeInContext*(
 ): TypeRef {.importc: "LLVMLabelTypeInContext", dynlib: LLVMLib.}
 
 ##
-##  Create a X86 MMX type in a context.
-##
-
-proc x86MMXTypeInContext*(
-  c: ContextRef
-): TypeRef {.importc: "LLVMX86MMXTypeInContext", dynlib: LLVMLib.}
-
-##
 ##  Create a X86 AMX type in a context.
 ##
 
@@ -2025,7 +2042,6 @@ proc metadataTypeInContext*(
 
 proc voidType*(): TypeRef {.importc: "LLVMVoidType", dynlib: LLVMLib.}
 proc labelType*(): TypeRef {.importc: "LLVMLabelType", dynlib: LLVMLib.}
-proc x86MMXType*(): TypeRef {.importc: "LLVMX86MMXType", dynlib: LLVMLib.}
 proc x86AMXType*(): TypeRef {.importc: "LLVMX86AMXType", dynlib: LLVMLib.}
 ##
 ##  Create a target extension type in LLVM context.
@@ -2185,6 +2201,16 @@ proc dumpValue*(val: ValueRef) {.importc: "LLVMDumpValue", dynlib: LLVMLib.}
 proc printValueToString*(
   val: ValueRef
 ): cstring {.importc: "LLVMPrintValueToString", dynlib: LLVMLib.}
+
+##
+##  Obtain the context to which this value is associated.
+##
+##  @see llvm::Value::getContext()
+##
+
+proc getValueContext*(
+  val: ValueRef
+): ContextRef {.importc: "LLVMGetValueContext", dynlib: LLVMLib.}
 
 ##
 ##  Return a string representation of the DbgRecord. Use
@@ -3093,6 +3119,10 @@ proc getNamedGlobal*(
   m: ModuleRef, name: cstring
 ): ValueRef {.importc: "LLVMGetNamedGlobal", dynlib: LLVMLib.}
 
+proc getNamedGlobalWithLength*(
+  m: ModuleRef, name: cstring, length: csize_t
+): ValueRef {.importc: "LLVMGetNamedGlobalWithLength", dynlib: LLVMLib.}
+
 proc getFirstGlobal*(
   m: ModuleRef
 ): ValueRef {.importc: "LLVMGetFirstGlobal", dynlib: LLVMLib.}
@@ -3295,7 +3325,7 @@ proc setPersonalityFn*(
 ##
 ##  Obtain the intrinsic ID number which matches the given function name.
 ##
-##  @see llvm::Function::lookupIntrinsicID()
+##  @see llvm::Intrinsic::lookupIntrinsicID()
 ##
 
 proc lookupIntrinsicID*(
@@ -3313,10 +3343,10 @@ proc getIntrinsicID*(
 ): cuint {.importc: "LLVMGetIntrinsicID", dynlib: LLVMLib.}
 
 ##
-##  Create or insert the declaration of an intrinsic.  For overloaded intrinsics,
+##  Get or insert the declaration of an intrinsic.  For overloaded intrinsics,
 ##  parameter types must be provided to uniquely identify an overload.
 ##
-##  @see llvm::Intrinsic::getDeclaration()
+##  @see llvm::Intrinsic::getOrInsertDeclaration()
 ##
 
 proc getIntrinsicDeclaration*(
@@ -4442,6 +4472,53 @@ proc isATerminatorInst*(
 ): ValueRef {.importc: "LLVMIsATerminatorInst", dynlib: LLVMLib.}
 
 ##
+##  Obtain the first debug record attached to an instruction.
+##
+##  Use LLVMGetNextDbgRecord() and LLVMGetPreviousDbgRecord() to traverse the
+##  sequence of DbgRecords.
+##
+##  Return the first DbgRecord attached to Inst or NULL if there are none.
+##
+##  @see llvm::Instruction::getDbgRecordRange()
+##
+
+proc getFirstDbgRecord*(
+  inst: ValueRef
+): DbgRecordRef {.importc: "LLVMGetFirstDbgRecord", dynlib: LLVMLib.}
+
+##
+##  Obtain the last debug record attached to an instruction.
+##
+##  Return the last DbgRecord attached to Inst or NULL if there are none.
+##
+##  @see llvm::Instruction::getDbgRecordRange()
+##
+
+proc getLastDbgRecord*(
+  inst: ValueRef
+): DbgRecordRef {.importc: "LLVMGetLastDbgRecord", dynlib: LLVMLib.}
+
+##
+##  Obtain the next DbgRecord in the sequence or NULL if there are no more.
+##
+##  @see llvm::Instruction::getDbgRecordRange()
+##
+
+proc getNextDbgRecord*(
+  dbgRecord: DbgRecordRef
+): DbgRecordRef {.importc: "LLVMGetNextDbgRecord", dynlib: LLVMLib.}
+
+##
+##  Obtain the previous DbgRecord in the sequence or NULL if there are no more.
+##
+##  @see llvm::Instruction::getDbgRecordRange()
+##
+
+proc getPreviousDbgRecord*(
+  dbgRecord: DbgRecordRef
+): DbgRecordRef {.importc: "LLVMGetPreviousDbgRecord", dynlib: LLVMLib.}
+
+##
 ##  @defgroup LLVMCCoreValueInstructionCall Call Sites and Invocations
 ##
 ##  Functions in this group apply to instructions that refer to call
@@ -5087,6 +5164,16 @@ proc builderSetDefaultFPMathTag*(
 ) {.importc: "LLVMBuilderSetDefaultFPMathTag", dynlib: LLVMLib.}
 
 ##
+##  Obtain the context to which this builder is associated.
+##
+##  @see llvm::IRBuilder::getContext()
+##
+
+proc getBuilderContext*(
+  builder: BuilderRef
+): ContextRef {.importc: "LLVMGetBuilderContext", dynlib: LLVMLib.}
+
+##
 ##  Deprecated: Passing the NULL location will crash.
 ##  Use LLVMGetCurrentDebugLocation2 instead.
 ##
@@ -5644,6 +5731,10 @@ proc buildGlobalString*(
   b: BuilderRef, str: cstring, name: cstring
 ): ValueRef {.importc: "LLVMBuildGlobalString", dynlib: LLVMLib.}
 
+##
+##  Deprecated: Use LLVMBuildGlobalString instead, which has identical behavior.
+##
+
 proc buildGlobalStringPtr*(
   b: BuilderRef, str: cstring, name: cstring
 ): ValueRef {.importc: "LLVMBuildGlobalStringPtr", dynlib: LLVMLib.}
@@ -5853,6 +5944,10 @@ proc buildFence*(
   b: BuilderRef, ordering: AtomicOrdering, singleThread: Bool, name: cstring
 ): ValueRef {.importc: "LLVMBuildFence", dynlib: LLVMLib.}
 
+proc buildFenceSyncScope*(
+  b: BuilderRef, ordering: AtomicOrdering, ssid: cuint, name: cstring
+): ValueRef {.importc: "LLVMBuildFenceSyncScope", dynlib: LLVMLib.}
+
 proc buildAtomicRMW*(
   b: BuilderRef,
   op: AtomicRMWBinOp,
@@ -5861,6 +5956,15 @@ proc buildAtomicRMW*(
   ordering: AtomicOrdering,
   singleThread: Bool,
 ): ValueRef {.importc: "LLVMBuildAtomicRMW", dynlib: LLVMLib.}
+
+proc buildAtomicRMWSyncScope*(
+  b: BuilderRef,
+  op: AtomicRMWBinOp,
+  `ptr`: ValueRef,
+  val: ValueRef,
+  ordering: AtomicOrdering,
+  ssid: cuint,
+): ValueRef {.importc: "LLVMBuildAtomicRMWSyncScope", dynlib: LLVMLib.}
 
 proc buildAtomicCmpXchg*(
   b: BuilderRef,
@@ -5871,6 +5975,16 @@ proc buildAtomicCmpXchg*(
   failureOrdering: AtomicOrdering,
   singleThread: Bool,
 ): ValueRef {.importc: "LLVMBuildAtomicCmpXchg", dynlib: LLVMLib.}
+
+proc buildAtomicCmpXchgSyncScope*(
+  b: BuilderRef,
+  `ptr`: ValueRef,
+  cmp: ValueRef,
+  new: ValueRef,
+  successOrdering: AtomicOrdering,
+  failureOrdering: AtomicOrdering,
+  ssid: cuint,
+): ValueRef {.importc: "LLVMBuildAtomicCmpXchgSyncScope", dynlib: LLVMLib.}
 
 ##
 ##  Get the number of elements in the mask of a ShuffleVector instruction.
@@ -5905,6 +6019,28 @@ proc isAtomicSingleThread*(
 proc setAtomicSingleThread*(
   atomicInst: ValueRef, singleThread: Bool
 ) {.importc: "LLVMSetAtomicSingleThread", dynlib: LLVMLib.}
+
+##
+##  Returns whether an instruction is an atomic instruction, e.g., atomicrmw,
+##  cmpxchg, fence, or loads and stores with atomic ordering.
+##
+
+proc isAtomic*(inst: ValueRef): Bool {.importc: "LLVMIsAtomic", dynlib: LLVMLib.}
+##
+##  Returns the synchronization scope ID of an atomic instruction.
+##
+
+proc getAtomicSyncScopeID*(
+  atomicInst: ValueRef
+): cuint {.importc: "LLVMGetAtomicSyncScopeID", dynlib: LLVMLib.}
+
+##
+##  Sets the synchronization scope ID of an atomic instruction.
+##
+
+proc setAtomicSyncScopeID*(
+  atomicInst: ValueRef, ssid: cuint
+) {.importc: "LLVMSetAtomicSyncScopeID", dynlib: LLVMLib.}
 
 proc getCmpXchgSuccessOrdering*(
   cmpXchgInst: ValueRef

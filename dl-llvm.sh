@@ -13,7 +13,7 @@ cd ext
 VER="$1.$2"
 VER2="$VER.$3"
 TGT="$4"
-SUFFIX="x86_64-linux-gnu-ubuntu-18.04"
+SUFFIX="Linux-X64"
 SUFFIX2=""
 
 LLVM_ROOT=llvm-$VER2.src
@@ -21,7 +21,7 @@ LLVM_ROOT=llvm-$VER2.src
 [ -f clang+llvm-$VER2-$SUFFIX/bin/llvm-config ] || {
 
 [ -f clang+llvm-$VER2-$SUFFIX.tar.xz ] || {
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/clang+llvm-$VER2-$SUFFIX$SUFFIX2.tar.xz
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/LLVM-$VER2-$SUFFIX$SUFFIX2.tar.xz
 }
 
   tar xvf clang+llvm-$VER2-$SUFFIX$SUFFIX2.tar.xz

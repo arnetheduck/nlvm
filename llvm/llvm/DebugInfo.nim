@@ -123,7 +123,8 @@ type DWARFSourceLanguage* {.size: sizeof(cint).} = enum
   DWARFSourceLanguageSYCL
   DWARFSourceLanguageRuby
   DWARFSourceLanguageMove
-  DWARFSourceLanguageHylo ##  Vendor extensions:
+  DWARFSourceLanguageHylo
+  DWARFSourceLanguageMetal ##  Vendor extensions:
   DWARFSourceLanguageMipsAssembler
   DWARFSourceLanguageGOOGLE_RenderScript
   DWARFSourceLanguageBORLAND_Delphi
@@ -1066,13 +1067,16 @@ proc dIBuilderCreateObjCProperty*(
 ): MetadataRef {.importc: "LLVMDIBuilderCreateObjCProperty", dynlib: LLVMLib.}
 
 ##
-##  Create a uniqued DIType* clone with FlagObjectPointer and FlagArtificial set.
+##  Create a uniqued DIType* clone with FlagObjectPointer. If \c Implicit
+##  is true, then also set FlagArtificial.
 ##  \param Builder   The DIBuilder.
 ##  \param Type      The underlying type to which this pointer points.
+##  \param Implicit  Indicates whether this pointer was implicitly generated
+##                   (i.e., not spelled out in source).
 ##
 
 proc dIBuilderCreateObjectPointerType*(
-  builder: DIBuilderRef, `type`: MetadataRef
+  builder: DIBuilderRef, `type`: MetadataRef, implicit: Bool
 ): MetadataRef {.importc: "LLVMDIBuilderCreateObjectPointerType", dynlib: LLVMLib.}
 
 ##
@@ -1797,6 +1801,66 @@ proc instructionGetDebugLoc*(
 proc instructionSetDebugLoc*(
   inst: ValueRef, loc: MetadataRef
 ) {.importc: "LLVMInstructionSetDebugLoc", dynlib: LLVMLib.}
+
+##
+##  Create a new descriptor for a label
+##
+##  \param Builder         The DIBuilder.
+##  \param Scope           The scope to create the label in.
+##  \param Name            Variable name.
+##  \param NameLen         Length of variable name.
+##  \param File            The file to create the label in.
+##  \param LineNo          Line Number.
+##  \param AlwaysPreserve  Preserve the label regardless of optimization.
+##
+##  @see llvm::DIBuilder::createLabel()
+##
+
+proc dIBuilderCreateLabel*(
+  builder: DIBuilderRef,
+  context: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNo: cuint,
+  alwaysPreserve: Bool,
+): MetadataRef {.importc: "LLVMDIBuilderCreateLabel", dynlib: LLVMLib.}
+
+##
+##  Insert a new llvm.dbg.label intrinsic call
+##
+##  \param Builder         The DIBuilder.
+##  \param LabelInfo       The Label's debug info descriptor
+##  \param Location        The debug info location
+##  \param InsertBefore    Location for the new intrinsic.
+##
+##  @see llvm::DIBuilder::insertLabel()
+##
+
+proc dIBuilderInsertLabelBefore*(
+  builder: DIBuilderRef,
+  labelInfo: MetadataRef,
+  location: MetadataRef,
+  insertBefore: ValueRef,
+): DbgRecordRef {.importc: "LLVMDIBuilderInsertLabelBefore", dynlib: LLVMLib.}
+
+##
+##  Insert a new llvm.dbg.label intrinsic call
+##
+##  \param Builder         The DIBuilder.
+##  \param LabelInfo       The Label's debug info descriptor
+##  \param Location        The debug info location
+##  \param InsertAtEnd     Location for the new intrinsic.
+##
+##  @see llvm::DIBuilder::insertLabel()
+##
+
+proc dIBuilderInsertLabelAtEnd*(
+  builder: DIBuilderRef,
+  labelInfo: MetadataRef,
+  location: MetadataRef,
+  insertAtEnd: BasicBlockRef,
+): DbgRecordRef {.importc: "LLVMDIBuilderInsertLabelAtEnd", dynlib: LLVMLib.}
 
 ##
 ##  Obtain the enumerated type of a Metadata instance.
