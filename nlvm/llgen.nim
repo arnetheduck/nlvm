@@ -3976,7 +3976,8 @@ proc callBinOpWithOver(
     result = g.b.buildExtractValue(bo, 0, g.nn("binop.v", a))
 
     let
-      rangeTyp = typ.skipTypes({tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyDistinct})
+      rangeTyp =
+        typ.skipTypes({tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyDistinct})
       rangeCheck = rangeTyp.kind in {tyRange, tyEnum}
     if rangeCheck:
       doRangeCheck(result, rangeTyp)
@@ -6611,7 +6612,9 @@ proc genMagicIncDec(g: LLGen, n: PNode, op: Opcode) =
   let
     ax = g.genNode(n[1], false).v
     bx = g.genNode(n[2], true).v
-    t = n[1].typ.skipTypes({tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyRange, tyDistinct})
+    t = n[1].typ.skipTypes(
+      {tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyRange, tyDistinct}
+    )
     a = g.b.buildLoad2(g.llType(t), ax)
     b = g.buildTruncOrExt(bx, a.typeOfX(), n[2].typ)
 

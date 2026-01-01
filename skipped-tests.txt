@@ -184,6 +184,8 @@ tests/stdlib/tlwip.nim c
 tests/stdlib/tmath.nim c
 tests/stdlib/tmath.nim c -d:danger
 tests/stdlib/tmath.nim c --mm:refc
+tests/stdlib/tosproc.nim c --mm:orc
+tests/stdlib/tosproc.nim c --mm:refc
 tests/stdlib/trandom.nim js --backend:js --jsbigint64:off -d:nimStringHash2
 tests/stdlib/trandom.nim js --backend:js --jsbigint64:on
 tests/stdlib/trationals.nim c --mm:orc
