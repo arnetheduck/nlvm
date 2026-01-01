@@ -6,7 +6,7 @@ import std/[algorithm, os, strutils, sequtils, sets, tables]
 
 import
   compiler/[
-    aliases, ast, astalgo, astmsgs, bitsets, cgmeth, ccgutils, extccomp, idents,
+    aliases, ast, astalgo, astmsgs, bitsets, cgmeth, extccomp, idents,
     injectdestructors, lineinfos, lowerings, magicsys, mangleutils, modulegraphs, msgs,
     nimsets, options, passes, pathutils, platform, ropes, semparallel, sighashes, spawn,
     transf, trees, types, wordrecg,
@@ -3976,7 +3976,7 @@ proc callBinOpWithOver(
     result = g.b.buildExtractValue(bo, 0, g.nn("binop.v", a))
 
     let
-      rangeTyp = typ.skipTypes({tyGenericInst, tyAlias, tySink, tyVar, tyLent})
+      rangeTyp = typ.skipTypes({tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyDistinct})
       rangeCheck = rangeTyp.kind in {tyRange, tyEnum}
     if rangeCheck:
       doRangeCheck(result, rangeTyp)
@@ -6611,10 +6611,10 @@ proc genMagicIncDec(g: LLGen, n: PNode, op: Opcode) =
   let
     ax = g.genNode(n[1], false).v
     bx = g.genNode(n[2], true).v
-    a = g.b.buildLoad2(g.llType(n[1].typ), ax)
+    t = n[1].typ.skipTypes({tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyRange, tyDistinct})
+    a = g.b.buildLoad2(g.llType(t), ax)
     b = g.buildTruncOrExt(bx, a.typeOfX(), n[2].typ)
 
-  let t = n[1].typ.skipTypes({tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyRange})
   if optOverflowCheck notin g.f.options or t.kind in {tyUInt .. tyUInt64}:
     let nv = g.b.buildBinOp(op, a, b, g.nn("inc.nv", n))
     discard g.b.buildStore(nv, ax)

@@ -20,6 +20,7 @@ TGT="$4"
 LLVM_ROOT=llvm-$VER2.src
 LLD_ROOT=lld-$VER2.src
 CMAKE_ROOT=cmake-$VER2.src
+TP_ROOT=third-party-$VER2.src
 
 [ -f $LLVM_ROOT.tar.xz ] || {
   wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$LLVM_ROOT.tar.xz
@@ -62,6 +63,19 @@ ln -s $CMAKE_ROOT cmake
 [ -f libunwind-$VER2/CMakeLists.txt ] || {
   tar xf libunwind-$VER2.src.tar.xz
   cp -ar libunwind-$VER2.src/include/mach-o $LLD_ROOT/include
+}
+
+[ -f $TP_ROOT.tar.xz ] || {
+  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$TP_ROOT.tar.xz
+}
+
+[ -d $TP_ROOT/siphash ] || {
+  tar xf $TP_ROOT.tar.xz
+}
+
+[ -d third-party ] || {
+  rm -rf third-party
+  ln -sfr $TP_ROOT third-party
 }
 
 cd $LLVM_ROOT

@@ -16,7 +16,7 @@
 ##
 ## ===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_TARGET_H [NewLine] # LLVM_C_TARGET_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] # llvm/Config/llvm-config.h [NewLine]
+## !!!Ignored construct:  # LLVM_C_TARGET_H [NewLine] # LLVM_C_TARGET_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] # llvm-c/Visibility.h [NewLine] # llvm/Config/llvm-config.h [NewLine]
 ##  @defgroup LLVMCTarget Target information
 ##  @ingroup LLVMC
 ##

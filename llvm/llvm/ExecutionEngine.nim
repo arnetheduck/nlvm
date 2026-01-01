@@ -22,8 +22,17 @@
 ##
 ##  @{
 ##
+##
+##  Empty function used to force the linker to link MCJIT.
+##  Has no effect when called on a pre-built library (dylib interface).
+##
 
 proc linkInMCJIT*() {.importc: "LLVMLinkInMCJIT", dynlib: LLVMLib.}
+##
+##  Empty function used to force the linker to link the LLVM interpreter.
+##  Has no effect when called on a pre-built library (dylib interface).
+##
+
 proc linkInInterpreter*() {.importc: "LLVMLinkInInterpreter", dynlib: LLVMLib.}
 type
   GenericValueRef* = ptr OpaqueGenericValue

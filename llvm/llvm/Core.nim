@@ -12,7 +12,7 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_CORE_H [NewLine] # LLVM_C_CORE_H [NewLine] # llvm-c/Deprecated.h [NewLine] # llvm-c/ErrorHandling.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine]
+## !!!Ignored construct:  # LLVM_C_CORE_H [NewLine] # LLVM_C_CORE_H [NewLine] # llvm-c/Deprecated.h [NewLine] # llvm-c/ErrorHandling.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Visibility.h [NewLine] # llvm-c/Types.h [NewLine]
 ##  @defgroup LLVMC LLVM-C: C interface to LLVM
 ##
 ##  This module exposes parts of the LLVM library as a C API.
@@ -214,10 +214,6 @@ type
     RealUNE ## < True if unordered or not equal
     RealPredicateTrue ## < Always true (always folded)
 
-  LandingPadClauseTy* {.size: sizeof(cint).} = enum
-    LandingPadCatch ## < A catch clause
-    LandingPadFilter ## < A filter clause
-
   ThreadLocalMode* {.size: sizeof(cint).} = enum
     NotThreadLocal = 0
     GeneralDynamicTLSModel
@@ -305,6 +301,14 @@ type
       ## <Subtracts the value only if no unsigned
       ##                                  overflow
     AtomicRMWBinOpUSubSat ## <Subtracts the value, clamping to zero
+    AtomicRMWBinOpFMaximum
+      ## < Sets the value if it's greater than the
+      ##                            original using an floating point comparison and
+      ##                            return the old one
+    AtomicRMWBinOpFMinimum
+      ## < Sets the value if it's smaller than the
+      ##                            original using an floating point comparison and
+      ##                            return the old one
 
   DiagnosticSeverity* {.size: sizeof(cint).} = enum
     DSError
@@ -2648,6 +2652,19 @@ proc getAsString*(
 ): cstring {.importc: "LLVMGetAsString", dynlib: LLVMLib.}
 
 ##
+##  Get the raw, underlying bytes of the given constant data sequential.
+##
+##  This is the same as LLVMGetAsString except it works for all constant data
+##  sequentials, not just i8 arrays.
+##
+##  @see ConstantDataSequential::getRawDataValues()
+##
+
+proc getRawDataValues*(
+  c: ValueRef, sizeInBytes: ptr csize_t
+): cstring {.importc: "LLVMGetRawDataValues", dynlib: LLVMLib.}
+
+##
 ##  Create an anonymous ConstantStruct with the specified values.
 ##
 ##  @see llvm::ConstantStruct::getAnon()
@@ -2691,6 +2708,20 @@ proc constArray*(
 proc constArray2*(
   elementTy: TypeRef, constantVals: ptr ValueRef, length: uint64
 ): ValueRef {.importc: "LLVMConstArray2", dynlib: LLVMLib.}
+
+##
+##  Create a ConstantDataArray from raw values.
+##
+##  ElementTy must be one of i8, i16, i32, i64, half, bfloat, float, or double.
+##  Data points to a contiguous buffer of raw values in the host endianness. The
+##  element count is inferred from the element type and the data size in bytes.
+##
+##  @see llvm::ConstantDataArray::getRaw()
+##
+
+proc constDataArray*(
+  elementTy: TypeRef, data: cstring, sizeInBytes: csize_t
+): ValueRef {.importc: "LLVMConstDataArray", dynlib: LLVMLib.}
 
 ##
 ##  Create a non-anonymous ConstantStruct from values.
@@ -2773,6 +2804,9 @@ proc constNSWNeg*(
   constantVal: ValueRef
 ): ValueRef {.importc: "LLVMConstNSWNeg", dynlib: LLVMLib.}
 
+# attribute_C_Deprecated(
+#   valueRef, constNUWNeg(valueRef, constantVal), "Use LLVMConstNull instead."
+# )
 proc constNot*(
   constantVal: ValueRef
 ): ValueRef {.importc: "LLVMConstNot", dynlib: LLVMLib.}
@@ -2800,18 +2834,6 @@ proc constNSWSub*(
 proc constNUWSub*(
   lHSConstant: ValueRef, rHSConstant: ValueRef
 ): ValueRef {.importc: "LLVMConstNUWSub", dynlib: LLVMLib.}
-
-proc constMul*(
-  lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstMul", dynlib: LLVMLib.}
-
-proc constNSWMul*(
-  lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstNSWMul", dynlib: LLVMLib.}
-
-proc constNUWMul*(
-  lHSConstant: ValueRef, rHSConstant: ValueRef
-): ValueRef {.importc: "LLVMConstNUWMul", dynlib: LLVMLib.}
 
 proc constXor*(
   lHSConstant: ValueRef, rHSConstant: ValueRef
@@ -2977,6 +2999,7 @@ proc setUnnamedAddress*(
 ##  type of a global value which is always a pointer type.
 ##
 ##  @see llvm::GlobalValue::getValueType()
+##  @see llvm::Function::getFunctionType()
 ##
 
 proc globalGetValueType*(
@@ -4435,6 +4458,30 @@ proc getICmpPredicate*(
 ): IntPredicate {.importc: "LLVMGetICmpPredicate", dynlib: LLVMLib.}
 
 ##
+##  Get whether or not an icmp instruction has the samesign flag.
+##
+##  This is only valid for instructions that correspond to llvm::ICmpInst.
+##
+##  @see llvm::ICmpInst::hasSameSign()
+##
+
+proc getICmpSameSign*(
+  inst: ValueRef
+): Bool {.importc: "LLVMGetICmpSameSign", dynlib: LLVMLib.}
+
+##
+##  Set the samesign flag on an icmp instruction.
+##
+##  This is only valid for instructions that correspond to llvm::ICmpInst.
+##
+##  @see llvm::ICmpInst::setSameSign()
+##
+
+proc setICmpSameSign*(
+  inst: ValueRef, sameSign: Bool
+) {.importc: "LLVMSetICmpSameSign", dynlib: LLVMLib.}
+
+##
 ##  Obtain the float predicate of an instruction.
 ##
 ##  This is only valid for instructions that correspond to llvm::FCmpInst.
@@ -5522,6 +5569,11 @@ proc buildNSWNeg*(
   b: BuilderRef, v: ValueRef, name: cstring
 ): ValueRef {.importc: "LLVMBuildNSWNeg", dynlib: LLVMLib.}
 
+# attribute_C_Deprecated(
+#   valueRef,
+#   buildNUWNeg(builderRef, b, valueRef, v, `const`, char * name),
+#   "Use LLVMBuildNeg + LLVMSetNUW instead.",
+# )
 proc buildFNeg*(
   a1: BuilderRef, v: ValueRef, name: cstring
 ): ValueRef {.importc: "LLVMBuildFNeg", dynlib: LLVMLib.}

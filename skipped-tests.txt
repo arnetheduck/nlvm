@@ -37,7 +37,6 @@ tests/ccgbugs/tprogmem.nim c
 tests/ccgbugs/tunsafeaddr.nim c
 tests/closure/ttimeinfo.nim c
 tests/codegen/titaniummangle.nim c --debugger:native
-tests/compilerapi/tcompilerapi.nim c
 tests/compiler/tasm2.nim c
 tests/compiler/tasm.nim c
 tests/compiler/tcmdlineclib.nim c
@@ -160,7 +159,6 @@ tests/niminaction/Chapter8/sdl/sdl_test.nim c
 tests/objects/tobject_default_value.nim c -d:nimPreviewRangeDefault --mm:refc
 tests/objects/tobject_default_value.nim c -d:nimPreviewRangeDefault --warningAsError:ProveInit --mm:orc
 tests/osproc/treadlines.nim c
-tests/overflow/tdistinct_range.nim c
 tests/overflow/toverflow.nim c --overflowChecks:off
 tests/overflow/toverflow.nim js --overflowChecks:off --b:js
 tests/overflow/toverflow_reorder.nim c
@@ -175,7 +173,6 @@ tests/pragmas/treorder.nim c
 tests/range/toutofrangevarconv.nim c
 tests/realtimeGC/tmain.nim c
 tests/sets/t20997.nim c
-tests/stdlib/tasynchttpserver_transferencoding.nim c --mm:arc -d:danger
 tests/stdlib/tcasts.nim c
 tests/stdlib/thashes.nim js --backend:js -d:nimStringHash2
 tests/stdlib/thashes.nim js --backend:js --jsbigint64:on
@@ -187,14 +184,14 @@ tests/stdlib/tlwip.nim c
 tests/stdlib/tmath.nim c
 tests/stdlib/tmath.nim c -d:danger
 tests/stdlib/tmath.nim c --mm:refc
-tests/stdlib/tosproc.nim c --mm:orc
-tests/stdlib/tosproc.nim c --mm:refc
 tests/stdlib/trandom.nim js --backend:js --jsbigint64:off -d:nimStringHash2
 tests/stdlib/trandom.nim js --backend:js --jsbigint64:on
 tests/stdlib/trationals.nim c --mm:orc
 tests/stdlib/trationals.nim c --mm:refc
 tests/stdlib/tsetutils.nim c --mm:orc
 tests/stdlib/tsetutils.nim c --mm:refc
+tests/stdlib/tssl.nim c --mm:orc
+tests/stdlib/tssl.nim c --mm:refc
 tests/stdlib/tstackframes.nim c
 tests/stdlib/tstdlib_various.nim c --mm:refc
 tests/stdlib/tstrutils.nim js --backend:js --jsbigint64:off -d:nimStringHash2

@@ -141,6 +141,8 @@ type DWARFEmissionKind* {.size: sizeof(cint).} = enum
 ##
 ##  The kind of metadata nodes.
 ##
+##  NOTE: New entries should always be appended instead of matching the order
+##  in Metadata.def.
 
 const
   MDStringMetadataKind* = 0
@@ -179,6 +181,8 @@ const
   DIGenericSubrangeMetadataKind* = 33
   DIArgListMetadataKind* = 34
   DIAssignIDMetadataKind* = 35
+  DISubrangeTypeMetadataKind* = 36
+  DIFixedPointTypeMetadataKind* = 37
 
 type MetadataKind* = cuint
 
@@ -741,6 +745,27 @@ proc dIBuilderCreateEnumerator*(
 ): MetadataRef {.importc: "LLVMDIBuilderCreateEnumerator", dynlib: LLVMLib.}
 
 ##
+##  Create debugging information entry for an enumerator of arbitrary precision.
+##  @param Builder        The DIBuilder.
+##  @param Name           Enumerator name.
+##  @param NameLen        Length of enumerator name.
+##  @param SizeInBits     Number of bits of the value.
+##  @param Words          The words that make up the value.
+##  @param IsUnsigned     True if the value is unsigned.
+##
+
+proc dIBuilderCreateEnumeratorOfArbitraryPrecision*(
+  builder: DIBuilderRef,
+  name: cstring,
+  nameLen: csize_t,
+  sizeInBits: uint64,
+  words: ptr uint64,
+  isUnsigned: Bool,
+): MetadataRef {.
+  importc: "LLVMDIBuilderCreateEnumeratorOfArbitraryPrecision", dynlib: LLVMLib
+.}
+
+##
 ##  Create debugging information entry for an enumeration.
 ##  \param Builder        The DIBuilder.
 ##  \param Scope          Scope in which this enumeration is defined.
@@ -822,6 +847,113 @@ proc dIBuilderCreateArrayType*(
   subscripts: ptr MetadataRef,
   numSubscripts: cuint,
 ): MetadataRef {.importc: "LLVMDIBuilderCreateArrayType", dynlib: LLVMLib.}
+
+##
+##  Create debugging information entry for a set.
+##  \param Builder        The DIBuilder.
+##  \param Scope          The scope in which the set is defined.
+##  \param Name           A name that uniquely identifies this set.
+##  \param NameLen        The length of the C string passed to \c Name.
+##  \param File           File where the set is located.
+##  \param Line           Line number of the declaration.
+##  \param SizeInBits     Set size.
+##  \param AlignInBits    Set alignment.
+##  \param BaseTy         The base type of the set.
+##
+
+proc dIBuilderCreateSetType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  file: MetadataRef,
+  lineNumber: cuint,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  baseTy: MetadataRef,
+): MetadataRef {.importc: "LLVMDIBuilderCreateSetType", dynlib: LLVMLib.}
+
+##
+##  Create a descriptor for a subrange with dynamic bounds.
+##  \param Builder    The DIBuilder.
+##  \param Scope      The scope in which the subrange is defined.
+##  \param Name       A name that uniquely identifies this subrange.
+##  \param NameLen    The length of the C string passed to \c Name.
+##  \param LineNo     Line number.
+##  \param File       File where the subrange is located.
+##  \param SizeInBits Member size.
+##  \param AlignInBits Member alignment.
+##  \param Flags      Flags.
+##  \param BaseTy     The base type of the subrange. eg integer or enumeration
+##  \param LowerBound Lower bound of the subrange.
+##  \param UpperBound Upper bound of the subrange.
+##  \param Stride     Stride of the subrange.
+##  \param Bias       Bias of the subrange.
+##
+
+proc dIBuilderCreateSubrangeType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  lineNo: cuint,
+  file: MetadataRef,
+  sizeInBits: uint64,
+  alignInBits: uint32,
+  flags: DIFlags,
+  baseTy: MetadataRef,
+  lowerBound: MetadataRef,
+  upperBound: MetadataRef,
+  stride: MetadataRef,
+  bias: MetadataRef,
+): MetadataRef {.importc: "LLVMDIBuilderCreateSubrangeType", dynlib: LLVMLib.}
+
+##
+##  Create debugging information entry for a dynamic array.
+##  \param Builder      The DIBuilder.
+##  \param Size         Array size.
+##  \param AlignInBits  Alignment.
+##  \param Ty           Element type.
+##  \param Subscripts   Subscripts.
+##  \param NumSubscripts Number of subscripts.
+##  \param DataLocation DataLocation. (DIVariable, DIExpression or NULL)
+##  \param Associated   Associated. (DIVariable, DIExpression or NULL)
+##  \param Allocated    Allocated. (DIVariable, DIExpression or NULL)
+##  \param Rank         Rank. (DIVariable, DIExpression or NULL)
+##  \param BitStride    BitStride.
+##
+
+proc dIBuilderCreateDynamicArrayType*(
+  builder: DIBuilderRef,
+  scope: MetadataRef,
+  name: cstring,
+  nameLen: csize_t,
+  lineNo: cuint,
+  file: MetadataRef,
+  size: uint64,
+  alignInBits: uint32,
+  ty: MetadataRef,
+  subscripts: ptr MetadataRef,
+  numSubscripts: cuint,
+  dataLocation: MetadataRef,
+  associated: MetadataRef,
+  allocated: MetadataRef,
+  rank: MetadataRef,
+  bitStride: MetadataRef,
+): MetadataRef {.importc: "LLVMDIBuilderCreateDynamicArrayType", dynlib: LLVMLib.}
+
+##
+##  Replace arrays.
+##
+##  @see DIBuilder::replaceArrays()
+##
+
+proc replaceArrays*(
+  builder: DIBuilderRef,
+  t: ptr MetadataRef,
+  elements: ptr MetadataRef,
+  numElements: cuint,
+) {.importc: "LLVMReplaceArrays", dynlib: LLVMLib.}
 
 ##
 ##  Create debugging information entry for a vector type.
@@ -1779,6 +1911,18 @@ proc setSubprogram*(
 proc dISubprogramGetLine*(
   subprogram: MetadataRef
 ): cuint {.importc: "LLVMDISubprogramGetLine", dynlib: LLVMLib.}
+
+##
+##  Replace the subprogram subroutine type.
+##  \param Subprogram        The subprogram object.
+##  \param SubroutineType    The new subroutine type.
+##
+##  @see DISubprogram::replaceType()
+##
+
+proc dISubprogramReplaceType*(
+  subprogram: MetadataRef, subroutineType: MetadataRef
+) {.importc: "LLVMDISubprogramReplaceType", dynlib: LLVMLib.}
 
 ##
 ##  Get the debug location for the given instruction.
