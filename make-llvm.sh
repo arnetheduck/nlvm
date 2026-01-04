@@ -1,89 +1,20 @@
 #!/bin/sh
 
 # Build llvm, as used in the Makefile
-# A bit broken because it doesn't track cmake options and deps correctly
-
-[ $# -gt 4 ] || {
- echo "$0 major minor patch output_dir cmake_options*"
- exit 1
-}
 
 set -e
 
-mkdir -p ext
-cd ext
+cd llvm
 
-VER="$1.$2"
-VER2="$VER.$3"
-TGT="$4"
+DIR="$1"
+TGTS="$2"
 
-LLVM_ROOT=llvm-$VER2.src
-LLD_ROOT=lld-$VER2.src
-CMAKE_ROOT=cmake-$VER2.src
-TP_ROOT=third-party-$VER2.src
+shift 2
+CC=clang CXX=clang++ cmake -S llvm-project/llvm -B "$DIR" -GNinja \
+  -DLLVM_ENABLE_PROJECTS="lld" \
+  -DLLVM_BUILD_TOOLS=Off \
+  -DLLVM_INCLUDE_BENCHMARKS=Off -DLLVM_INCLUDE_EXAMPLES=Off -DLLVM_INCLUDE_TESTS=Off \
+  -DLLVM_USE_LINKER=lld \
+  "$@"
 
-[ -f $LLVM_ROOT.tar.xz ] || {
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$LLVM_ROOT.tar.xz
-}
-
-[ -f $LLVM_ROOT/CMakeLists.txt ] || {
-  tar xf $LLVM_ROOT.tar.xz
-}
-
-[ -f $LLD_ROOT.tar.xz ] || {
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$LLD_ROOT.tar.xz
-}
-
-[ -f $LLD_ROOT/CMakeLists.txt ] || {
-  tar xf $LLD_ROOT.tar.xz
-}
-
-[ -d $LLVM_ROOT/projects/lld ] || {
-  rm -rf $LLVM_ROOT/projects/lld
-  cd $LLVM_ROOT/projects
-  ln -sfr ../../$LLD_ROOT lld
-  cd ../..
-}
-
-[ -f $CMAKE_ROOT.tar.xz ] || {
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$CMAKE_ROOT.tar.xz
-}
-
-[ -f $CMAKE_ROOT/README.rst ] || {
-  tar xf $CMAKE_ROOT.tar.xz
-}
-
-rm -f cmake
-ln -s $CMAKE_ROOT cmake
-
-[ -f libunwind-$VER2.src.tar.xz ] || {
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/libunwind-$VER2.src.tar.xz
-}
-
-[ -f libunwind-$VER2/CMakeLists.txt ] || {
-  tar xf libunwind-$VER2.src.tar.xz
-  cp -ar libunwind-$VER2.src/include/mach-o $LLD_ROOT/include
-}
-
-[ -f $TP_ROOT.tar.xz ] || {
-  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$VER2/$TP_ROOT.tar.xz
-}
-
-[ -d $TP_ROOT/siphash ] || {
-  tar xf $TP_ROOT.tar.xz
-}
-
-[ -d third-party ] || {
-  rm -rf third-party
-  ln -sfr $TP_ROOT third-party
-}
-
-cd $LLVM_ROOT
-
-mkdir -p $TGT
-cd $TGT
-
-shift 4
-cmake -GNinja -DLLVM_USE_LINKER=lld "$@" ..
-
-ninja
+ninja -C $DIR $TGTS

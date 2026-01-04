@@ -5,13 +5,14 @@
 import std/[os, strformat, strutils]
 
 const
-  LLVMVersion* = staticRead(currentSourcePath.parentDir & "/llvm.version")
+  currentSourceDir = currentSourcePath.parentDir
+  LLVMVersion* = staticRead(currentSourceDir / "llvm.version")
   LLVMMaj* = parseInt(LLVMVersion.split('.')[0])
   LLVMMin* = parseInt(LLVMVersion.split('.')[1])
   LLVMPat* = parseInt(LLVMVersion.split('.')[2])
   LLVMLib = "" #fmt"libLLVM-{LLVMMaj}.so"
-  LLVMRoot = fmt"../ext/llvm-{LLVMVersion}.src/"
-  LLDRoot = fmt"../ext/lld-{LLVMVersion}.src/"
+  LLVMRoot = currentSourceDir / "llvm-project" / "llvm"
+  LLDRoot = currentSourceDir / "llvm-project" / "lld"
 
 {.passL: "-llldELF".}
 {.passL: "-llldWasm".}
@@ -21,26 +22,27 @@ const
 {.passL: "-lzstd".}
 
 when defined(staticLLVM):
-  const LLVMOut = LLVMRoot & "sta/"
+  const LLVMOut = currentSourceDir / "sta"
 
-  {.passL: gorge(LLVMRoot & "sta/bin/llvm-config --libs all").}
+  {.passL: gorge(currentSourceDir / "sta/bin/llvm-config --libs all").}
 else:
-  const LLVMOut = LLVMRoot & "sha/"
+  const LLVMOut = currentSourceDir / "sha"
 
   {.passL: fmt"-lLLVM".}
-  {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "lib/'".}
+  {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "/lib/'".}
 
-  {.passC: "-I" & LLVMOut & "include".}
-  {.passC: "-I" & LLVMRoot & "include".}
+  {.passC: "-I" & LLVMOut / "include".}
+  {.passC: "-I" & LLVMRoot / "include".}
 
-{.passC: "-I" & LLDRoot & "include".}
+{.passC: "-I" & LLDRoot / "include".}
 
+{.passL: "-flto=thin".}
 {.passL: "-Wl,--as-needed".}
 {.passL: "-Wl,--export-dynamic".}
-{.passL: gorge(LLVMOut & "bin/llvm-config --ldflags").}
-{.passL: gorge(LLVMOut & "bin/llvm-config --system-libs").}
+{.passL: gorge(LLVMOut / "bin/llvm-config --ldflags").}
+{.passL: gorge(LLVMOut / "bin/llvm-config --system-libs").}
 
-{.compile("wrapper.cc", gorge(LLVMOut & "bin/llvm-config --cxxflags")).}
+{.compile("wrapper.cc", gorge(LLVMOut / "bin/llvm-config --cxxflags")).}
 
 # Includes and helpers for generated code
 type OpaqueMemoryBuffer = object

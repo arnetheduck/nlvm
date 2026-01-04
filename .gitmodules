@@ -2,3 +2,6 @@
 	path = Nim
 	url = https://github.com/arnetheduck/Nim.git
 	branch = nlvm
+[submodule "llvm/llvm-project"]
+	path = llvm/llvm-project
+	url = https://github.com/arnetheduck/llvm-nlvm.git
