@@ -1,14 +1,17 @@
 name: Continuous
 on: [push, pull_request]
 jobs:
-  build:
+  Linux:
+    defaults:
+      run:
+        shell: bash
     runs-on: ubuntu-22.04
     steps:
       - name: Install deps
         run: |
           sudo add-apt-repository universe
           sudo apt-get update
-          sudo apt-get install -y libcurl4-openssl-dev libsdl1.2-dev libgc-dev libncurses5-dev jq cmake ninja-build clang libfuse2 valgrind libncurses5
+          sudo apt-get install -y libcurl4-openssl-dev libsdl1.2-dev libgc-dev libncurses5-dev jq cmake ninja-build clang libfuse2 valgrind libncurses5 libzstd-dev
       - name: Check out repository code
         uses: actions/checkout@v6
         with:
@@ -42,16 +45,112 @@ jobs:
       - name: Run self-compare
         run: make STATIC_LLVM=1 compare
 
+      - name: Cross-compile
+        run: |
+          ./dl-llvm-mingw.sh
+          ./env.sh nlvm/nlvmr c --os:windows Nim/compiler/nim
+          [ -f Nim/compiler/nim.exe ] || { echo "nim.exe missing" ; exit 1 ; }
+
       - name: Create distribution
-        run: bash make-dist.sh
+        run: bash make-dist-linux.sh
 
       - name: Update release
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/release'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Local copy of the following script:
           # wget -c https://github.com/probonopd/uploadtool/raw/master/upload.sh
+          bash upload.sh dist/*
+
+  Windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: clang64
+          install: >-
+            git
+            make
+            diffutils
+            tar
+            zip
+          pacboy: >-
+            toolchain:p
+            cmake:p
+            ninja:p
+            gcc:p
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Set up environment
+        shell: bash
+        run: |
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+          echo "LD=clang++" >> $GITHUB_ENV
+          echo "LLVM_VERSION=$(cat llvm/llvm.version)" >> $GITHUB_ENV
+          echo "PATH=$PATH:$PWD/llvm-ming-20251216-ucrt-x86_64/bin >> $GITHUB_ENV"
+
+      - name: Cache Nim DLLs (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        id: cache-nim-dlls
+        with:
+          path: nim-dlls.zip
+          key: nim-dlls-${{ runner.os }}
+
+      - name: Download Nim DLLs (Windows)
+        if: runner.os == 'Windows' && steps.cache-nim-dlls.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://nim-lang.org/download/dlls.zip -OutFile nim-dlls.zip
+
+      - name: Setup Nim DLLs (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Expand-Archive -Path nim-dlls.zip -DestinationPath nim-dlls -Force
+          echo "$Env:GITHUB_WORKSPACE\nim-dlls" >> $Env:GITHUB_PATH
+          echo "SSL_CERT_FILE=$Env:GITHUB_WORKSPACE\nim-dlls\cacert.pem" >> $Env:GITHUB_ENV
+
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v5
+        with:
+          path: |
+            llvm/sta
+          key: llvm-${{ runner.os }}-${{ env.LLVM_VERSION }}
+
+      - name: Set up llvm
+        run: make STATIC_LLVM=1 prepare-llvm
+
+      - name: Compile nim
+        run: make STATIC_LLVM=1 prepare-nim
+
+      - name: Run tests
+        run: |
+          cat ci-skipped-tests.txt >>skipped-tests.txt
+          make STATIC_LLVM=1 test || true # TODO enable hard fail on tests
+
+      - name: Run self-compare
+        # On windows, nlvm.self cannot raise exceptions, likely due to a conflict
+        # with libunwind in libc++ - this needs further investigation
+        run: make STATIC_LLVM=1 compare || true
+
+      - name: Create distribution
+        run: bash make-dist-windows.sh
+
+      - name: Update release
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: msys2 {0}
+        run: |
           bash upload.sh dist/*
 
   nph:

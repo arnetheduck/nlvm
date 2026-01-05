@@ -2,11 +2,12 @@
 # Copyright (c) Jacek Sieka 2016
 # See the LICENSE file for license info (doh!)
 
-import std/[os, strformat, strutils]
+import std/[os, pathnorm, strutils]
 
 const
-  currentSourceDir = currentSourcePath.parentDir
-  LLVMVersion* = staticRead(currentSourceDir / "llvm.version")
+  currentSourceDir = currentSourcePath.parentDir.normalizePath(dirSep = '/')
+  LLVMVersion* =
+    staticRead(normalizePath(currentSourceDir / "llvm.version", dirSep = '/'))
   LLVMMaj* = parseInt(LLVMVersion.split('.')[0])
   LLVMMin* = parseInt(LLVMVersion.split('.')[1])
   LLVMPat* = parseInt(LLVMVersion.split('.')[2])
@@ -14,6 +15,7 @@ const
   LLVMRoot = currentSourceDir / "llvm-project" / "llvm"
   LLDRoot = currentSourceDir / "llvm-project" / "lld"
 
+{.passL: "-llldCOFF".}
 {.passL: "-llldELF".}
 {.passL: "-llldWasm".}
 {.passL: "-llldMinGW".}
@@ -28,8 +30,12 @@ when defined(staticLLVM):
 else:
   const LLVMOut = currentSourceDir / "sha"
 
-  {.passL: fmt"-lLLVM".}
-  {.passL: "-Wl,'-rpath=$ORIGIN/" & LLVMOut & "/lib/'".}
+  when defined(windows):
+    import strformat
+    {.passL: &"-lLLVM-{LLVMMaj}".}
+  else:
+    {.passL: "-lLLVM".}
+    {.passL: "-Wl,'-rpath=$ORIGIN/../llvm/sha/lib/'".}
 
   {.passC: "-I" & LLVMOut / "include".}
   {.passC: "-I" & LLVMRoot / "include".}
@@ -38,7 +44,6 @@ else:
 
 {.passL: "-flto=thin".}
 {.passL: "-Wl,--as-needed".}
-{.passL: "-Wl,--export-dynamic".}
 {.passL: gorge(LLVMOut / "bin/llvm-config --ldflags").}
 {.passL: gorge(LLVMOut / "bin/llvm-config --system-libs").}
 
@@ -409,6 +414,17 @@ proc nimLLDLinkElf*(
   argv: cstringArray, argc: csize_t
 ): bool {.importc: "LLVMNimLLDLinkElf".}
 
+proc nimLLDLinkCoff*(
+  argv: cstringArray, argc: csize_t
+): bool {.importc: "LLVMNimLLDLinkCoff".}
+
+proc nimLLDLinkCoff*(args: openArray[string]): bool =
+  let argv = allocCStringArray(args)
+  defer:
+    deallocCStringArray(argv)
+
+  nimLLDLinkCoff(argv, args.len.csize_t)
+
 proc nimLLDLinkElf*(args: openArray[string]): bool =
   let argv = allocCStringArray(args)
   defer:
@@ -426,6 +442,17 @@ proc nimLLDLinkWasm*(args: openArray[string]): bool =
     deallocCStringArray(argv)
 
   nimLLDLinkWasm(argv, args.len.csize_t)
+
+proc nimLLDLinkMingw*(
+  argv: cstringArray, argc: csize_t
+): bool {.importc: "LLVMNimLLDLinkMingw".}
+
+proc nimLLDLinkMingw*(args: openArray[string]): bool =
+  let argv = allocCStringArray(args)
+  defer:
+    deallocCStringArray(argv)
+
+  nimLLDLinkMingw(argv, args.len.csize_t)
 
 proc nimCreateTargetMachine*(
   t: TargetRef,
@@ -648,5 +675,10 @@ proc appendBasicBlockInContext*(
 
 proc normalizeTargetTriple*(s: string): string =
   let tmp = normalizeTargetTriple(cstring(s))
+  result = $tmp
+  disposeMessage(tmp)
+
+proc triple*(tm: TargetMachineRef): string =
+  let tmp = getTargetMachineTriple(tm)
   result = $tmp
   disposeMessage(tmp)

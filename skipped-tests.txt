@@ -180,7 +180,6 @@ tests/stdlib/tjson.nim c
 tests/stdlib/tjson.nim cpp --backend:cpp
 tests/stdlib/tjson.nim js --backend:js --jsbigint64:off -d:nimStringHash2
 tests/stdlib/tjson.nim js --backend:js --jsbigint64:on
-tests/stdlib/tlwip.nim c
 tests/stdlib/tmath.nim c
 tests/stdlib/tmath.nim c -d:danger
 tests/stdlib/tmath.nim c --mm:refc

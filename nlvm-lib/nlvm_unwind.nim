@@ -53,7 +53,10 @@ type
   UnwindException* = object
     exceptionClass*: uint64
     exceptionCleanup*: UnwindExceptionCleanupFn
-    private1, private2: uint
+    when defined(windows):
+      private: array[6, uint]
+    else:
+      private1, private2: uint
 
     when sizeof(pointer) == 4:
       reserved: array[3, uint32]
