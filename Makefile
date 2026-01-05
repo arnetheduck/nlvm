@@ -97,18 +97,18 @@ self: nlvm/nlvm.self
 clean:
 	rm -rf $(NLVMC) $(NLVMR) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self Nim/testresults/
 
+# developer build - build all of llvm including tooling like IR inspectors etc
+# for the right version of LLVM
 llvm/sha/lib/libLLVM.so.$(LLVM_MAJ).$(LLVM_MIN):
-	# developer build - build all rhe llvm including tooling like IR inspectors etc
-	# for the right version of LLVM
 	sh ./make-llvm.sh sha "" \
 		-DLLVM_BUILD_LLVM_DYLIB=1 \
 		-DLLVM_LINK_LLVM_DYLIB=1 \
 		-DLLVM_ENABLE_ASSERTIONS=1 \
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo
 
+# We only need a subset of the build in CI / statically linked release builds
 llvm/sta/bin/llvm-config:
-	# We only need a subset of the build in CI / statically linked release builds
-	sh ./make-llvm.sh sta "lld-libraries lib/all bin/llvm-config" \
+	sh ./make-llvm.sh sta "lld-libraries lib/all llvm-config" \
 		-DLLVM_BUILD_LLVM_DYLIB=0 \
 		-DLLVM_LINK_LLVM_DYLIB=0 \
 		-DLLVM_ENABLE_ASSERTIONS=0 \
