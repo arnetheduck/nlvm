@@ -2,29 +2,29 @@
 # Copyright (c) Jacek Sieka 2016-2019
 # See the LICENSE file for license info (doh!)
 
-import std/[browsers, sequtils, parseopt, strutils, times, os]
-
-import "."/llgen, llvm/llvm
-
 import
+  std/[browsers, sequtils, parseopt, strutils, times, os],
+  llvm/llvm,
   compiler/[
     ast, cmdlinehelper, commands, condsyms, extccomp, idents, lexer, lineinfos,
     llstream, modulegraphs, modules, msgs, options, passes, passaux, pathutils, platform,
-  ]
+  ],
+  ./llgen
+
 proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
   registerPass g, semPass
 
 const
-  NlvmVersion = "0.0.1"
+  NlvmVersion = "0.0.2"
   NlvmHash = gorge("git rev-parse HEAD").strip
   NimHash = gorge("git -C ../Nim rev-parse HEAD").strip
 
   HelpHeader =
     """nlvm compiler for Nim, version $1 [$2: $3]
 
-Copyright (c) 2015-2019 Jacek Sieka
-Nim compiler (c) 2009-2019 Andreas Rumpf
+Copyright (c) 2015-2026 Jacek Sieka
+Nim compiler (c) 2009-2026 Andreas Rumpf
 """
 
 const
@@ -387,8 +387,6 @@ let
   conf = newConfigRef()
   cache = newIdentCache()
 
-# We accept many clang options in `passc` so why not
-conf.cCompiler = ccCLang
 conf.prefixDir = AbsoluteDir(tmp / "Nim")
 conf.searchPaths.insert(conf.prefixDir / RelativeDir"../nlvm-lib", 0)
 

@@ -64,6 +64,18 @@ extern "C" bool LLVMNimLLDLinkWasm(const char **args, size_t arg_count) {
   return lld::wasm::link(array_ref_args, llvm::outs(), llvm::errs(), false, false);
 }
 
+LLD_HAS_DRIVER(coff)
+extern "C" bool LLVMNimLLDLinkCoff(const char **args, size_t arg_count) {
+  ArrayRef<const char *> array_ref_args(args, arg_count);
+  return lld::coff::link(array_ref_args, llvm::outs(), llvm::errs(), false, false);
+}
+
+LLD_HAS_DRIVER(mingw)
+extern "C" bool LLVMNimLLDLinkMingw(const char **args, size_t arg_count) {
+  ArrayRef<const char *> array_ref_args(args, arg_count);
+  return lld::mingw::link(array_ref_args, llvm::outs(), llvm::errs(), false, false);
+}
+
 static codegen::RegisterCodeGenFlags CGF;
 
 static Target *unwrap(LLVMTargetRef P) {

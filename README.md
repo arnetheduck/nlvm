@@ -1,3 +1,4 @@
+<!-- omit in toc -->
 # Introduction
 
 [nlvm](https://github.com/arnetheduck/nlvm) (the nim-level virtual machine?)
@@ -14,6 +15,27 @@ Fork and enjoy!
 
 Jacek Sieka (arnetheduck on gmail point com)
 
+<!-- omit in toc -->
+## Table of contents
+
+- [Features](#features)
+- [Installation](#installation)
+  - [Binaries](#binaries)
+  - [Compiling `nlvm`](#compiling-nlvm)
+- [Compiling your code](#compiling-your-code)
+  - [Pipeline](#pipeline)
+  - [Porting guide](#porting-guide)
+    - [dynlib](#dynlib)
+    - [{.header.}](#header)
+    - [{.emit.}](#emit)
+    - [{.asm.}](#asm)
+- [wasm32](#wasm32)
+- [Cross compiler](#cross-compiler)
+  - [Prerequisites](#prerequisites)
+  - [Compiling](#compiling)
+- [REPL / running your code](#repl--running-your-code)
+- [Random notes](#random-notes)
+
 # Features
 
 `nlvm` works as a drop-in replacement for `nim` with the following notable differences:
@@ -27,15 +49,19 @@ Jacek Sieka (arnetheduck on gmail point com)
   * compiler-intrinsic guided optimisation for overflow checking, memory operations, exception handling
   * heap allocation elision
   * native constant initialization
-* Native `wasm32` support with no extra tooling
+* Native cross compiler, including `wasm32` support with no extra tooling
 * Native integrated fast linker (`lld`)
 * Just-in-time execution and REPL (`nlvm r`) using the LLVM [ORCv2 JIT](https://llvm.org/docs/ORCv2.html)
+* Built-in [cross-compiler](#cross-compiler)
 
 Most things from `nim` work just fine (see the [porting guide](#porting-guide) below!):
 
 * the same standard library is used
 * similar command line options are supported (just change `nim` to `nlvm`!)
-* `C` header files are not used - the declaration in the `.nim` file needs to be accurate
+* `C` header files are not used - the declaration in the `.nim` file needs to be
+  accurate
+* If your program has `{.compile.}` dependencies, these work as usual but
+  require a corresponding compiler to be installed (ie clang, gcc)
 
 Test coverage is not too bad either:
 
@@ -44,15 +70,16 @@ Test coverage is not too bad either:
   the standard library and compiler relying on C implementation details - see
   [skipped-tests.txt](skipped-tests.txt) for an updated list of issues
 * compiling most applications
-* platforms: linux/x86_64, wasm32 (pre-alpha!)
+* platforms with tests:
+  * Linux/x86_64
+  * Windows/x86_64
 * majority of the nim standard library (the rest can be fixed easily -
   requires upstream changes however)
 
 How you could contribute:
 
 * work on making [skipped-tests.txt](skipped-tests.txt) smaller
-* improve platform support (`osx` and `windows` should be easy, `arm` would be
-  nice)
+* improve platform support (`osx` should be easy, `arm` would be nice)
 * help `nlvm` generate better IR - optimizations, builtins, exception handling..
 * help upstream make std library smaller and more `nlvm`-compatible
 * send me success stories :)
@@ -61,30 +88,44 @@ How you could contribute:
 `nlvm` does _not_:
 
 * understand `C` - as a consequence, `header`, `emit` and similar pragmas
-  will not work - neither will the fancy `importcpp`/`C++` features - see the [porting guide](#porting-guide) below!
+  are ignored - neither will the fancy `importcpp`/`C++` features - see the
+  [porting guide](#porting-guide) below!
 * support all nim compiler flags and features - do file bugs for anything
   useful that's missing
 
-# Compile instructions
+# Installation
+
+## Binaries
+
+Binaries are available from the [github releases](https://github.com/arnetheduck/nlvm/releases) page.
+
+## Source code
 
 To do what I do, you will need:
-* Linux
-* A C/C++ compiler (ironically, I happen to use `gcc` most of the time)
+
+* A C/C++ compiler
+  * `gcc` on Linux
+  * `clang` on Windows
+* A cup of tea and a good book
+  * Compiling `llvm` takes about an hour the first time (then it's cached)
 
 Start with a clone:
 
     cd $SRC
-    git clone https://github.com/arnetheduck/nlvm.git
-    cd nlvm && git submodule update --init
+    git clone https://github.com/arnetheduck/nlvm.git --recurse-submodules
+    cd nlvm
 
 We will need a few development libraries installed, mainly due to how `nlvm`
 processes library dependencies (see dynlib section below):
 
     # Fedora
-    sudo dnf install pcre-devel openssl-devel sqlite-devel ninja-build cmake
+    sudo dnf install pcre-devel openssl-devel sqlite-devel ninja-build cmake clang libzstd-devel
 
     # Debian, ubuntu etc
-    sudo apt-get install libpcre3-dev libssl-dev libsqlite3-dev ninja-build cmake
+    sudo apt-get install libpcre3-dev libssl-dev libsqlite3-dev ninja-build cmake clang libzstd-dev
+
+    # MSYS2 CLANG64 (note that we need the gcc shim for clang)
+    pacboy -S toolchain cmake ninja gcc
 
 Compile `nlvm` (if needed, this will also build `nim` and `llvm`):
 
@@ -125,9 +166,8 @@ To run built `nlvm` docker image use:
 
 On the command line, `nlvm` is mostly compatible with `nim`.
 
-When compiling, `nlvm` will generate a single `.o` file with all code from your
-project and link it using `$CC` - this helps it pick the right flags for
-linking with the C library.
+For compiling pure Nimm code, you do not need a C compiler - `nlvm` will compile
+and link the code using the built-in `lld` linker:
 
     cd $SRC/nlvm/Nim/examples
     ../../nlvm/nlvm c fizzbuzz
@@ -148,7 +188,7 @@ You can then run the LLVM optimizer on it:
     less fizzbuzz.s
 
 Apart from the code of your `.nim` files, the compiler will also mix in the
-compatibility found library in `nlvm-lib/`.
+compiler runtime library in `nlvm-lib/`.
 
 ## Pipeline
 
@@ -203,7 +243,6 @@ the signature of the declaration, meaning the declaration must _exactly_ match
 the `c` header file or subtly ABI issues and crashes ensue!
 
 ```nim
-
 # When `nim` encounters this, it will emit `jmp_buf` in the `c` code without
 # knowing the true size of the type, letting the `c` compiler determine it
 # instead.
@@ -237,6 +276,7 @@ when defined(linux) and defined(amd64):
 ```
 
 ### {.emit.}
+
 To deal with `emit`, the recommendation is to put the emitted code in a C file
 and `{.compile.}` it.
 
@@ -257,7 +297,56 @@ Similar to `{.emit.}`, `{.asm.}` functions must be moved to a separate file and
 included in the compilation with `{.compile.}` - this works both with `.S` and
 `.c` files.
 
-### wasm32 support
+# Cross compiler
+
+`nlvm` can be used to cross-compile code for a different platform, for example to
+create `Windows` executables on a `Linux` machine.
+
+## Prerequisites
+
+For cross-compilation, a `clang`-based environment for that platform must first
+be [set up](https://clang.llvm.org/docs/CrossCompilation.html) - the environment
+consists of:
+
+* a `sysroot` - the basic libraries needed to create executables for the platform
+  * for `Windows`, this is [llvm-mingw](https://github.com/mstorsjo/llvm-mingw/releases)
+  * It can be [obtained](https://mcilloni.ovh/2021/02/09/cxx-cross-clang/)
+    from the environment you're targeting.
+* The compiler runtime for that target (`compiler-rt` or `libgcc`)
+  * provided by `llvm-mingw`
+* `clang` - for finding libraries in the sysroot and dealing with `{.compile.}`
+  * a cross-compilation version of `gcc` may also work, though this hasn't been
+    tested
+
+## Compiling
+
+Once the `sysroot` is set up, compiling is as easy as selecting an alternative
+OS / CPU using the standard Nim flags, `--os:` and `--cpu:`.
+
+### Windows
+
+A helper script exists to set up `llvm-mingw`:
+
+```sh
+./dl-llvm-mingw.sh
+
+# Set up $PATH to include the `clang` compiler that comes with llvm-mingw
+. env.sh
+```
+
+```sh
+# Assuming we're on Linux, compile for Windows and link dependencies statically
+# to create a (mostly) stand-alone binary:
+nlvm c --os:windows --passl:-static test.nim
+
+# You can also use a target triple
+nlvm c --nlvm.triple=x86_64-w64-mingw32 --passl:-static Nim/examples/fizzbuzz.nim
+
+# Run the compiled program via wine
+wine test.exe
+```
+
+### wasm32
 
 Use `--cpu:wasm32 --os:standalone --gc:none` to compile Nim to (barebones) WASM.
 
@@ -265,8 +354,8 @@ You will need to provide a runtime (ie WASI) and use manual memory allocation as
 the garbage collector hasn't yet been ported to WASM and the Nim standard
 library lacks WASM / WASI support.
 
-To compile wasm files, you will thus need a `panicoverride.nim` - a minimal
-example looks like this and discards any errors:
+Apart from WASI, an implementation of `panicoverride.nim` also needs to be
+provided - here's one that discards all panics:
 
 ```nim
 # panicoverride.nim
@@ -284,7 +373,7 @@ proc adder*(v: int): int {.exportc.} =
 ```
 
 ```sh
-nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:--no-entry myfile.nim
+nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:-Wl,--no-entry myfile.nim
 wasm2wat -l myfile.wasm
 ```
 
@@ -294,7 +383,7 @@ in particular, the bulk memory extension is needed to process data.
 Extensions are enabled by passing `--passc:-mattr=+feature,+feature2`, for example:
 
 ```sh
-nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:--no-entry --passc:-mattr=+bulk-memory
+nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:-Wl,--no-entry --passc:-mattr=+bulk-memory
 ```
 
 Passing `--passc:-mattr=help` will print available features (only works while compiling, for now!)

@@ -200,16 +200,12 @@ proc llPassAsPtr(g: LLGen, s: PSym, retType: PType): bool
 proc llType(g: LLGen, typ: PType, deep = true): llvm.TypeRef
 proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef
 proc llTupleType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef
-proc llProcType(g: LLGen, typ: PType, closure = false): llvm.TypeRef
-proc llStringType(g: LLGen): llvm.TypeRef
 proc llGenericSeqType(g: LLGen): llvm.TypeRef
 proc llOpenArrayType(g: LLGen): llvm.TypeRef
 proc llClosureType(g: LLGen): llvm.TypeRef
-proc llMagicType(g: LLGen, name: string): llvm.TypeRef
 proc llSeqType(g: LLGen, typ: PType): llvm.TypeRef
 proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[FieldPath]
 proc callMemset(g: LLGen, tgt, v, len: llvm.ValueRef)
-proc callErrno(g: LLGen, prefix: string): llvm.ValueRef
 proc callCompilerProc(
   g: LLGen,
   name: string,
@@ -3497,7 +3493,7 @@ proc paramStorageLoc(param: PSym): TStorageLoc =
   if param.typ.skipTypes({tyVar, tyTypeDesc, tyLent}).kind notin
       {tyArray, tyOpenArray, tyUncheckedArray, tyVarargs}: OnStack else: OnUnknown
 
-proc llProcType(g: LLGen, typ: PType, closure: bool): llvm.TypeRef =
+proc llProcType(g: LLGen, typ: PType, closure = false): llvm.TypeRef =
   var
     retType =
       if typ[0] == nil:
@@ -3691,99 +3687,6 @@ proc preCast(
 
   ax
 
-proc externGlobal(g: LLGen, s: PSym): LLValue =
-  # Extra symbols that the compiler fetches from header files - we'll need
-  # a better solution than hard-coding them, at some point
-  # These are typically "nodecl", "importc" and/or "header" tagged in
-  # the std library
-  let
-    name = g.llName(s)
-    t = g.llType(s.typ)
-
-  case name
-  of "errno":
-    LLValue(v: g.callErrno(""))
-  of "h_errno":
-    LLValue(v: g.callErrno("h_"))
-  else:
-    if s.id in g.symbols and not g.interactive():
-      g.symbols[s.id]
-    elif (let v = g.m.getNamedGlobal(name); v != nil):
-      let tmp = LLValue(v: v, storage: s.loc.storage)
-      g.symbols[s.id] = tmp
-      tmp
-    else:
-      let tmp = LLValue(v: g.m.addGlobal(t, name))
-      g.symbols[s.id] = tmp
-      tmp
-
-proc genLocal(g: LLGen, n: PNode): LLValue =
-  let s = n.sym
-  if s.loc.k == locNone:
-    fillLoc(s.loc, locLocalVar, n, s.name.s.mangle.rope, OnStack)
-    if s.kind == skLet:
-      incl(s.loc.flags, lfNoDeepCopy)
-
-  let
-    t = g.llType(s.typ)
-    v = g.localAlloca(t, g.llName(s))
-  g.debugVariable(s, v)
-
-  if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
-    v.setAlignment(cuint s.alignment)
-
-  let lv = LLValue(v: v, lode: n, storage: s.loc.storage)
-  g.symbols[s.id] = lv
-  lv
-
-proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
-  let s = n.sym
-
-  if s.id in g.symbols:
-    let
-      name = g.llName(s)
-      t = g.llType(s.typ.skipTypes(abstractInst))
-
-    return g.refGlobal(g.symbols[s.id], name, t)
-
-  if s.loc.k == locNone:
-    fillLoc(s.loc, locGlobalVar, n, g.mangleName(s), if isConst: OnStatic else: OnHeap)
-
-  let name = g.llName(s)
-
-  # Couldn't find by id - should we get by name also? this seems to happen for
-  # stderr for example which turns up with two different id:s.. what a shame!
-  if (let v = g.m.getNamedGlobal(name); v != nil):
-    let tmp = LLValue(v: v, storage: s.loc.storage)
-    g.symbols[s.id] = tmp
-    return tmp
-
-  let
-    t = g.llType(s.typ.skipTypes(abstractInst))
-    v = g.m.addGlobal(t, name)
-
-  if sfImportc in s.flags:
-    v.setLinkage(llvm.ExternalLinkage)
-  elif sfExportc in s.flags:
-    v.setLinkage(g.tgtExportLinkage)
-    v.setInitializer(llvm.constNull(t))
-  else:
-    v.setLinkage(g.defaultGlobalLinkage())
-    v.setInitializer(llvm.constNull(t))
-
-  if sfThread in s.flags and optThreads in g.config.globalOptions:
-    v.setThreadLocal(llvm.True)
-  g.debugGlobal(s, v)
-
-  if isConst:
-    v.setGlobalConstant(llvm.True)
-
-  if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
-    v.setAlignment(cuint s.alignment)
-
-  result = LLValue(v: v, lode: n, storage: s.loc.storage)
-  g.symbols[s.id] = result
-
 proc getUnreachableBlock(g: LLGen): llvm.BasicBlockRef =
   if g.f.unreachableBlock == nil:
     g.f.unreachableBlock = g.b.appendBasicBlockInContext(
@@ -3896,13 +3799,39 @@ proc callCtpop(g: LLGen, v: llvm.ValueRef, size: BiggestInt): llvm.ValueRef =
   g.b.buildCall2(fty, f, [v], g.nn("ctpop", v))
 
 proc callErrno(g: LLGen, prefix: string): llvm.ValueRef =
-  # on linux errno is a function, so we call it here. not at all portable.
+  # depending on the C library, errno will be a function - currently implemented
+  # for glibc and windows
 
   let
     fty = llvm.functionType(g.ptrTy, [])
-    f = g.m.getOrInsertFunction("__" & prefix & "errno_location", fty)
+    f =
+      if g.config.target.targetOS == osWindows:
+        g.m.getOrInsertFunction("_errno", fty)
+      else:
+        g.m.getOrInsertFunction("__" & prefix & "errno_location", fty)
 
   g.b.buildCall2(fty, f, [], g.nn(prefix & "errno"))
+
+proc callIobFunc(g: LLGen, idx: int32): llvm.ValueRef =
+  # stdin/stdout/stderr for msvcrt/ucrt
+
+  let
+    fty = llvm.functionType(g.ptrTy, [g.int32Ty()])
+    f = g.m.getOrInsertFunction("__acrt_iob_func", fty)
+    tmp = g.localAlloca(g.ptrTy, g.nn("crt.tmp"))
+    iob = g.b.buildCall2(fty, f, [g.constInt32(idx)], g.nn("__acrt_iob_func" & $idx))
+
+  discard g.b.buildStore(iob, tmp)
+  tmp
+
+proc callEnviron(g: LLGen): llvm.ValueRef =
+  # _environ for msvcrt/ucrt
+  # TODO arm/msvcrt uses a different name here
+
+  let
+    fty = llvm.functionType(g.ptrTy, [])
+    f = g.m.getOrInsertFunction("__p__environ", fty)
+  g.b.buildCall2(fty, f, [], g.nn("_environ"))
 
 proc callWithOverflow(
     g: LLGen, op: string, a, b: llvm.ValueRef, name: string
@@ -4177,6 +4106,108 @@ proc genObjectInit(g: LLGen, typ: PType, v: llvm.ValueRef, setType: bool) =
         g.genObjectInit(xtyp[i], gep)
   else:
     discard
+
+proc externGlobal(g: LLGen, s: PSym): LLValue =
+  # Extra symbols that the compiler fetches from header files - we'll need
+  # a better solution than hard-coding them, at some point
+  # These are typically "nodecl", "importc" and/or "header" tagged in
+  # the std library
+  let
+    name = g.llName(s)
+    t = g.llType(s.typ)
+  case name
+  of "errno":
+    LLValue(v: g.callErrno(""))
+  of "h_errno":
+    LLValue(v: g.callErrno("h_"))
+  else:
+    if g.config.target.targetOS == osWindows:
+      if name == "stdin":
+        return LLValue(v: g.callIobFunc(0))
+      if name == "stdout":
+        return LLValue(v: g.callIobFunc(1))
+      if name == "stderr":
+        return LLValue(v: g.callIobFunc(2))
+      if name == "_environ":
+        return LLValue(v: g.callEnviron())
+
+    if s.id in g.symbols and not g.interactive():
+      g.symbols[s.id]
+    elif (let v = g.m.getNamedGlobal(name); v != nil):
+      let tmp = LLValue(v: v, storage: s.loc.storage)
+      g.symbols[s.id] = tmp
+      tmp
+    else:
+      let tmp = LLValue(v: g.m.addGlobal(t, name))
+      g.symbols[s.id] = tmp
+      tmp
+
+proc genLocal(g: LLGen, n: PNode): LLValue =
+  let s = n.sym
+  if s.loc.k == locNone:
+    fillLoc(s.loc, locLocalVar, n, s.name.s.mangle.rope, OnStack)
+    if s.kind == skLet:
+      incl(s.loc.flags, lfNoDeepCopy)
+
+  let
+    t = g.llType(s.typ)
+    v = g.localAlloca(t, g.llName(s))
+  g.debugVariable(s, v)
+
+  if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
+    v.setAlignment(cuint s.alignment)
+
+  let lv = LLValue(v: v, lode: n, storage: s.loc.storage)
+  g.symbols[s.id] = lv
+  lv
+
+proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
+  let s = n.sym
+
+  if s.id in g.symbols:
+    let
+      name = g.llName(s)
+      t = g.llType(s.typ.skipTypes(abstractInst))
+
+    return g.refGlobal(g.symbols[s.id], name, t)
+
+  if s.loc.k == locNone:
+    fillLoc(s.loc, locGlobalVar, n, g.mangleName(s), if isConst: OnStatic else: OnHeap)
+
+  let name = g.llName(s)
+
+  # Couldn't find by id - should we get by name also? this seems to happen for
+  # stderr for example which turns up with two different id:s.. what a shame!
+  if (let v = g.m.getNamedGlobal(name); v != nil):
+    let tmp = LLValue(v: v, storage: s.loc.storage)
+    g.symbols[s.id] = tmp
+    return tmp
+
+  let
+    t = g.llType(s.typ.skipTypes(abstractInst))
+    v = g.m.addGlobal(t, name)
+
+  if sfImportc in s.flags:
+    v.setLinkage(llvm.ExternalLinkage)
+  elif sfExportc in s.flags:
+    v.setLinkage(g.tgtExportLinkage)
+    v.setInitializer(llvm.constNull(t))
+  else:
+    v.setLinkage(g.defaultGlobalLinkage())
+    v.setInitializer(llvm.constNull(t))
+
+  if sfThread in s.flags and optThreads in g.config.globalOptions:
+    v.setThreadLocal(llvm.True)
+  g.debugGlobal(s, v)
+
+  if isConst:
+    v.setGlobalConstant(llvm.True)
+
+  if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
+    v.setAlignment(cuint s.alignment)
+
+  result = LLValue(v: v, lode: n, storage: s.loc.storage)
+  g.symbols[s.id] = result
 
 proc supportsMemset(typ: PType): bool =
   supportsCopyMem(typ) and analyseObjectWithTypeField(typ) == frNone
@@ -10417,16 +10448,16 @@ proc genMain(g: LLGen) =
     g.finalize()
 
 proc loadBase(g: LLGen) =
-  let
-    base =
-      g.config.prefixDir.string / "../nlvm-lib/nlvmbase-$1-$2.ll" % [
-        platform.CPU[g.config.target.targetCPU].name,
-        platform.OS[g.config.target.targetOS].name,
-      ]
-    m = parseIRInContext(g.lc, base)
+  let base =
+    g.config.prefixDir.string / "../nlvm-lib/nlvmbase-$1-$2.ll" % [
+      platform.CPU[g.config.target.targetCPU].name,
+      platform.OS[g.config.target.targetOS].name,
+    ]
+  if fileExists(base):
+    let m = parseIRInContext(g.lc, base)
 
-  if g.m.linkModules2(m) != 0:
-    g.config.internalError("module link failed")
+    if g.m.linkModules2(m) != 0:
+      g.config.internalError("module link failed")
 
 proc runOptimizers(g: LLGen) =
   let
@@ -10500,7 +10531,7 @@ proc writeOutput(g: LLGen, project: string) =
 
   g.config.addExternalFileToLink(ofile.AbsoluteFile)
 
-  lllink(g.config)
+  lllink(g.config, g.tm.triple)
 
 proc genForwardedProcs(g: LLGen) =
   # Forward declared proc:s lack bodies when first encountered, so they're given
@@ -10752,10 +10783,10 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
 
         parseCommandLineOptions(llvmArgs.len.cint, arr, "")
 
-    # Before wasm32 was added as a CPU, we used nlvm.target - this is still
-    # around in some tutorials so leave it around for now - perhaps it makes
-    # sense to try to translate classic target triples to nim targets?
-
+    # If `--nlvm.triple` is set, use that - otherwise, try to construct a triple
+    # from cpu/os options.
+    #
+    # `--nlvm.abi` allows adding an ABI tag, like `musl`, in that case.
     let target = normalizeTargetTriple(
       if graph.config.existsConfigVar("nlvm.target"):
         let
@@ -10764,8 +10795,30 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
         graph.config.target.setTarget(os, cpu)
         tmp
       else:
-        toTriple(graph.config.target.targetCPU, graph.config.target.targetOS)
+        toTriple(
+          graph.config.target,
+          abi = graph.config.getConfigVar("nlvm.abi", ""),
+          useWasi = graph.config.isDefined("wasi"),
+          isMingw =
+            graph.config.target.targetOS == osWindows and
+            graph.config.cCompiler in {ccGcc, ccLLVM_Gcc, ccClang},
+        )
     )
+
+    if graph.config.target.hostOS != graph.config.target.targetOS or
+        graph.config.target.hostCPU != graph.config.target.targetCPU:
+      # If we're cross-compiling, force `clang` for now
+      if graph.config.cCompiler != ccClang:
+        graph.config.message(
+          s.info, hintUser, "Cross-compiling for " & target & ", switching to clang"
+        )
+
+        graph.config.cCompiler = ccClang
+      else:
+        graph.config.message(s.info, hintUser, "Cross-compiling for " & target)
+
+      graph.config.compileOptionsCmd.add " --target=" & target
+      graph.config.linkOptionsCmd.add " --target=" & target
 
     var tr: llvm.TargetRef
     discard getTargetFromTriple(target, addr(tr), nil)
@@ -10793,3 +10846,4 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
   g.modules[s.position]
 
 const llgenPass* = makePass(myOpen, myProcess, myClose)
+  # Are we _making_ a shared library

@@ -4,7 +4,7 @@
 
 set -e
 
-ROOT=nlvm-$(git rev-parse --short HEAD)
+ROOT=nlvm-linux-$(git rev-parse --short HEAD)
 
 rm -rf $ROOT
 
@@ -16,6 +16,7 @@ make STATIC_LLVM=1 nlvm/nlvmr
 # TODO these would go in /usr/{bin, share/Nim} normally
 mkdir -p $ROOT
 cp nlvm/nlvmr $ROOT/nlvm
+strip $ROOT/nlvm
 cp -r nlvm-lib $ROOT
 mkdir -p $ROOT/Nim
 cd Nim
