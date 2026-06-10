@@ -1,3 +1,7 @@
+lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --mm:refc --outdir:tests/dll
+lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --outdir:tests/dll
+lib/nimrtl.nim c  -d:nimDebugDlOpen --mm:refc --outdir:tests/dll
+lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll
 tests/align/talign.nim c
 tests/arc/t16458.nim c --gc:orc --d:useNimRtl
 tests/arc/t18977.nim c --mm:arc
@@ -95,13 +99,11 @@ tests/dll/visibility.nim c  -d:nimDebugDlOpen --threads:off
 tests/effects/tdiagnostic_messages.nim c
 tests/errmsgs/t14444.nim c --hints:off
 tests/errmsgs/t23536.nim c --stackTrace:on --excessiveStackTrace:off
+tests/errmsgs/t24974.nim c
 tests/errmsgs/tcall_with_default_arg.nim c
 tests/errmsgs/tproper_stacktrace2.nim c --stackTrace:on
 tests/errmsgs/tproper_stacktrace3.nim c --stackTrace:on
 tests/errmsgs/tproper_stacktrace.nim c --stackTrace:on --hint:all:off --warnings:off
-tests/errmsgs/trecursiveproctype2.nim c
-tests/errmsgs/trecursiveproctype3.nim c
-tests/errmsgs/trecursiveproctype4.nim c
 tests/exception/t13115.nim c
 tests/exception/t18620.nim c --gc:arc
 tests/exception/t18620.nim c --gc:refc
@@ -124,6 +126,8 @@ tests/int/tints.nim js --backend:js --jsbigint64:off -d:nimStringHash2
 tests/int/tints.nim js --backend:js --jsbigint64:on
 tests/iter/tnestedclosures.nim c
 tests/iter/tshallowcopy_closures.nim c --mm:refc
+tests/iter/tyieldintry.nim c
+tests/iter/tyieldintry.nim c --experimental:strictdefs
 tests/lent/tbasic_lent_check.nim c
 tests/let/timportc.nim c
 tests/macros/tmemit.nim c
@@ -212,6 +216,7 @@ tests/testament/tshould_not_work.nim c
 tests/threads/tonthreadcreation.nim c  --threads:on -d:release --mm:orc --deepcopy:on
 tests/threads/tonthreadcreation.nim c  --threads:on --mm:orc --deepcopy:on
 tests/threads/tonthreadcreation.nim c  --threads:on --tlsEmulation:on --mm:orc --deepcopy:on
+tests/tools/tctags2.nim c
 tests/tools/tctags.nim c
 tests/tools/tnimgrep.nim c
 tests/views/tsplit_into_seq.nim c
