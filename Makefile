@@ -39,8 +39,8 @@ all: $(NLVMC)
 
 Nim/koch$(EXE):
 	cd Nim ;\
-	[ -d csources_v2 ] || git clone -q --depth 1 -b master https://github.com/nim-lang/csources_v2.git ;\
-	cd csources_v2 ;\
+	[ -d csources_v3 ] || git clone -q --depth 1 -b master https://github.com/nim-lang/csources_v3.git ;\
+	cd csources_v3 ;\
 	git pull ;\
 	$(MAKE) -f makefile
 	cd Nim ; bin/nim c koch

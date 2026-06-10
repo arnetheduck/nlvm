@@ -2,7 +2,8 @@ lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --mm:refc --outdir:tests/dll
 lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --outdir:tests/dll
 lib/nimrtl.nim c  -d:nimDebugDlOpen --mm:refc --outdir:tests/dll
 lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll
-tests/align/talign.nim c
+tests/align/talign.nim c --mm:orc
+tests/align/talign.nim c --mm:refc -d:useGcAssert -d:useSysAssert
 tests/arc/t16458.nim c --gc:orc --d:useNimRtl
 tests/arc/t18977.nim c --mm:arc
 tests/arc/tarcmisc.nim c
@@ -18,6 +19,8 @@ tests/async/tasync_traceback2.nim c
 tests/async/tasync_traceback.nim c
 tests/avr/thello.nim c
 tests/casestmt/t7699.nim c
+tests/ccgbugs2/t25459b.nim c -d:checkAbi
+tests/ccgbugs2/tcodegen.nim c
 tests/ccgbugs2/tinefficient_const_table.nim c
 tests/ccgbugs/t15428.nim c
 tests/ccgbugs/t16027.nim c
@@ -40,7 +43,7 @@ tests/ccgbugs/tnoalias.nim c
 tests/ccgbugs/tprogmem.nim c
 tests/ccgbugs/tunsafeaddr.nim c
 tests/closure/ttimeinfo.nim c
-tests/codegen/titaniummangle.nim c --debugger:native
+tests/codegen/titaniummangle.nim c --debugger:native --mangle:cpp
 tests/compiler/tasm2.nim c
 tests/compiler/tasm.nim c
 tests/compiler/tcmdlineclib.nim c
@@ -187,6 +190,7 @@ tests/stdlib/tjson.nim js --backend:js --jsbigint64:on
 tests/stdlib/tmath.nim c
 tests/stdlib/tmath.nim c -d:danger
 tests/stdlib/tmath.nim c --mm:refc
+tests/stdlib/tmisc_issues.nim c --mm:refc
 tests/stdlib/tosproc.nim c --mm:orc
 tests/stdlib/tosproc.nim c --mm:refc
 tests/stdlib/trandom.nim js --backend:js --jsbigint64:off -d:nimStringHash2
