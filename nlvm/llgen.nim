@@ -505,21 +505,12 @@ proc idOrSig(g: LLGen, s: PSym): Rope =
     g.sigConflicts.inc(sig)
 
 # from c gen
-proc fillLoc(a: var TLoc, k: TLocKind, lode: PNode, r: Rope, s: TStorageLoc) =
+proc fillLoc(a: var TLoc, k: TLocKind, lode: PNode, s: TStorageLoc) =
   # fills the loc if it is not already initialized
   if a.k == locNone:
     a.k = k
     a.lode = lode
     a.storage = s
-    if a.snippet == nil:
-      a.snippet = r
-
-proc mangleName(g: LLGen, s: PSym): Rope =
-  result = s.loc.snippet
-  if result == nil:
-    result = s.name.s.mangle.rope
-    add(result, g.idOrSig(s))
-    s.loc.snippet = result
 
 proc encodeName*(name: string): string =
   result = mangle(name)
@@ -600,18 +591,15 @@ proc mangleProc(g: LLGen, s: PSym, makeUnique: bool): string =
 
 proc llName(g: LLGen, s: PSym): string =
   if s.loc.snippet == "":
-    var result: Rope
     if s.kind in routineKinds:
-      result = mangleProc(g, s, false).rope
+      result = mangleProc(g, s, false)
     else:
       result = s.name.s.mangle.rope
-      result.add "__"
-      result.add g.graph.ifaces[s.itemId.module].uniqueName
-      result.add "_u"
-      result.addInt s.itemId.item # s.disamb #
-    s.loc.snippet = result
+      result.add mangleProcNameExt(g.graph, s)
 
-  result = $s.loc.snippet
+    s.loc.snippet = result
+  else:
+    result = s.loc.snippet
 
   # NCSTRING is a char*, so functions that return const char* need this ugly
   # cast in their importc to be rid of the const.. *sigh*
@@ -685,7 +673,7 @@ proc `$`(n: PSym): string =
   if n == nil:
     return "PSym(nil)"
   let name =
-    if n.loc.snippet == nil:
+    if n.loc.snippet == "":
       n.name.s
     else:
       $n.loc.snippet
@@ -2191,7 +2179,7 @@ proc addStructFields(
       tags = n[0].sym
       tagTy = g.llType(tags.typ)
 
-    fillLoc(tags.loc, locField, n, tags.name.s.rope, OnUnknown)
+    fillLoc(tags.loc, locField, n, OnUnknown)
     let ep = addr elements
     discard g.addField(mapper, tagTy, tags) do(pad: int):
       ep[].add(llvm.arrayType(g.primitives[tyUInt8], cuint pad))
@@ -2240,7 +2228,7 @@ proc addStructFields(
     if field.typ.isEmptyType():
       return
 
-    fillLoc(field.loc, locField, n, field.name.s.rope, OnUnknown)
+    fillLoc(field.loc, locField, n, OnUnknown)
 
     let fieldTy = g.llType(field.typ)
     let ep = addr elements
@@ -3520,10 +3508,7 @@ proc llProcType(g: LLGen, typ: PType, closure = false): llvm.TypeRef =
     retType = g.voidTy
 
   for param in typ.procParams():
-    fillLoc(
-      param.sym.loc, locParam, param, param.sym.name.s.mangle.rope,
-      param.sym.paramStorageLoc,
-    )
+    fillLoc(param.sym.loc, locParam, param, param.sym.paramStorageLoc)
 
     if g.llPassAsPtr(param.sym, typ[0]):
       incl(param.sym.loc.flags, lfIndirect)
@@ -4160,7 +4145,7 @@ proc externGlobal(g: LLGen, s: PSym): LLValue =
 proc genLocal(g: LLGen, n: PNode): LLValue =
   let s = n.sym
   if s.loc.k == locNone:
-    fillLoc(s.loc, locLocalVar, n, s.name.s.mangle.rope, OnStack)
+    fillLoc(s.loc, locLocalVar, n, OnStack)
     if s.kind == skLet:
       incl(s.loc.flags, lfNoDeepCopy)
 
@@ -4187,7 +4172,7 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
     return g.refGlobal(g.symbols[s.id], name, t)
 
   if s.loc.k == locNone:
-    fillLoc(s.loc, locGlobalVar, n, g.mangleName(s), if isConst: OnStatic else: OnHeap)
+    fillLoc(s.loc, locGlobalVar, n, if isConst: OnStatic else: OnHeap)
 
   let name = g.llName(s)
 
@@ -4958,7 +4943,7 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
       ty = g.llProcType(typ, typ.callConv == ccClosure)
     return g.refFunction(g.symbols[s.id], name, ty)
 
-  fillLoc(s.loc, locProc, s.ast[namePos], g.mangleName(s), OnStack)
+  fillLoc(s.loc, locProc, s.ast[namePos], OnStack)
   let name = g.llName(s)
 
   # Some compiler proc's have two syms essentially, because of an importc trick
@@ -6851,7 +6836,7 @@ proc genMagicNewSeqOfCap(g: LLGen, n: PNode): LLValue =
           dl = g.m.getModuleDataLayout()
 
         let s = g.callCompilerProc(
-          "newSeqPayload",
+          "newSeqPayloadUninit",
           [
             ax,
             g.constNimInt(int dl.aBISizeOfType(elemTy)),
@@ -7041,6 +7026,33 @@ proc genMagicBinOp(g: LLGen, n: PNode, op: Opcode): LLValue =
   let bo = g.b.buildBinOp(op, ax, bx, g.nn("binop." & $op, n))
   LLValue(v: g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.trunc", n)))
 
+proc genMagicBinOpMask(g: LLGen, n: PNode, op: Opcode): LLValue =
+  var
+    ax = g.genNode(n[1], true).v
+    bx = g.genNode(n[2], true).v
+
+  if ax.typeOfX().getTypeKind() == llvm.IntegerTypeKind and
+      bx.typeOfX().getTypeKind() == llvm.IntegerTypeKind and
+      ax.typeOfX().getIntTypeWidth() != bx.typeOfX().getIntTypeWidth():
+    # This seems to happen with unsigned ints for example, see
+    # https://github.com/nim-lang/Nim/issues/4176
+
+    if ax.typeOfX().getIntTypeWidth() > bx.typeOfX().getIntTypeWidth():
+      bx = g.buildTruncOrExt(bx, ax.typeOfX(), g.isUnsigned(n[2].typ))
+    else:
+      ax = g.buildTruncOrExt(ax, bx.typeOfX(), g.isUnsigned(n[1].typ))
+
+  let
+    mask = n.typ.size * 8 - 1
+    bm = g.b.buildBinOp(
+      Opcode.And,
+      bx,
+      constInt(bx.typeOfX, mask.culonglong, llvm.False),
+      g.nn("binop.mask", n),
+    )
+    bo = g.b.buildBinOp(op, ax, bm, g.nn("binop." & $op, n))
+  LLValue(v: g.b.buildTrunc(bo, g.llType(n.typ), g.nn("binop.trunc", n)))
+
 proc genMagicBinOpOverflow(g: LLGen, n: PNode, op: Opcode): LLValue =
   if optOverflowCheck notin g.f.options:
     return g.genMagicBinOp(n, op)
@@ -7085,30 +7097,6 @@ proc genMagicBinOpF(g: LLGen, n: PNode, op: Opcode, unsigned = false): LLValue =
     g.callRaise(isinf, "raiseFloatOverflow", [v64])
 
   LLValue(v: v)
-
-proc genMagicShr(g: LLGen, n: PNode): LLValue =
-  var
-    ax = g.genNode(n[1], true).v
-    bx = g.genNode(n[2], true).v
-
-  if ax.typeOfX().getIntTypeWidth() != bx.typeOfX().getIntTypeWidth():
-    # This seems to happen with unsigned ints for example, see
-    # https://github.com/nim-lang/Nim/issues/4176
-    bx = g.buildTruncOrExt(bx, ax.typeOfX(), true)
-
-  LLValue(v: g.b.buildBinOp(llvm.LShr, ax, bx, g.nn("binop." & $llvm.LShr, n)))
-
-proc genMagicAShr(g: LLGen, n: PNode): LLValue =
-  var
-    ax = g.genNode(n[1], true).v
-    bx = g.genNode(n[2], true).v
-
-  if ax.typeOfX().getIntTypeWidth() != bx.typeOfX().getIntTypeWidth():
-    # This seems to happen with unsigned ints for example, see
-    # https://github.com/nim-lang/Nim/issues/4176
-    bx = g.buildTruncOrExt(bx, ax.typeOfX(), true)
-
-  LLValue(v: g.b.buildBinOp(llvm.AShr, ax, bx, g.nn("binop." & $llvm.AShr, n)))
 
 proc genMagicMinMaxI(g: LLGen, n: PNode, op: IntPredicate): LLValue =
   let
@@ -7848,7 +7836,7 @@ proc genMagicSetLengthStr(g: LLGen, n: PNode) =
 
   g.genRefAssign(ax, newstr)
 
-proc genMagicSetLengthSeq(g: LLGen, n: PNode) =
+proc genMagicSetLengthSeq(g: LLGen, n: PNode, noinit = false) =
   if optSeqDestructors in g.config.globalOptions:
     n[1] = makeAddr(n[1], g.idgen)
     discard g.genCall(nil, n, false, LLValue())
@@ -7869,7 +7857,10 @@ proc genMagicSetLengthSeq(g: LLGen, n: PNode) =
         ax.v
       else:
         g.b.buildLoad2(ty, ax.v)
-    x = g.callCompilerProc("setLengthSeqV2", [a, g.genTypeInfoV1(typ), bx])
+    trivial =
+      g.constInt8(int8(not (containsGarbageCollectedRef(typ) or hasDestructor(typ))))
+    name = if noinit: "setLengthSeqUninit" else: "setLengthSeqV2"
+    x = g.callCompilerProc(name, [a, g.genTypeInfoV1(typ), bx, trivial])
 
   g.genRefAssign(ax, x)
 
@@ -8258,11 +8249,11 @@ proc genMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   of mDivF64:
     result = g.genMagicBinOpF(n, llvm.FDiv)
   of mShrI:
-    result = g.genMagicShr(n)
+    result = g.genMagicBinOpMask(n, llvm.LShr)
   of mShlI:
-    result = g.genMagicBinOp(n, llvm.Shl)
+    result = g.genMagicBinOpMask(n, llvm.Shl)
   of mAShrI:
-    result = g.genMagicAShr(n)
+    result = g.genMagicBinOpMask(n, llvm.AShr)
   of mBitandI:
     result = g.genMagicBinOp(n, llvm.And)
   of mBitorI:
@@ -8397,6 +8388,8 @@ proc genMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
     g.genMagicSetLengthStr(n)
   of mSetLengthSeq:
     g.genMagicSetLengthSeq(n)
+  of mSetLengthSeqUninit:
+    g.genMagicSetLengthSeq(n, noinit = true)
   of mParallel:
     g.genMagicParallel(n)
   of mSwap:
@@ -9205,7 +9198,7 @@ proc genNodeConv(g: LLGen, n: PNode, load: bool): LLValue =
 
 proc genNodeCast(g: LLGen, n: PNode, load: bool): LLValue =
   let
-    ntyp = n.typ.skipTypes(abstractRange)
+    ntyp = n.typ.skipTypes(abstractRange + {tyOwned})
     vtyp = n[1].typ.skipTypes(abstractRange)
 
   if vtyp.skipTypes(abstractVar).kind in {tyVar, tyLent}:
