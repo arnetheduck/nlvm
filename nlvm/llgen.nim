@@ -1702,7 +1702,9 @@ proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
   g.dstructs[sig] = result
 
   var members = newSeq[MetadataRef]()
-  for _, field in typ.ikids:
+  for field in typ.kids:
+    if isEmptyType(field):
+      continue
     let
       mline =
         if field.sym != nil:
@@ -2412,8 +2414,10 @@ proc llTupleType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   g.types[sig] = result
 
   var elements = newSeq[TypeRef]()
-  for _, t in typ.ikids:
-    elements.add(g.llType(t))
+  for tf in typ.kids:
+    if isEmptyType(tf):
+      continue
+    elements.add(g.llType(tf))
 
   p("llTupleType " & $name & " " & $elements, typ, g.depth)
 
@@ -2603,9 +2607,11 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
     if typ.n != nil and tfUnion notin typ.flags:
       g.genMarkerFields(mapper, typ.n, ty, v, op)
   of tyTuple:
-    for i in 0 ..< typ.len:
+    for i, tf in typ.ikids:
+      if isEmptyType(tf):
+        continue
       let gep = g.b.buildStructGEP2(ty, v, cuint i, g.nn("mk.tuple.field" & $i, v))
-      g.genMarker(typ[i], gep, op)
+      g.genMarker(tf, gep, op)
   of tyRef, tySequence:
     let vl = g.b.buildLoad2(ty, v)
     discard g.callCompilerProc("nimGCVisit", [vl, op])
@@ -2793,7 +2799,10 @@ proc genGcRegistrar(g: LLGen, sym: PSym, v: llvm.ValueRef) =
   g.withFunc(g.registrar):
     g.debugUpdateLoc(sym)
     g.withBlock(g.section(g.f, secBody)):
-      discard g.callCompilerProc("nimRegisterGlobalMarker", [prc])
+      if sfThread in sym.flags:
+        discard g.callCompilerProc("nimRegisterThreadLocalMarker", [prc])
+      else:
+        discard g.callCompilerProc("nimRegisterGlobalMarker", [prc])
 
 proc genTypeInfoInit(
     g: LLGen,
@@ -2840,11 +2849,10 @@ proc genTypeInfoInit(
 
   let flagsVar = g.constInt8(flags)
 
-  var values =
-    @[
-      sizeVar, alignVar, kindVar, flagsVar, baseVar, nodeVar, finalizerVar, markerVar,
-      deepcopyVar,
-    ]
+  var values = @[
+    sizeVar, alignVar, kindVar, flagsVar, baseVar, nodeVar, finalizerVar, markerVar,
+    deepcopyVar,
+  ]
 
   if isDefined(g.config, "nimSeqsV2"):
     values.add(
@@ -3041,6 +3049,9 @@ proc genTupleNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
   let prefix = ".nodeinfo." & g.llName(t, sig) & "."
 
   for i, tf in t.ikids:
+    if isEmptyType(tf):
+      continue
+
     let
       name = prefix & $i
       field = g.m.addPrivateConstant(tnn, name)
@@ -3180,19 +3191,18 @@ proc genTypeInfoV1(
     if typeInfoV2 != nil:
       let init = getInitializer(ti)
       if init.getAggregateElement(8).isNull() == llvm.True:
-        var values =
-          @[
-            init.getAggregateElement(0),
-            init.getAggregateElement(1),
-            init.getAggregateElement(2),
-            init.getAggregateElement(3),
-            init.getAggregateElement(4),
-            init.getAggregateElement(5),
-            init.getAggregateElement(6),
-            init.getAggregateElement(7),
-            init.getAggregateElement(8),
-            typeInfoV2,
-          ]
+        var values = @[
+          init.getAggregateElement(0),
+          init.getAggregateElement(1),
+          init.getAggregateElement(2),
+          init.getAggregateElement(3),
+          init.getAggregateElement(4),
+          init.getAggregateElement(5),
+          init.getAggregateElement(6),
+          init.getAggregateElement(7),
+          init.getAggregateElement(8),
+          typeInfoV2,
+        ]
 
         if isDefined(g.config, "nimTypeNames"):
           values.add init.getAggregateElement(10)
@@ -3726,16 +3736,15 @@ proc callCompilerProc(
     f = g.genFunctionWithBody(sym).v
     fty = f.globalGetValueType()
 
-  if noInvoke:
-    let ret = g.b.buildCall2(
-      fty,
-      f,
-      args,
-      if fty.getReturnType().getTypeKind() == llvm.VoidTypeKind:
-        ""
-      else:
-        g.nn("call.cp." & name),
-    )
+  if noInvoke or g.f.nestedTryStmts.len == 0:
+    let
+      name =
+        if fty.getReturnType().getTypeKind() == llvm.VoidTypeKind:
+          cstring("")
+        else:
+          name
+
+      ret = g.b.buildCall2(fty, f, args, name)
     if noReturn:
       discard g.b.buildUnreachable()
       g.b.positionBuilderAtEnd(g.getDeadBlock())
@@ -3855,7 +3864,7 @@ proc callRaise(
   discard g.b.buildCondBr(cond, raised, cont)
 
   g.b.positionBuilderAtEnd(raised)
-  discard g.callCompilerProc(raiser, args)
+  discard g.callCompilerProc(raiser, args, noReturn = true)
   discard g.b.buildUnreachable()
   g.b.positionBuilderAtEnd(cont)
 
@@ -3980,10 +3989,16 @@ proc callIsObj(g: LLGen, v: llvm.ValueRef, typ: PType): llvm.ValueRef =
         llvm.False,
       )
 
-    g.callCompilerProc("isObjDisplayCheck", [mtype, cmpTo, elem])
+    g.callCompilerProc("isObjDisplayCheck", [mtype, cmpTo, elem], noInvoke = true)
   else:
     let cmpTo = g.genTypeInfoV1(typ)
-    g.callCompilerProc("isObj", [mtype, cmpTo])
+    g.callCompilerProc("isObj", [mtype, cmpTo], noInvoke = true)
+
+proc callAsgnRef(g: LLGen, dest, src: llvm.ValueRef) =
+  discard g.callCompilerProc("asgnRef", [dest, src], noInvoke = true)
+
+proc callUnsureAsgnRef(g: LLGen, dest, src: llvm.ValueRef) =
+  discard g.callCompilerProc("unsureAsgnRef", [dest, src], noInvoke = true)
 
 # These are taken from cgen and take care of some of the fallout from the
 # beautiful copy-on-write string literal pessimisation :/
@@ -4100,10 +4115,10 @@ proc genObjectInit(g: LLGen, typ: PType, v: llvm.ValueRef, setType: bool) =
 
       discard g.b.buildStore(pname, tgt)
   of tyTuple:
-    for i in 0 ..< xtyp.len:
-      if analyseObjectWithTypeField(xtyp[i]) != frNone:
+    for i, tf in xtyp.ikids:
+      if analyseObjectWithTypeField(tf) != frNone:
         let gep = g.b.buildStructGEP2(ty, v, cuint i, g.nn("oi.field" & $i, v))
-        g.genObjectInit(xtyp[i], gep)
+        g.genObjectInit(tf, gep)
   else:
     discard
 
@@ -4384,9 +4399,11 @@ proc genReset(g: LLGen, typ: PType, v: LLValue) =
 
       g.genResetFields(mapper, typ.n, ty, v)
     of tyTuple:
-      for i in 0 ..< typ.len:
+      for i, tf in typ.ikids:
+        if isEmptyType(tf):
+          continue
         let gep = g.b.buildStructGEP2(ty, v, cuint i, g.nn("reset.field" & $i, v))
-        g.callReset(typ[i], gep)
+        g.callReset(tf, gep)
     of tyString, tyRef, tySequence:
       g.genRefAssign(v, constNull(ty))
     of tyProc:
@@ -4592,11 +4609,13 @@ proc genAssign(g: LLGen, typ: PType, dest, src, shallow: llvm.ValueRef) =
 
       g.genAssignFields(mapper, typ.n, ty, dest, src, shallow)
     of tyTuple:
-      for i in 0 ..< typ.len:
+      for i, tf in typ.ikids:
+        if isEmptyType(tf):
+          continue
         let
           gepd = g.b.buildStructGEP2(ty, dest, cuint i, g.nn("asgn.field" & $i, dest))
           geps = g.b.buildStructGEP2(ty, src, cuint i, g.nn("asgn.field" & $i, src))
-        g.callAssign(typ[i], gepd, geps, shallow)
+        g.callAssign(tf, gepd, geps, shallow)
     of tyString:
       let srcl = g.b.buildLoad2(ty, src)
 
@@ -4624,10 +4643,10 @@ proc genAssign(g: LLGen, typ: PType, dest, src, shallow: llvm.ValueRef) =
         let phi = g.b.buildPHI(v.typeOfX(), g.nn("nilcheck.phi", v))
         phi.addIncoming([srcl, v], [pre, lcopy])
 
-        discard g.callCompilerProc("unsureAsgnRef", [dest, phi])
+        g.callUnsureAsgnRef(dest, phi)
     of tyRef:
       let srcl = g.b.buildLoad2(g.ptrTy, src)
-      discard g.callCompilerProc("unsureAsgnRef", [dest, srcl])
+      g.callUnsureAsgnRef(dest, srcl)
     of tySequence:
       let
         srcl = g.b.buildLoad2(g.ptrTy, src)
@@ -4673,7 +4692,7 @@ proc genAssign(g: LLGen, typ: PType, dest, src, shallow: llvm.ValueRef) =
       g.b.positionBuilderAtEnd(lasgn)
       let phi = g.b.buildPhi(g.ptrTy, g.nn("asgn.phi", srcl))
       phi.addIncoming([srcl, srcphi], [pre, postasgn])
-      discard g.callCompilerProc("unsureAsgnRef", [dest, phi])
+      g.callUnsureAsgnRef(dest, phi)
     of tyProc:
       if typ.callConv == ccClosure:
         block:
@@ -4688,7 +4707,7 @@ proc genAssign(g: LLGen, typ: PType, dest, src, shallow: llvm.ValueRef) =
             srce = g.buildClosureEnvGEP(src)
             srcl = g.b.buildLoad2(g.ptrTy, srce)
             destp = g.buildClosureEnvGEP(dest)
-          discard g.callCompilerProc("unsureAsgnRef", [destp, srcl])
+          g.callUnsureAsgnRef(destp, srcl)
       else:
         let srcl = g.b.buildLoad2(g.ptrTy, src)
         discard g.b.buildStore(srcl, dest)
@@ -4758,7 +4777,7 @@ proc callAssign(
     g.callMemcpy(dest, src, size)
   elif typ.kind == tyRef:
     let srcl = g.b.buildLoad2(g.ptrTy, src)
-    discard g.callCompilerProc("unsureAsgnRef", [dest, srcl])
+    g.callUnsureAsgnRef(dest, srcl)
   else:
     let
       f = g.genAssignFunc(typ)
@@ -5281,6 +5300,17 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue, load: bool): bool =
       )
       return true
 
+    if s.name.s == "pushCurrentException":
+      let tmp = g.genNode(n[1], true)
+      discard g.callCompilerProc("nlvmPushCurrentException", [tmp.v], noInvoke = true)
+
+      return true
+
+    if s.name.s == "popCurrentException":
+      discard g.callCompilerProc("nlvmPopCurrentException", [], noInvoke = true)
+
+      return true
+
     if s.name.s == "getCurrentExceptionMsg":
       let ax = g.callCompilerProc("nlvmGetCurrentExceptionMsg", [], noInvoke = true)
       o = LLValue(
@@ -5294,7 +5324,7 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue, load: bool): bool =
       )
       return true
 
-    if s.name.s in ["closureIterSetupExc", "setCurrentException"]:
+    if s.name.s in ["closureIterSetExc", "setCurrentException"]:
       let p0 = g.genNode(n[1], true).v
       discard g.callCompilerProc("nlvmSetClosureException", [p0], noInvoke = true)
       return true
@@ -5386,11 +5416,9 @@ proc genFakeCall(g: LLGen, n: PNode, o: var LLValue, load: bool): bool =
       o = LLValue(v: g.b.buildAtomicRMW(AtomicRMWBinOpXchg, p0, p1, ord, llvm.False))
 
       return true
-    elif s.name.s in
-        [
-          "atomic_compare_exchange_strong_explicit",
-          "atomic_compare_exchange_weak_explicit",
-        ]:
+    elif s.name.s in [
+      "atomic_compare_exchange_strong_explicit", "atomic_compare_exchange_weak_explicit"
+    ]:
       let
         p0 = g.genNode(n[1], true).v
         p1 = g.genNode(n[2], true).v
@@ -5855,9 +5883,9 @@ proc genRefAssign(g: LLGen, dest: LLValue, src: llvm.ValueRef) =
       not usesWriteBarrier(g.config):
     discard g.b.buildStore(src, dest.v)
   elif dest.storage == OnHeap:
-    discard g.callCompilerProc("asgnRef", [dest.v, src])
+    g.callAsgnRef(dest.v, src)
   else:
-    discard g.callCompilerProc("unsureAsgnRef", [dest.v, src])
+    g.callUnsureAsgnRef(dest.v, src)
 
 proc callGenericAssign(
     g: LLGen, dest, src: LLValue, typ: PType, flags: TAssignmentFlags
@@ -5918,10 +5946,10 @@ proc genAssignment(g: LLGen, dest, src: LLValue, typ: PType, flags: TAssignmentF
         let srcc = g.callCompilerProc("copyStringRC1", [src.v])
         discard g.b.buildStore(srcc, dest.v)
         g.withNotNil(destl):
-          discard g.callCompilerProc("nimGCunrefNoCycle", [destl])
+          discard g.callCompilerProc("nimGCunrefNoCycle", [destl], noInvoke = true)
       else:
         let srcc = g.callCompilerProc("copyString", [src.v])
-        discard g.callCompilerProc("unsureAsgnRef", [dest.v, srcc])
+        g.callUnsureAsgnRef(dest.v, srcc)
   of tyProc:
     if typ.containsGarbageCollectedRef():
       # TODO this is a hack to work around "automatic" conversion between
@@ -6691,16 +6719,16 @@ proc rawGenNew(g: LLGen, dest: LLValue, sizeExpr: llvm.ValueRef, typ: PType) =
       let destl = g.buildLoadValue(g.llType(refType), dest)
       g.withNotNil(destl.v):
         if g.graph.canFormAcycle(typ):
-          discard g.callCompilerProc("nimGCunrefRC1", [destl.v])
+          discard g.callCompilerProc("nimGCunrefRC1", [destl.v], noInvoke = true)
         else:
-          discard g.callCompilerProc("nimGCunrefNoCycle", [destl.v])
+          discard g.callCompilerProc("nimGCunrefNoCycle", [destl.v], noInvoke = true)
         discard g.b.buildStore(constNull(g.llType(refType)), dest.v)
 
       if g.config.selectedGC == gcGo:
         # newObjRC1() would clash with unsureAsgnRef() - which is used by gcGo to
         # implement the write barrier
         let src = g.callCompilerProc("newObj", [ti, sizeExpr])
-        discard g.callCompilerProc("unsureAsgnRef", [dest.v, src])
+        g.callUnsureAsgnRef(dest.v, src)
       else:
         # use newObjRC1 as an optimization
         let src = g.callCompilerProc("newObjRC1", [ti, sizeExpr])
@@ -6765,16 +6793,16 @@ proc genNewSeqAux(g: LLGen, dest: LLValue, destTyp: PType, len: llvm.ValueRef) =
     let destl = g.buildLoadValue(g.llType(destTyp), dest)
     g.withNotNil(destl.v):
       if g.graph.canFormAcycle(destTyp):
-        discard g.callCompilerProc("nimGCunrefRC1", [destl.v])
+        discard g.callCompilerProc("nimGCunrefRC1", [destl.v], noInvoke = true)
       else:
-        discard g.callCompilerProc("nimGCunrefNoCycle", [destl.v])
+        discard g.callCompilerProc("nimGCunrefNoCycle", [destl.v], noInvoke = true)
       discard g.b.buildStore(constNull(g.llType(destTyp)), dest.v)
 
     if not len.isZero():
       if g.config.selectedGC == gcGo:
         # we need the write barrier
         let src = g.callCompilerProc("newSeq", args)
-        discard g.callCompilerProc("unsureAsgnRef", [dest.v, src])
+        g.callUnsureAsgnRef(dest.v, src)
       else:
         let src = g.callCompilerProc("newSeqRC1", args)
         discard g.b.buildStore(src, dest.v)
@@ -10497,7 +10525,7 @@ proc writeOutput(g: LLGen, project: string) =
 
   let outFile = g.config.getOutFile(g.config.outFile, ext)
 
-  g.runOptimizers()
+  #g.runOptimizers()
 
   var err: cstring
   if optCompileOnly in g.config.globalOptions:
@@ -10573,6 +10601,31 @@ proc runModule(g: LLGen, m: llvm.ModuleRef, fcns: openArray[string]) =
       g.config.internalError($err.getErrorMessage)
     cast[proc() {.cdecl.}](main)()
 
+proc handleProcGlobals(g: LLGen, m: LLModule) =
+  if g.graph.procGlobals.len == 0:
+    return
+
+  # Order is important here: when called recursively below, those inits must
+  # happen before the inits that caused the recursive call!
+  let pre = g.f.sections[secPreinit]
+  g.f.sections[secPreinit] = appendBasicBlockInContext(g.lc, g.f.f, g.nn($secPreinit))
+
+  if g.f.sections[secLastPreinit] == nil:
+    g.f.sections[secLastPreinit] = g.f.sections[secPreinit]
+
+  g.withBlock(g.f.sections[secPreinit]):
+    var procGlobals: seq[PNode] = move g.graph.procGlobals
+
+    for i in 0 ..< procGlobals.len:
+      var transformedN = procGlobals[i]
+      if sfInjectDestructors in m.sym.flags:
+        transformedN = injectDestructorCalls(g.graph, g.idgen, m.sym, transformedN)
+      g.genNode(transformedN)
+
+      handleProcGlobals(g, m)
+    if pre != nil:
+      discard g.b.buildBr(pre)
+
 proc myProcess(b: PPassContext, n: PNode): PNode =
   let
     m = LLModule(b)
@@ -10587,14 +10640,18 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
     transformedN = injectDestructorCalls(g.graph, g.idgen, m.sym, transformedN)
 
   g.withModule(m):
-    g.withFunc(g.getInitFunc()):
+    let initFunc = g.getInitFunc()
+    g.withFunc(initFunc):
       # Process the code with any top-level stuff going to the init func
       g.b.positionBuilderAtEnd(g.section(g.f, secLastBody))
       g.debugUpdateLoc(n)
 
       g.f.options = g.config.options
       g.genNode(transformedN)
+
       g.f.sections[secLastBody] = g.b.getInsertBlock()
+
+      g.handleProcGlobals(m)
 
   if g.interactive() and g.init.sections[secBody].getFirstInstruction() != nil and
       m.sym.name.s == "stdin":

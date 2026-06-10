@@ -27,6 +27,7 @@ proc toLLVMArch*(cpu: TSystemCPU): string =
   of cpuPowerpc64el: "powerpc64le"
   of cpuSparc: "sparc"
   of cpuSparc64: "sparc64"
+  of cpuS390x: "s390x"
   of cpuAVR: "avr"
   of cpuIa64: "ia64"
   of cpuM68k: "m68k"
@@ -171,6 +172,8 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
     cpu = cpuSparc64
   of "sparc":
     cpu = cpuSparc
+  of "s390x", "systemz":
+    cpu = cpuS390x
   of "ia64", "itanium":
     cpu = cpuIa64
   of "avr":

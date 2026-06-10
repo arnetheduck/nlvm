@@ -20,8 +20,7 @@ const
   NlvmHash = gorge("git rev-parse HEAD").strip
   NimHash = gorge("git -C ../Nim rev-parse HEAD").strip
 
-  HelpHeader =
-    """nlvm compiler for Nim, version $1 [$2: $3]
+  HelpHeader = """nlvm compiler for Nim, version $1 [$2: $3]
 
 Copyright (c) 2015-2026 Jacek Sieka
 Nim compiler (c) 2009-2026 Andreas Rumpf

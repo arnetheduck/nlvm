@@ -341,6 +341,9 @@ proc nlvmRaise(e: ref Exception) {.compilerproc, noreturn.} =
   c_abort()
 
 proc nlvmReraise() {.compilerproc, noreturn.} =
+  if not ehGlobals.closureException.isNil:
+    nlvmRaise(ehGlobals.closureException)
+
   let unwindException = ehGlobals.caughtExceptions
   if unwindException.isNil():
     nlvmRaise((ref ReraiseDefect)(msg: "no exception to reraise"))
@@ -369,10 +372,12 @@ proc nlvmReraise() {.compilerproc, noreturn.} =
   c_abort()
 
 proc nlvmSetClosureException(e: ref Exception) {.compilerproc.} =
+  dprintf "set clo: %p\n", addr e[]
   ehGlobals.closureException = e
 
 proc nlvmGetCurrentException(): ref Exception {.compilerproc.} =
   if not ehGlobals.closureException.isNil:
+    dprintf("closure: %p\n", addr ehGlobals.closureException[])
     ehGlobals.closureException
   else:
     let unwindException = ehGlobals.caughtExceptions
@@ -386,6 +391,13 @@ proc nlvmGetCurrentExceptionMsg(): string {.compilerproc.} =
   let e = nlvmGetCurrentException()
   if e != nil: e.msg else: ""
 
+proc nlvmPushCurrentException(e: sink(ref Exception)) {.compilerRtl, inl.} =
+  e.up = nlvmGetCurrentException()
+  nlvmSetClosureException(e)
+
+proc nlvmPopCurrentException() {.compilerRtl, inl.} =
+  nlvmSetClosureException(nlvmGetCurrentException().up)
+
 proc nlvmBeginCatch(unwindArg: pointer) {.compilerproc.} =
   dprintf("begin catch %p\n", unwindArg)
   ehGlobals.closureException = nil # Just in case, see workaround notes
@@ -397,9 +409,9 @@ proc nlvmBeginCatch(unwindArg: pointer) {.compilerproc.} =
     dprintf("begin native %d\n", exceptionHeader.handlerCount)
     exceptionHeader.handlerCount =
       if exceptionHeader.handlerCount < 0:
-        -exceptionHeader.handlerCount + 1
+        -exceptionHeader.handlerCount +% 1
       else:
-        exceptionHeader.handlerCount + 1
+        exceptionHeader.handlerCount +% 1
 
     if ehGlobals.caughtExceptions != unwindException:
       exceptionHeader.nextException = ehGlobals.caughtExceptions
@@ -426,13 +438,13 @@ proc nlvmEndCatch() {.compilerproc.} =
     dprintf("end native %d\n", exceptionHeader.handlerCount)
     if exceptionHeader.handlerCount < 0:
       # Rethrowing
-      exceptionHeader.handlerCount += 1
+      exceptionHeader.handlerCount = exceptionHeader.handlerCount +% 1
       if exceptionHeader.handlerCount == 0:
         ehGlobals.caughtExceptions = exceptionHeader.nextException
     else:
       # TODO When passing exceptions between threads is supported, this needs
       #      to be atomic..
-      exceptionHeader.handlerCount -= 1
+      exceptionHeader.handlerCount = exceptionHeader.handlerCount -% 1
       if exceptionHeader.handlerCount == 0:
         ehGlobals.caughtExceptions = exceptionHeader.nextException
 
