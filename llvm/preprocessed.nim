@@ -317,49 +317,49 @@ proc initializeAArch64TargetInfo*() {.
   importc: "LLVMInitializeAArch64TargetInfo", dynlib: LLVMLib
 .}
 
-proc initializeAMDGPUTargetInfo*() {.
-  importc: "LLVMInitializeAMDGPUTargetInfo", dynlib: LLVMLib
-.}
+# proc initializeAMDGPUTargetInfo*() {.
+#   importc: "LLVMInitializeAMDGPUTargetInfo", dynlib: LLVMLib
+# .}
 
 proc initializeARMTargetInfo*() {.
   importc: "LLVMInitializeARMTargetInfo", dynlib: LLVMLib
 .}
 
-proc initializeBPFTargetInfo*() {.
-  importc: "LLVMInitializeBPFTargetInfo", dynlib: LLVMLib
-.}
+# proc initializeBPFTargetInfo*() {.
+#   importc: "LLVMInitializeBPFTargetInfo", dynlib: LLVMLib
+# .}
 
-proc initializeHexagonTargetInfo*() {.
-  importc: "LLVMInitializeHexagonTargetInfo", dynlib: LLVMLib
-.}
+# proc initializeHexagonTargetInfo*() {.
+#   importc: "LLVMInitializeHexagonTargetInfo", dynlib: LLVMLib
+# .}
 
-proc initializeLanaiTargetInfo*() {.
-  importc: "LLVMInitializeLanaiTargetInfo", dynlib: LLVMLib
-.}
+# proc initializeLanaiTargetInfo*() {.
+#   importc: "LLVMInitializeLanaiTargetInfo", dynlib: LLVMLib
+# .}
 
-proc initializeMipsTargetInfo*() {.
-  importc: "LLVMInitializeMipsTargetInfo", dynlib: LLVMLib
-.}
+# proc initializeMipsTargetInfo*() {.
+#   importc: "LLVMInitializeMipsTargetInfo", dynlib: LLVMLib
+# .}
 
-proc initializeMSP430TargetInfo*() {.
-  importc: "LLVMInitializeMSP430TargetInfo", dynlib: LLVMLib
-.}
+# proc initializeMSP430TargetInfo*() {.
+#   importc: "LLVMInitializeMSP430TargetInfo", dynlib: LLVMLib
+# .}
 
-proc initializeNVPTXTargetInfo*() {.
-  importc: "LLVMInitializeNVPTXTargetInfo", dynlib: LLVMLib
-.}
+# proc initializeNVPTXTargetInfo*() {.
+#   importc: "LLVMInitializeNVPTXTargetInfo", dynlib: LLVMLib
+# .}
 
-proc initializePowerPCTargetInfo*() {.
-  importc: "LLVMInitializePowerPCTargetInfo", dynlib: LLVMLib
-.}
+# proc initializePowerPCTargetInfo*() {.
+#   importc: "LLVMInitializePowerPCTargetInfo", dynlib: LLVMLib
+# .}
 
-proc initializeSparcTargetInfo*() {.
-  importc: "LLVMInitializeSparcTargetInfo", dynlib: LLVMLib
-.}
+# proc initializeSparcTargetInfo*() {.
+#   importc: "LLVMInitializeSparcTargetInfo", dynlib: LLVMLib
+# .}
 
-proc initializeSystemZTargetInfo*() {.
-  importc: "LLVMInitializeSystemZTargetInfo", dynlib: LLVMLib
-.}
+# proc initializeSystemZTargetInfo*() {.
+#   importc: "LLVMInitializeSystemZTargetInfo", dynlib: LLVMLib
+# .}
 
 proc initializeWebAssemblyTargetInfo*() {.
   importc: "LLVMInitializeWebAssemblyTargetInfo", dynlib: LLVMLib
@@ -369,144 +369,144 @@ proc initializeX86TargetInfo*() {.
   importc: "LLVMInitializeX86TargetInfo", dynlib: LLVMLib
 .}
 
-proc initializeXCoreTargetInfo*() {.
-  importc: "LLVMInitializeXCoreTargetInfo", dynlib: LLVMLib
-.}
+# proc initializeXCoreTargetInfo*() {.
+#   importc: "LLVMInitializeXCoreTargetInfo", dynlib: LLVMLib
+# .}
 
 proc initializeAArch64Target*() {.
   importc: "LLVMInitializeAArch64Target", dynlib: LLVMLib
 .}
 
-proc initializeAMDGPUTarget*() {.
-  importc: "LLVMInitializeAMDGPUTarget", dynlib: LLVMLib
-.}
+# proc initializeAMDGPUTarget*() {.
+#   importc: "LLVMInitializeAMDGPUTarget", dynlib: LLVMLib
+# .}
 
 proc initializeARMTarget*() {.importc: "LLVMInitializeARMTarget", dynlib: LLVMLib.}
-proc initializeBPFTarget*() {.importc: "LLVMInitializeBPFTarget", dynlib: LLVMLib.}
-proc initializeHexagonTarget*() {.
-  importc: "LLVMInitializeHexagonTarget", dynlib: LLVMLib
-.}
+# proc initializeBPFTarget*() {.importc: "LLVMInitializeBPFTarget", dynlib: LLVMLib.}
+# proc initializeHexagonTarget*() {.
+#   importc: "LLVMInitializeHexagonTarget", dynlib: LLVMLib
+# .}
 
-proc initializeLanaiTarget*() {.importc: "LLVMInitializeLanaiTarget", dynlib: LLVMLib.}
-proc initializeMipsTarget*() {.importc: "LLVMInitializeMipsTarget", dynlib: LLVMLib.}
-proc initializeMSP430Target*() {.
-  importc: "LLVMInitializeMSP430Target", dynlib: LLVMLib
-.}
+# proc initializeLanaiTarget*() {.importc: "LLVMInitializeLanaiTarget", dynlib: LLVMLib.}
+# proc initializeMipsTarget*() {.importc: "LLVMInitializeMipsTarget", dynlib: LLVMLib.}
+# proc initializeMSP430Target*() {.
+#   importc: "LLVMInitializeMSP430Target", dynlib: LLVMLib
+# .}
 
-proc initializeNVPTXTarget*() {.importc: "LLVMInitializeNVPTXTarget", dynlib: LLVMLib.}
-proc initializePowerPCTarget*() {.
-  importc: "LLVMInitializePowerPCTarget", dynlib: LLVMLib
-.}
+# proc initializeNVPTXTarget*() {.importc: "LLVMInitializeNVPTXTarget", dynlib: LLVMLib.}
+# proc initializePowerPCTarget*() {.
+#   importc: "LLVMInitializePowerPCTarget", dynlib: LLVMLib
+# .}
 
-proc initializeSparcTarget*() {.importc: "LLVMInitializeSparcTarget", dynlib: LLVMLib.}
-proc initializeSystemZTarget*() {.
-  importc: "LLVMInitializeSystemZTarget", dynlib: LLVMLib
-.}
+# proc initializeSparcTarget*() {.importc: "LLVMInitializeSparcTarget", dynlib: LLVMLib.}
+# proc initializeSystemZTarget*() {.
+#   importc: "LLVMInitializeSystemZTarget", dynlib: LLVMLib
+# .}
 
 proc initializeWebAssemblyTarget*() {.
   importc: "LLVMInitializeWebAssemblyTarget", dynlib: LLVMLib
 .}
 
 proc initializeX86Target*() {.importc: "LLVMInitializeX86Target", dynlib: LLVMLib.}
-proc initializeXCoreTarget*() {.importc: "LLVMInitializeXCoreTarget", dynlib: LLVMLib.}
+# proc initializeXCoreTarget*() {.importc: "LLVMInitializeXCoreTarget", dynlib: LLVMLib.}
 proc initializeAArch64TargetMC*() {.
   importc: "LLVMInitializeAArch64TargetMC", dynlib: LLVMLib
 .}
 
-proc initializeAMDGPUTargetMC*() {.
-  importc: "LLVMInitializeAMDGPUTargetMC", dynlib: LLVMLib
-.}
+# proc initializeAMDGPUTargetMC*() {.
+#   importc: "LLVMInitializeAMDGPUTargetMC", dynlib: LLVMLib
+# .}
 
 proc initializeARMTargetMC*() {.importc: "LLVMInitializeARMTargetMC", dynlib: LLVMLib.}
-proc initializeBPFTargetMC*() {.importc: "LLVMInitializeBPFTargetMC", dynlib: LLVMLib.}
-proc initializeHexagonTargetMC*() {.
-  importc: "LLVMInitializeHexagonTargetMC", dynlib: LLVMLib
-.}
+# proc initializeBPFTargetMC*() {.importc: "LLVMInitializeBPFTargetMC", dynlib: LLVMLib.}
+# proc initializeHexagonTargetMC*() {.
+#   importc: "LLVMInitializeHexagonTargetMC", dynlib: LLVMLib
+# .}
 
-proc initializeLanaiTargetMC*() {.
-  importc: "LLVMInitializeLanaiTargetMC", dynlib: LLVMLib
-.}
+# proc initializeLanaiTargetMC*() {.
+#   importc: "LLVMInitializeLanaiTargetMC", dynlib: LLVMLib
+# .}
 
-proc initializeMipsTargetMC*() {.
-  importc: "LLVMInitializeMipsTargetMC", dynlib: LLVMLib
-.}
+# proc initializeMipsTargetMC*() {.
+#   importc: "LLVMInitializeMipsTargetMC", dynlib: LLVMLib
+# .}
 
-proc initializeMSP430TargetMC*() {.
-  importc: "LLVMInitializeMSP430TargetMC", dynlib: LLVMLib
-.}
+# proc initializeMSP430TargetMC*() {.
+#   importc: "LLVMInitializeMSP430TargetMC", dynlib: LLVMLib
+# .}
 
-proc initializeNVPTXTargetMC*() {.
-  importc: "LLVMInitializeNVPTXTargetMC", dynlib: LLVMLib
-.}
+# proc initializeNVPTXTargetMC*() {.
+#   importc: "LLVMInitializeNVPTXTargetMC", dynlib: LLVMLib
+# .}
 
-proc initializePowerPCTargetMC*() {.
-  importc: "LLVMInitializePowerPCTargetMC", dynlib: LLVMLib
-.}
+# proc initializePowerPCTargetMC*() {.
+#   importc: "LLVMInitializePowerPCTargetMC", dynlib: LLVMLib
+# .}
 
-proc initializeSparcTargetMC*() {.
-  importc: "LLVMInitializeSparcTargetMC", dynlib: LLVMLib
-.}
+# proc initializeSparcTargetMC*() {.
+#   importc: "LLVMInitializeSparcTargetMC", dynlib: LLVMLib
+# .}
 
-proc initializeSystemZTargetMC*() {.
-  importc: "LLVMInitializeSystemZTargetMC", dynlib: LLVMLib
-.}
+# proc initializeSystemZTargetMC*() {.
+#   importc: "LLVMInitializeSystemZTargetMC", dynlib: LLVMLib
+# .}
 
 proc initializeWebAssemblyTargetMC*() {.
   importc: "LLVMInitializeWebAssemblyTargetMC", dynlib: LLVMLib
 .}
 
 proc initializeX86TargetMC*() {.importc: "LLVMInitializeX86TargetMC", dynlib: LLVMLib.}
-proc initializeXCoreTargetMC*() {.
-  importc: "LLVMInitializeXCoreTargetMC", dynlib: LLVMLib
-.}
+# proc initializeXCoreTargetMC*() {.
+#   importc: "LLVMInitializeXCoreTargetMC", dynlib: LLVMLib
+# .}
 
 proc initializeAArch64AsmPrinter*() {.
   importc: "LLVMInitializeAArch64AsmPrinter", dynlib: LLVMLib
 .}
 
-proc initializeAMDGPUAsmPrinter*() {.
-  importc: "LLVMInitializeAMDGPUAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeAMDGPUAsmPrinter*() {.
+#   importc: "LLVMInitializeAMDGPUAsmPrinter", dynlib: LLVMLib
+# .}
 
 proc initializeARMAsmPrinter*() {.
   importc: "LLVMInitializeARMAsmPrinter", dynlib: LLVMLib
 .}
 
-proc initializeBPFAsmPrinter*() {.
-  importc: "LLVMInitializeBPFAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeBPFAsmPrinter*() {.
+#   importc: "LLVMInitializeBPFAsmPrinter", dynlib: LLVMLib
+# .}
 
-proc initializeHexagonAsmPrinter*() {.
-  importc: "LLVMInitializeHexagonAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeHexagonAsmPrinter*() {.
+#   importc: "LLVMInitializeHexagonAsmPrinter", dynlib: LLVMLib
+# .}
 
-proc initializeLanaiAsmPrinter*() {.
-  importc: "LLVMInitializeLanaiAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeLanaiAsmPrinter*() {.
+#   importc: "LLVMInitializeLanaiAsmPrinter", dynlib: LLVMLib
+# .}
 
-proc initializeMipsAsmPrinter*() {.
-  importc: "LLVMInitializeMipsAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeMipsAsmPrinter*() {.
+#   importc: "LLVMInitializeMipsAsmPrinter", dynlib: LLVMLib
+# .}
 
-proc initializeMSP430AsmPrinter*() {.
-  importc: "LLVMInitializeMSP430AsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeMSP430AsmPrinter*() {.
+#   importc: "LLVMInitializeMSP430AsmPrinter", dynlib: LLVMLib
+# .}
 
-proc initializeNVPTXAsmPrinter*() {.
-  importc: "LLVMInitializeNVPTXAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeNVPTXAsmPrinter*() {.
+#   importc: "LLVMInitializeNVPTXAsmPrinter", dynlib: LLVMLib
+# .}
 
-proc initializePowerPCAsmPrinter*() {.
-  importc: "LLVMInitializePowerPCAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializePowerPCAsmPrinter*() {.
+#   importc: "LLVMInitializePowerPCAsmPrinter", dynlib: LLVMLib
+# .}
 
-proc initializeSparcAsmPrinter*() {.
-  importc: "LLVMInitializeSparcAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeSparcAsmPrinter*() {.
+#   importc: "LLVMInitializeSparcAsmPrinter", dynlib: LLVMLib
+# .}
 
-proc initializeSystemZAsmPrinter*() {.
-  importc: "LLVMInitializeSystemZAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeSystemZAsmPrinter*() {.
+#   importc: "LLVMInitializeSystemZAsmPrinter", dynlib: LLVMLib
+# .}
 
 proc initializeWebAssemblyAsmPrinter*() {.
   importc: "LLVMInitializeWebAssemblyAsmPrinter", dynlib: LLVMLib
@@ -516,53 +516,53 @@ proc initializeX86AsmPrinter*() {.
   importc: "LLVMInitializeX86AsmPrinter", dynlib: LLVMLib
 .}
 
-proc initializeXCoreAsmPrinter*() {.
-  importc: "LLVMInitializeXCoreAsmPrinter", dynlib: LLVMLib
-.}
+# proc initializeXCoreAsmPrinter*() {.
+#   importc: "LLVMInitializeXCoreAsmPrinter", dynlib: LLVMLib
+# .}
 
 proc initializeAArch64AsmParser*() {.
   importc: "LLVMInitializeAArch64AsmParser", dynlib: LLVMLib
 .}
 
-proc initializeAMDGPUAsmParser*() {.
-  importc: "LLVMInitializeAMDGPUAsmParser", dynlib: LLVMLib
-.}
+# proc initializeAMDGPUAsmParser*() {.
+#   importc: "LLVMInitializeAMDGPUAsmParser", dynlib: LLVMLib
+# .}
 
 proc initializeARMAsmParser*() {.
   importc: "LLVMInitializeARMAsmParser", dynlib: LLVMLib
 .}
 
-proc initializeBPFAsmParser*() {.
-  importc: "LLVMInitializeBPFAsmParser", dynlib: LLVMLib
-.}
+# proc initializeBPFAsmParser*() {.
+#   importc: "LLVMInitializeBPFAsmParser", dynlib: LLVMLib
+# .}
 
-proc initializeHexagonAsmParser*() {.
-  importc: "LLVMInitializeHexagonAsmParser", dynlib: LLVMLib
-.}
+# proc initializeHexagonAsmParser*() {.
+#   importc: "LLVMInitializeHexagonAsmParser", dynlib: LLVMLib
+# .}
 
-proc initializeLanaiAsmParser*() {.
-  importc: "LLVMInitializeLanaiAsmParser", dynlib: LLVMLib
-.}
+# proc initializeLanaiAsmParser*() {.
+#   importc: "LLVMInitializeLanaiAsmParser", dynlib: LLVMLib
+# .}
 
-proc initializeMipsAsmParser*() {.
-  importc: "LLVMInitializeMipsAsmParser", dynlib: LLVMLib
-.}
+# proc initializeMipsAsmParser*() {.
+#   importc: "LLVMInitializeMipsAsmParser", dynlib: LLVMLib
+# .}
 
-proc initializeMSP430AsmParser*() {.
-  importc: "LLVMInitializeMSP430AsmParser", dynlib: LLVMLib
-.}
+# proc initializeMSP430AsmParser*() {.
+#   importc: "LLVMInitializeMSP430AsmParser", dynlib: LLVMLib
+# .}
 
-proc initializePowerPCAsmParser*() {.
-  importc: "LLVMInitializePowerPCAsmParser", dynlib: LLVMLib
-.}
+# proc initializePowerPCAsmParser*() {.
+#   importc: "LLVMInitializePowerPCAsmParser", dynlib: LLVMLib
+# .}
 
-proc initializeSparcAsmParser*() {.
-  importc: "LLVMInitializeSparcAsmParser", dynlib: LLVMLib
-.}
+# proc initializeSparcAsmParser*() {.
+#   importc: "LLVMInitializeSparcAsmParser", dynlib: LLVMLib
+# .}
 
-proc initializeSystemZAsmParser*() {.
-  importc: "LLVMInitializeSystemZAsmParser", dynlib: LLVMLib
-.}
+# proc initializeSystemZAsmParser*() {.
+#   importc: "LLVMInitializeSystemZAsmParser", dynlib: LLVMLib
+# .}
 
 proc initializeWebAssemblyAsmParser*() {.
   importc: "LLVMInitializeWebAssemblyAsmParser", dynlib: LLVMLib
@@ -576,45 +576,45 @@ proc initializeAArch64Disassembler*() {.
   importc: "LLVMInitializeAArch64Disassembler", dynlib: LLVMLib
 .}
 
-proc initializeAMDGPUDisassembler*() {.
-  importc: "LLVMInitializeAMDGPUDisassembler", dynlib: LLVMLib
-.}
+# proc initializeAMDGPUDisassembler*() {.
+#   importc: "LLVMInitializeAMDGPUDisassembler", dynlib: LLVMLib
+# .}
 
 proc initializeARMDisassembler*() {.
   importc: "LLVMInitializeARMDisassembler", dynlib: LLVMLib
 .}
 
-proc initializeBPFDisassembler*() {.
-  importc: "LLVMInitializeBPFDisassembler", dynlib: LLVMLib
-.}
+# proc initializeBPFDisassembler*() {.
+#   importc: "LLVMInitializeBPFDisassembler", dynlib: LLVMLib
+# .}
 
-proc initializeHexagonDisassembler*() {.
-  importc: "LLVMInitializeHexagonDisassembler", dynlib: LLVMLib
-.}
+# proc initializeHexagonDisassembler*() {.
+#   importc: "LLVMInitializeHexagonDisassembler", dynlib: LLVMLib
+# .}
 
-proc initializeLanaiDisassembler*() {.
-  importc: "LLVMInitializeLanaiDisassembler", dynlib: LLVMLib
-.}
+# proc initializeLanaiDisassembler*() {.
+#   importc: "LLVMInitializeLanaiDisassembler", dynlib: LLVMLib
+# .}
 
-proc initializeMipsDisassembler*() {.
-  importc: "LLVMInitializeMipsDisassembler", dynlib: LLVMLib
-.}
+# proc initializeMipsDisassembler*() {.
+#   importc: "LLVMInitializeMipsDisassembler", dynlib: LLVMLib
+# .}
 
-proc initializeMSP430Disassembler*() {.
-  importc: "LLVMInitializeMSP430Disassembler", dynlib: LLVMLib
-.}
+# proc initializeMSP430Disassembler*() {.
+#   importc: "LLVMInitializeMSP430Disassembler", dynlib: LLVMLib
+# .}
 
-proc initializePowerPCDisassembler*() {.
-  importc: "LLVMInitializePowerPCDisassembler", dynlib: LLVMLib
-.}
+# proc initializePowerPCDisassembler*() {.
+#   importc: "LLVMInitializePowerPCDisassembler", dynlib: LLVMLib
+# .}
 
-proc initializeSparcDisassembler*() {.
-  importc: "LLVMInitializeSparcDisassembler", dynlib: LLVMLib
-.}
+# proc initializeSparcDisassembler*() {.
+#   importc: "LLVMInitializeSparcDisassembler", dynlib: LLVMLib
+# .}
 
-proc initializeSystemZDisassembler*() {.
-  importc: "LLVMInitializeSystemZDisassembler", dynlib: LLVMLib
-.}
+# proc initializeSystemZDisassembler*() {.
+#   importc: "LLVMInitializeSystemZDisassembler", dynlib: LLVMLib
+# .}
 
 proc initializeWebAssemblyDisassembler*() {.
   importc: "LLVMInitializeWebAssemblyDisassembler", dynlib: LLVMLib
@@ -624,105 +624,104 @@ proc initializeX86Disassembler*() {.
   importc: "LLVMInitializeX86Disassembler", dynlib: LLVMLib
 .}
 
-proc initializeXCoreDisassembler*() {.
-  importc: "LLVMInitializeXCoreDisassembler", dynlib: LLVMLib
-.}
+# proc initializeXCoreDisassembler*() {.
+#   importc: "LLVMInitializeXCoreDisassembler", dynlib: LLVMLib
+# .}
 
 proc initializeAllTargetInfos*() {.inline.} =
   initializeAArch64TargetInfo()
-  initializeAMDGPUTargetInfo()
+  # initializeAMDGPUTargetInfo()
   initializeARMTargetInfo()
-  initializeBPFTargetInfo()
-  initializeHexagonTargetInfo()
-  initializeLanaiTargetInfo()
-  initializeMipsTargetInfo()
-  initializeMSP430TargetInfo()
-  initializeNVPTXTargetInfo()
-  initializePowerPCTargetInfo()
-  initializeSparcTargetInfo()
-  initializeSystemZTargetInfo()
+  # initializeBPFTargetInfo()
+  # initializeHexagonTargetInfo()
+  # initializeLanaiTargetInfo()
+  # initializeMipsTargetInfo()
+  # initializeMSP430TargetInfo()
+  # initializeNVPTXTargetInfo()
+  # initializePowerPCTargetInfo()
+  # initializeSparcTargetInfo()
+  # initializeSystemZTargetInfo()
   initializeWebAssemblyTargetInfo()
   initializeX86TargetInfo()
-  initializeXCoreTargetInfo()
+  # initializeXCoreTargetInfo()
 
 proc initializeAllTargets*() {.inline.} =
   initializeAArch64Target()
-  initializeAMDGPUTarget()
+  # initializeAMDGPUTarget()
   initializeARMTarget()
-  initializeBPFTarget()
-  initializeHexagonTarget()
-  initializeLanaiTarget()
-  initializeMipsTarget()
-  initializeMSP430Target()
-  initializeNVPTXTarget()
-  initializePowerPCTarget()
-  initializeSparcTarget()
-  initializeSystemZTarget()
+  # initializeBPFTarget()
+  # initializeHexagonTarget()
+  # initializeLanaiTarget()
+  # initializeMipsTarget()
+  # initializeMSP430Target()
+  # initializeNVPTXTarget()
+  # initializePowerPCTarget()
+  # initializeSparcTarget()
+  # initializeSystemZTarget()
   initializeWebAssemblyTarget()
   initializeX86Target()
-  initializeXCoreTarget()
+  # initializeXCoreTarget()
 
 proc initializeAllTargetMCs*() {.inline.} =
   initializeAArch64TargetMC()
-  initializeAMDGPUTargetMC()
+  # initializeAMDGPUTargetMC()
   initializeARMTargetMC()
-  initializeBPFTargetMC()
-  initializeHexagonTargetMC()
-  initializeLanaiTargetMC()
-  initializeMipsTargetMC()
-  initializeMSP430TargetMC()
-  initializeNVPTXTargetMC()
-  initializePowerPCTargetMC()
-  initializeSparcTargetMC()
-  initializeSystemZTargetMC()
+  # initializeBPFTargetMC()
+  # initializeHexagonTargetMC()
+  # initializeLanaiTargetMC()
+  # initializeMipsTargetMC()
+  # initializeMSP430TargetMC()
+  # initializeNVPTXTargetMC()
+  # initializePowerPCTargetMC()
+  # initializeSparcTargetMC()
+  # initializeSystemZTargetMC()
   initializeWebAssemblyTargetMC()
   initializeX86TargetMC()
-  initializeXCoreTargetMC()
 
 proc initializeAllAsmPrinters*() {.inline.} =
   initializeAArch64AsmPrinter()
-  initializeAMDGPUAsmPrinter()
+  # initializeAMDGPUAsmPrinter()
   initializeARMAsmPrinter()
-  initializeBPFAsmPrinter()
-  initializeHexagonAsmPrinter()
-  initializeLanaiAsmPrinter()
-  initializeMipsAsmPrinter()
-  initializeMSP430AsmPrinter()
-  initializeNVPTXAsmPrinter()
-  initializePowerPCAsmPrinter()
-  initializeSparcAsmPrinter()
-  initializeSystemZAsmPrinter()
+  # initializeBPFAsmPrinter()
+  # initializeHexagonAsmPrinter()
+  # initializeLanaiAsmPrinter()
+  # initializeMipsAsmPrinter()
+  # initializeMSP430AsmPrinter()
+  # initializeNVPTXAsmPrinter()
+  # initializePowerPCAsmPrinter()
+  # initializeSparcAsmPrinter()
+  # initializeSystemZAsmPrinter()
   initializeWebAssemblyAsmPrinter()
   initializeX86AsmPrinter()
-  initializeXCoreAsmPrinter()
+  # initializeXCoreAsmPrinter()
 
 proc initializeAllAsmParsers*() {.inline.} =
   initializeAArch64AsmParser()
-  initializeAMDGPUAsmParser()
+  # initializeAMDGPUAsmParser()
   initializeARMAsmParser()
-  initializeBPFAsmParser()
-  initializeHexagonAsmParser()
-  initializeLanaiAsmParser()
-  initializeMipsAsmParser()
-  initializeMSP430AsmParser()
-  initializePowerPCAsmParser()
-  initializeSparcAsmParser()
-  initializeSystemZAsmParser()
+  # initializeBPFAsmParser()
+  # initializeHexagonAsmParser()
+  # initializeLanaiAsmParser()
+  # initializeMipsAsmParser()
+  # initializeMSP430AsmParser()
+  # initializePowerPCAsmParser()
+  # initializeSparcAsmParser()
+  # initializeSystemZAsmParser()
   initializeWebAssemblyAsmParser()
   initializeX86AsmParser()
 
 proc initializeAllDisassemblers*() {.inline.} =
   initializeAArch64Disassembler()
-  initializeAMDGPUDisassembler()
+  # initializeAMDGPUDisassembler()
   initializeARMDisassembler()
-  initializeBPFDisassembler()
-  initializeHexagonDisassembler()
-  initializeLanaiDisassembler()
-  initializeMipsDisassembler()
-  initializeMSP430Disassembler()
-  initializePowerPCDisassembler()
-  initializeSparcDisassembler()
-  initializeSystemZDisassembler()
+  # initializeBPFDisassembler()
+  # initializeHexagonDisassembler()
+  # initializeLanaiDisassembler()
+  # initializeMipsDisassembler()
+  # initializeMSP430Disassembler()
+  # initializePowerPCDisassembler()
+  # initializeSparcDisassembler()
+  # initializeSystemZDisassembler()
   initializeWebAssemblyDisassembler()
   initializeX86Disassembler()
-  initializeXCoreDisassembler()
+  # initializeXCoreDisassembler()
