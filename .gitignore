@@ -15,7 +15,6 @@ badeggs.json
 testament/
 tests/
 *.html
-lib/
 examples/
 tools
 /.vscode/settings.json
@@ -23,3 +22,6 @@ dist/
 /megatest.nim
 .vscode
 /nlvm/nlvmr.self
+lib/clang/
+lib/dest*
+x86_64-w64-mingw32

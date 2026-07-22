@@ -9,7 +9,7 @@ import
     ast, cmdlinehelper, commands, condsyms, extccomp, idents, lexer, lineinfos,
     llstream, modulegraphs, modules, msgs, options, passes, passaux, pathutils, platform,
   ],
-  ./llgen
+  ./[llgen, lllink, llplatform]
 
 proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
@@ -18,7 +18,7 @@ proc semanticPasses(g: ModuleGraph) =
 const
   NlvmVersion = "0.0.2"
   NlvmHash = gorge("git rev-parse HEAD").strip
-  NimHash = gorge("git -C ../Nim rev-parse HEAD").strip
+  NimHash = gorge("git -C ../lib/nim rev-parse HEAD").strip
 
   HelpHeader = """nlvm compiler for Nim, version $1 [$2: $3]
 
@@ -149,10 +149,23 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
     of cmdArgument:
       if processArgument(pass, p, argsCount, config):
         break
+      if p.key == "cc":
+        break
+
   if pass == passCmd2:
     if optRun notin config.globalOptions and config.arguments.len > 0 and
         config.command.normalize != "run":
       rawMessage(config, errGenerated, errArgsNeedRunOption)
+
+    if config.cmd == cmdCc:
+      # For "cc`, we pass all remaining arguments unaltered
+      config.commandArgs = @[]
+      var seenCc = false
+      for i in 0 .. paramCount():
+        if seenCc:
+          config.commandArgs.add paramStr(i)
+        elif paramStr(i) == "cc":
+          seenCc = true
 
 proc commandCompile(graph: ModuleGraph) =
   let conf = graph.config
@@ -248,6 +261,18 @@ proc mainCommand*(graph: ModuleGraph) =
       conf.exc = excSetjmp
     defineSymbol(graph.config.symbols, "c")
     commandCompile(graph)
+  of cmdCc:
+    ## "nlvm cc" passthrough: build argv as clang would see it.
+    if conf.commandArgs.len == 0:
+      rawMessage(conf, errGenerated, "usage: nlvm cc <clang-args...>")
+      conf.cmd = cmdNop
+      return
+    let
+      triple = conf.toTriple()
+      rc = conf.callBuiltinClang(conf.commandArgs, triple)
+    conf.cmd = cmdNop # prevent falling through to default
+    if rc != 0:
+      conf.errorCounter = 1
   of cmdDump:
     msgWriteln(
       conf,
@@ -377,18 +402,31 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
       # support as needed
       rawMessage(conf, errGenerated, "'$1 cannot handle --run" % [$conf.cmd])
 
-# Beautiful...
-var tmp = getAppDir()
-while not dirExists(tmp / "nlvm-lib") and tmp.len > 1:
-  tmp = tmp.parentDir()
+let rc =
+  if paramCount() >= 1 and paramStr(1) == "-cc1":
+    ## `clang` forks itself with "-cc1" as the first argument when running itself
+    ## as the `cc1` tool as part of a multi-step compilation process (ie compiling
+    ## and linking at the same time) - see `-fintegrated-cc1` - capture this early
+    ## thus avoiding any nim processing.
 
-let
-  conf = newConfigRef()
-  cache = newIdentCache()
+    let clangArgs = @["clang"] & commandLineParams()
+    int8(clangMain(clangArgs))
+  else:
+    # Find the installation top-level that's needed both for our own runtime, that
+    # of the integrated clang and Nim itself
+    var appDir = getAppDir()
+    while not dirExists(appDir / "lib") and appDir.len > 1:
+      appDir = appDir.parentDir()
 
-conf.prefixDir = AbsoluteDir(tmp / "Nim")
-conf.searchPaths.insert(conf.prefixDir / RelativeDir"../nlvm-lib", 0)
+    let
+      conf = newConfigRef()
+      cache = newIdentCache()
 
-handleCmdLine(cache, conf)
+    conf.prefixDir = AbsoluteDir(appDir / "lib/nim")
+    conf.searchPaths.insert(AbsoluteDir(appDir / "lib" / "nlvm"), 0)
 
-msgQuit(int8(conf.errorCounter > 0))
+    handleCmdLine(cache, conf)
+
+    int8(conf.errorCounter > 0)
+
+msgQuit(rc)

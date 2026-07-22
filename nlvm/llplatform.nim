@@ -3,7 +3,7 @@
 # See https://github.com/llvm/llvm-project/blob/main/llvm/lib/TargetParser/Triple.cpp
 # for some insight into how llvm deals with it..
 
-import compiler/platform
+import compiler/[options, platform]
 
 import strutils
 
@@ -120,6 +120,16 @@ proc toTriple*(
     return "wasm32-unknown-unknown"
 
   arch & "-" & vendor & "-" & osPart
+
+proc toTriple*(conf: ConfigRef): string =
+  toTriple(
+    conf.target,
+    abi = conf.getConfigVar("nlvm.abi", ""),
+    useWasi = conf.isDefined("wasi"),
+    isMingw =
+      conf.target.targetOS == osWindows and
+      conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccClang},
+  )
 
 proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   ## Parse a target triple (or short triple) and return the corresponding
@@ -269,7 +279,7 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   if (archTok == "wasm" or archTok == "wasm32" or archTok == "wasm64") and cpu == cpuNone:
     cpu = cpuWasm32
 
-  return (cpu, os)
+  (cpu, os)
 
 when isMainModule:
   let cases = [

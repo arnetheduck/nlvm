@@ -4,6 +4,7 @@
 #include "llvm/IR/Module.h"
 
 #include "llvm/Support/CodeGen.h"
+#include "llvm/Support/LLVMDriver.h"
 
 #include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -12,9 +13,9 @@
 
 #include "lld/Common/Driver.h"
 
-#include "llvm-c/Types.h"
 #include "llvm-c/Core.h"
 #include "llvm-c/TargetMachine.h"
+#include "llvm-c/Types.h"
 
 using namespace llvm;
 
@@ -27,7 +28,7 @@ template <typename DIT> inline DIT *unwrapDIPtr(LLVMMetadataRef Ref) {
 static MDNode *extractMDNode(MetadataAsValue *MAV) {
   Metadata *MD = MAV->getMetadata();
   assert((isa<MDNode>(MD) || isa<ConstantAsMetadata>(MD)) &&
-      "Expected a metadata node or a canonicalized constant");
+         "Expected a metadata node or a canonicalized constant");
 
   if (MDNode *N = dyn_cast<MDNode>(MD))
     return N;
@@ -44,8 +45,7 @@ extern "C" void LLVMNimDICompositeTypeSetTypeArray(LLVMNimDIBuilderRef Builder,
   Builder->replaceArrays(Tmp, DINodeArray(unwrap<MDTuple>(TyArray)));
 }
 
-extern "C" void LLVMNimSetMetadataGlobal(LLVMValueRef Global,
-                                         unsigned KindID,
+extern "C" void LLVMNimSetMetadataGlobal(LLVMValueRef Global, unsigned KindID,
                                          LLVMValueRef Val) {
   MDNode *N = Val ? extractMDNode(unwrap<MetadataAsValue>(Val)) : nullptr;
 
@@ -55,66 +55,69 @@ extern "C" void LLVMNimSetMetadataGlobal(LLVMValueRef Global,
 LLD_HAS_DRIVER(elf)
 extern "C" bool LLVMNimLLDLinkElf(const char **args, size_t arg_count) {
   ArrayRef<const char *> array_ref_args(args, arg_count);
-  return lld::elf::link(array_ref_args, llvm::outs(), llvm::errs(), false, false);
+  return lld::elf::link(array_ref_args, llvm::outs(), llvm::errs(), false,
+                        false);
 }
 
 LLD_HAS_DRIVER(wasm)
 extern "C" bool LLVMNimLLDLinkWasm(const char **args, size_t arg_count) {
   ArrayRef<const char *> array_ref_args(args, arg_count);
-  return lld::wasm::link(array_ref_args, llvm::outs(), llvm::errs(), false, false);
+  return lld::wasm::link(array_ref_args, llvm::outs(), llvm::errs(), false,
+                         false);
 }
 
 LLD_HAS_DRIVER(coff)
 extern "C" bool LLVMNimLLDLinkCoff(const char **args, size_t arg_count) {
   ArrayRef<const char *> array_ref_args(args, arg_count);
-  return lld::coff::link(array_ref_args, llvm::outs(), llvm::errs(), false, false);
+  return lld::coff::link(array_ref_args, llvm::outs(), llvm::errs(), false,
+                         false);
 }
 
 LLD_HAS_DRIVER(mingw)
 extern "C" bool LLVMNimLLDLinkMingw(const char **args, size_t arg_count) {
   ArrayRef<const char *> array_ref_args(args, arg_count);
-  return lld::mingw::link(array_ref_args, llvm::outs(), llvm::errs(), false, false);
+  return lld::mingw::link(array_ref_args, llvm::outs(), llvm::errs(), false,
+                          false);
 }
 
 static codegen::RegisterCodeGenFlags CGF;
 
-static Target *unwrap(LLVMTargetRef P) {
-  return reinterpret_cast<Target*>(P);
-}
+static Target *unwrap(LLVMTargetRef P) { return reinterpret_cast<Target *>(P); }
 static LLVMTargetMachineRef wrap(const TargetMachine *P) {
   return reinterpret_cast<LLVMTargetMachineRef>(const_cast<TargetMachine *>(P));
 }
 
-extern "C" LLVMTargetMachineRef LLVMNimCreateTargetMachine(LLVMTargetRef T,
-        const char *TT, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
-        LLVMCodeModel CodeModel) {
+extern "C" LLVMTargetMachineRef
+LLVMNimCreateTargetMachine(LLVMTargetRef T, const char *TT,
+                           LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
+                           LLVMCodeModel CodeModel) {
   // This function is needed to register and use the common codegen flags -
   // in particular when using lld which doesn't support mixed `.ctors` and
   // `.init_array` sections and is made to work by using `.init_array`
   // alone
 
   std::optional<Reloc::Model> RM;
-  switch (Reloc){
-    case LLVMRelocStatic:
-      RM = Reloc::Static;
-      break;
-    case LLVMRelocPIC:
-      RM = Reloc::PIC_;
-      break;
-    case LLVMRelocDynamicNoPic:
-      RM = Reloc::DynamicNoPIC;
-      break;
-    case LLVMRelocROPI:
-      RM = Reloc::ROPI;
-      break;
-    case LLVMRelocRWPI:
-      RM = Reloc::RWPI;
-      break;
-    case LLVMRelocROPI_RWPI:
-      RM = Reloc::ROPI_RWPI;
-      break;
-    default:
-      break;
+  switch (Reloc) {
+  case LLVMRelocStatic:
+    RM = Reloc::Static;
+    break;
+  case LLVMRelocPIC:
+    RM = Reloc::PIC_;
+    break;
+  case LLVMRelocDynamicNoPic:
+    RM = Reloc::DynamicNoPIC;
+    break;
+  case LLVMRelocROPI:
+    RM = Reloc::ROPI;
+    break;
+  case LLVMRelocRWPI:
+    RM = Reloc::RWPI;
+    break;
+  case LLVMRelocROPI_RWPI:
+    RM = Reloc::ROPI_RWPI;
+    break;
+  default:
+    break;
   }
 
   bool JIT;
@@ -122,22 +125,22 @@ extern "C" LLVMTargetMachineRef LLVMNimCreateTargetMachine(LLVMTargetRef T,
 
   CodeGenOptLevel OL;
   switch (Level) {
-    case LLVMCodeGenLevelNone:
-      OL = CodeGenOptLevel::None;
-      break;
-    case LLVMCodeGenLevelLess:
-      OL = CodeGenOptLevel::Less;
-      break;
-    case LLVMCodeGenLevelAggressive:
-      OL = CodeGenOptLevel::Aggressive;
-      break;
-    default:
-      OL = CodeGenOptLevel::Default;
-      break;
+  case LLVMCodeGenLevelNone:
+    OL = CodeGenOptLevel::None;
+    break;
+  case LLVMCodeGenLevelLess:
+    OL = CodeGenOptLevel::Less;
+    break;
+  case LLVMCodeGenLevelAggressive:
+    OL = CodeGenOptLevel::Aggressive;
+    break;
+  default:
+    OL = CodeGenOptLevel::Default;
+    break;
   }
 
   TargetOptions opt = codegen::InitTargetOptionsFromCodeGenFlags(Triple(TT));
-  return wrap(unwrap(T)->createTargetMachine(TT, codegen::getCPUStr(),
+  return wrap(unwrap(T)->createTargetMachine(Triple(TT), codegen::getCPUStr(),
                                              codegen::getFeaturesStr(), opt, RM,
                                              CM, OL, JIT));
 }
@@ -145,6 +148,15 @@ extern "C" LLVMTargetMachineRef LLVMNimCreateTargetMachine(LLVMTargetRef T,
 extern "C" void LLVMNimSetFunctionAttributes(LLVMValueRef FV) {
   auto F = unwrap<llvm::Function>(FV);
 
-  codegen::setFunctionAttributes(
-    codegen::getCPUStr(), codegen::getFeaturesStr(), *F);
+  codegen::setFunctionAttributes(codegen::getCPUStr(),
+                                 codegen::getFeaturesStr(), *F);
+}
+
+int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext);
+
+extern "C" int LLVMNimClangMain(int argc, char** argv) {
+  // If argv[0] starts with '-cc1', we're a child process forked by clang.
+  // In this case, skip Nim's command-line parsing and call clang_main directly
+  // with the original arguments to avoid parseopt splitting short options.
+  return clang_main(argc, argv, {argv[0], nullptr, false});
 }

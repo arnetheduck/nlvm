@@ -2752,11 +2752,9 @@ proc getAggregateElement*(
 ##  @see ConstantDataSequential::getElementAsConstant()
 ##
 
-#attribute_C_Deprecated(
-#  valueRef,
-#  getElementAsConstant(valueRef, c, unsigned, idx),
-#  "Use LLVMGetAggregateElement instead",
-#)
+## !!!Ignored construct:  ( LLVMValueRef LLVMGetElementAsConstant ( LLVMValueRef C , unsigned idx ) , Use LLVMGetAggregateElement instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
 ##
 ##  Create a ConstantVector from values.
 ##
@@ -2804,9 +2802,9 @@ proc constNSWNeg*(
   constantVal: ValueRef
 ): ValueRef {.importc: "LLVMConstNSWNeg", dynlib: LLVMLib.}
 
-# attribute_C_Deprecated(
-#   valueRef, constNUWNeg(valueRef, constantVal), "Use LLVMConstNull instead."
-# )
+## !!!Ignored construct:  ( LLVMValueRef LLVMConstNUWNeg ( LLVMValueRef ConstantVal ) , Use LLVMConstNull instead. ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
 proc constNot*(
   constantVal: ValueRef
 ): ValueRef {.importc: "LLVMConstNot", dynlib: LLVMLib.}
@@ -5569,11 +5567,9 @@ proc buildNSWNeg*(
   b: BuilderRef, v: ValueRef, name: cstring
 ): ValueRef {.importc: "LLVMBuildNSWNeg", dynlib: LLVMLib.}
 
-# attribute_C_Deprecated(
-#   valueRef,
-#   buildNUWNeg(builderRef, b, valueRef, v, `const`, char * name),
-#   "Use LLVMBuildNeg + LLVMSetNUW instead.",
-# )
+## !!!Ignored construct:  ( LLVMValueRef LLVMBuildNUWNeg ( LLVMBuilderRef B , LLVMValueRef V , const char * Name ) , Use LLVMBuildNeg + LLVMSetNUW instead. ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
 proc buildFNeg*(
   a1: BuilderRef, v: ValueRef, name: cstring
 ): ValueRef {.importc: "LLVMBuildFNeg", dynlib: LLVMLib.}

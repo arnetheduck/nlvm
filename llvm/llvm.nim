@@ -20,13 +20,64 @@ const
 {.passL: "-llldWasm".}
 {.passL: "-llldMinGW".}
 {.passL: "-llldCommon".}
-{.passL: "-lz".}
-{.passL: "-lzstd".}
+
+const
+  ClangRoot* = currentSourceDir / "llvm-project" / "clang"
+  CLangLib* = "" # libclang shared library (empty for static builds)
 
 when defined(staticLLVM):
   const LLVMOut = currentSourceDir / "sta"
+  # Static linking: use --start-group/--end-group so linker iterates through libs until all symbols resolved
+  # This handles the complex dependency graph without needing exact ordering
+  {.passL: "-Wl,--start-group".}
 
   {.passL: gorge(currentSourceDir / "sta/bin/llvm-config --libs all").}
+
+  {.passL: "-lclangLex".}
+  {.passL: "-lclangBasic".}
+  {.passL: "-lclangAPINotes".}
+  {.passL: "-lclangAST".}
+  {.passL: "-lclangASTMatchers".}
+  {.passL: "-lclangAnalysis".}
+  {.passL: "-lclangAnalysisFlowSensitive".}
+  {.passL: "-lclangAnalysisFlowSensitiveModels".}
+  {.passL: "-lclangStaticAnalyzerCore".}
+  {.passL: "-lclangStaticAnalyzerCheckers".}
+  {.passL: "-lclangStaticAnalyzerFrontend".}
+  {.passL: "-lclangEdit".}
+  {.passL: "-lclangRewrite".}
+  {.passL: "-lclangSerialization".}
+  {.passL: "-lclangSema".}
+  {.passL: "-lclangParse".}
+  {.passL: "-lclangFrontend".}
+  {.passL: "-lclangFrontendTool".}
+  {.passL: "-lclangCrossTU".}
+  {.passL: "-lclangCodeGen".}
+  {.passL: "-lclangDependencyScanning".}
+  {.passL: "-lclangDirectoryWatcher".}
+  {.passL: "-lclangDriver".}
+  {.passL: "-lclangDynamicASTMatchers".}
+  {.passL: "-lclangExtractAPI".}
+  {.passL: "-lclangFormat".}
+  {.passL: "-lclangHandleCXX".}
+  {.passL: "-lclangHandleLLVM".}
+  {.passL: "-lclangIndex".}
+  {.passL: "-lclangIndexSerialization".}
+  {.passL: "-lclangInstallAPI".}
+  {.passL: "-lclangInterpreter".}
+  {.passL: "-lclangRewriteFrontend".}
+  {.passL: "-lclangSupport".}
+  {.passL: "-lclangToolingCore".}
+  {.passL: "-lclangToolingInclusions".}
+  {.passL: "-lclangToolingInclusionsStdlib".}
+  {.passL: "-lclangTooling".}
+  {.passL: "-lclangToolingASTDiff".}
+  {.passL: "-lclangToolingRefactoring".}
+  {.passL: "-lclangToolingSyntax".}
+  {.passL: "-lclangTransformer".}
+  {.passL: "-l:libclang.a".}
+
+  {.passL: "-Wl,--end-group".}
 else:
   const LLVMOut = currentSourceDir / "sha"
 
@@ -34,20 +85,39 @@ else:
     import strformat
     {.passL: &"-lLLVM-{LLVMMaj}".}
   else:
+    {.passL: "-Wl,--as-needed".}
+    {.passL: "-lclang-cpp".} # Full clang C++ library (needed for most libclang features)
+    {.passL: "-lclang".}
     {.passL: "-lLLVM".}
     {.passL: "-Wl,'-rpath=$ORIGIN/../llvm/sha/lib/'".}
 
   {.passC: "-I" & LLVMOut / "include".}
   {.passC: "-I" & LLVMRoot / "include".}
 
+{.passL: "-lz".}
+{.passL: "-lzstd".}
+
 {.passC: "-I" & LLDRoot / "include".}
 
 {.passL: "-flto=thin".}
-{.passL: "-Wl,--as-needed".}
 {.passL: gorge(LLVMOut / "bin/llvm-config --ldflags").}
 {.passL: gorge(LLVMOut / "bin/llvm-config --system-libs").}
 
-{.compile("wrapper.cc", gorge(LLVMOut / "bin/llvm-config --cxxflags")).}
+when defined(windows):
+  {.passL: "-lversion".} # version.dll needed by the driver
+
+const LLVMCFlags = gorge(LLVMOut / "bin/llvm-config --cxxflags")
+{.compile("wrapper.cc", LLVMCFlags).}
+
+# To integrate clang, we simply recycle the `main` function of clang itself and
+# control it with command-line flags
+{.compile(ClangRoot & "/tools/driver/driver.cpp", LLVMCFlags).}
+{.compile(ClangRoot & "/tools/driver/cc1_main.cpp", LLVMCFlags).}
+{.compile(ClangRoot & "/tools/driver/cc1as_main.cpp", LLVMCFlags).}
+{.compile(ClangRoot & "/tools/driver/cc1gen_reproducer_main.cpp", LLVMCFlags).}
+
+{.passC: "-I" & ClangRoot / "include".}
+{.passC: "-I" & LLVMOut / "tools" / "clang" / "include".}
 
 # Includes and helpers for generated code
 type OpaqueMemoryBuffer = object
@@ -682,3 +752,17 @@ proc triple*(tm: TargetMachineRef): string =
   let tmp = getTargetMachineTriple(tm)
   result = $tmp
   disposeMessage(tmp)
+
+include clang/clang_c
+
+# Clang C++ bridge bindings (from wrapper.cc)
+proc clangMain*(
+  argc: cint, argv: cstringArray
+): cint {.importc: "LLVMNimClangMain", dynlib: CLangLib.}
+
+proc clangMain*(args: openArray[string]): cint =
+  let argv = allocCStringArray(args)
+  defer:
+    deallocCStringArray(argv)
+
+  clangMain(cint args.len, argv)

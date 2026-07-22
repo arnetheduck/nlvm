@@ -1,7 +1,9 @@
 ext/*
+llvm/sha
+llvm/sta
 nlvm/nlvm
 nlvm/nlvmr
 nlvm/nlvm.ll
 nlvm/nlvm.self.ll
 nlvm/nlvm.self
-Nim
+lib/nim

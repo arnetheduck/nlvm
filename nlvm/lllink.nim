@@ -2,7 +2,7 @@ import
   std/[os, osproc, strformat, strutils, sequtils],
   compiler/[extccomp, lineinfos, msgs, options, platform, pathutils],
   llvm/llvm,
-  ./llplatform
+  ./[llplatform]
 
 iterator passLinkOptions(opts: openArray[string]): string =
   var passNext = false
@@ -44,12 +44,6 @@ proc findLastArg(args: openArray[string], opts: openArray[string]): string =
     if args[^i] in opts:
       return args[^i]
   return ""
-
-proc findFile(candidates: openArray[string], name: string): string =
-  for candidate in candidates:
-    if os.fileExists(candidate / name):
-      return candidate / name
-  ""
 
 proc getLinker(conf: ConfigRef, target: string): string =
   var linkerExe = getConfigVar(conf, conf.cCompiler, ".linkerexe")
@@ -315,12 +309,6 @@ proc linkGNU(conf: ConfigRef, target: string) =
     rawMessage(conf, errGenerated, "linking failed")
     quit(1)
 
-proc last(v: seq[string]): seq[string] =
-  if v.len > 0:
-    @[v[^1]]
-  else:
-    @[]
-
 proc linkMingw(conf: ConfigRef, target: string) =
   # https://github.com/llvm/llvm-project/blob/llvmorg-21.1.8/clang/lib/Driver/ToolChains/MinGW.cpp#L103
 
@@ -539,7 +527,6 @@ proc linkMSVC(conf: ConfigRef) =
     args.add x.obj.string
 
   let linkOpts = parseCmdLine(conf.linkOptions) & parseCmdLine(conf.linkOptionsCmd)
-  echo linkOpts
   # Basic MSVC-like flags: MACHINE, SUBSYSTEM, DLL/static, optimisation
   case conf.target.targetCPU
   of cpuAmd64:
@@ -622,11 +609,45 @@ proc useBuiltinLinker*(conf: ConfigRef): bool =
   optGenStaticLib notin conf.globalOptions and
     conf.getConfigVar("nlvm.linker", "builtin") == "builtin"
 
+proc useBuiltinCC*(conf: ConfigRef): bool =
+  conf.getConfigVar("nlvm.cc", "builtin") == "builtin"
+
+proc callBuiltinClang*(
+    conf: ConfigRef, params: openArray[string], triple: string
+): cint =
+  # TODO C++ via "clang++"?
+  var cmd = @["clang", "--target=" & triple]
+
+  # On windows, we'll follow llvm-mingw defaults:
+  # https://github.com/mstorsjo/llvm-mingw/blob/master/wrappers/mingw32-common.cfg
+  if conf.target.targetOS == osWindows:
+    cmd.add ["-rtlib=compiler-rt", "-unwindlib=libunwind", "-fuse-ld=lld"]
+
+  cmd.add params
+  rawMessage(conf, hintCC, $cmd)
+
+  clangMain(cmd)
+
+proc callBuiltinClang*(conf: ConfigRef) =
+  let triple = conf.toTriple()
+  conf.cCompiler = ccClang
+
+  for idx, cfile in conf.toCompile.mpairs:
+    if CfileFlag.Cached notin cfile.flags:
+      # TODO multiple workers via "nlvm cc"
+      let args = parseCmdLine(conf.getCompileCFileCmd(cfile))
+      doAssert conf.callBuiltinClang(args[1 ..^ 1], triple) == 0
+      cfile.flags.incl CfileFlag.Cached
+
 proc lllink*(conf: ConfigRef, target: string) =
   if conf.useBuiltinLinker():
-    # Compile {.compile.} files as usual
     conf.globalOptions.incl optNoLinking
-    callCCompiler(conf)
+
+    if conf.useBuiltinCC():
+      callBuiltinClang(conf)
+    else:
+      callCCompiler(conf)
+
     conf.globalOptions.excl optNoLinking
 
     if conf.target.targetCPU == cpuWasm32:
