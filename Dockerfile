@@ -1,4 +1,4 @@
-FROM ubuntu:18.04 AS build
+FROM ubuntu:latest AS build
 
 ADD . /code
 WORKDIR /code
@@ -13,11 +13,13 @@ RUN apt-get update && \
     apt-get remove -y git apt-utils libpcre3-dev libssl-dev libsqlite3-dev build-essential cmake ninja-build python-minimal wget
 
 # Create final image
-FROM ubuntu:18.04
+FROM ubuntu:latest
 
 COPY --from=build /usr/bin/nlvm /usr/bin/nlvm
-COPY --from=build /usr/lib/ /usr/lib/
-RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+COPY --from=build /usr/lib/nlvm /usr/lib/nlvm
+COPY --from=build /usr/lib/nim /usr/lib/nim
+COPY --from=build /usr/lib/clang /usr/lib/clang
+
+RUN apt-get update && apt-get install -y libc-dev libstdc++-dev && rm -rf /var/lib/apt/lists/*
 
 ENTRYPOINT ["/usr/bin/nlvm"]
-

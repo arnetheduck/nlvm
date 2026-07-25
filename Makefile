@@ -12,7 +12,7 @@ LLVM_PAT:=$(shell cat llvm/llvm.version | cut -f3 -d.)
 ifeq ($(OS),Windows_NT)
 EXE := .exe
 LLVM_DLL := llvm/sha/bin/libLLVM-$(LLVM_MAJ).dll
-STATIC_OPT := -DLLVM_BUILD_STATIC=1
+STATIC_OPT := -DLLVM_BUILD_STATIC=1 -DLIBCLANG_BUILD_STATIC=1
 else
 EXE :=
 LLVM_DLL := llvm/sha/lib/libLLVM.so.$(LLVM_MAJ).$(LLVM_MIN)
@@ -21,7 +21,7 @@ LLVM_DLL := llvm/sha/lib/libLLVM.so.$(LLVM_MAJ).$(LLVM_MIN)
 STATIC_OPT :=
 endif
 
-NIMC=Nim/bin/nim$(EXE)
+NIMC=lib/nim/bin/nim$(EXE)
 NLVMC=nlvm/nlvm$(EXE)
 NLVMR=nlvm/nlvmr$(EXE)
 
@@ -37,24 +37,24 @@ endif
 .PHONY: all
 all: $(NLVMC)
 
-Nim/koch$(EXE):
-	cd Nim ;\
+lib/nim/koch$(EXE):
+	cd lib/nim ;\
 	[ -d csources_v3 ] || git clone -q --depth 1 -b master https://github.com/nim-lang/csources_v3.git ;\
 	cd csources_v3 ;\
 	git pull ;\
 	$(MAKE) -f makefile
-	cd Nim ; bin/nim c koch
+	cd lib/nim ; bin/nim c koch
 
-$(NIMC): Nim/koch$(EXE) Nim/compiler/*.nim
-	cd Nim && ./koch boot -d:release
+$(NIMC): lib/nim/koch$(EXE) lib/nim/compiler/*.nim
+	cd lib/nim && ./koch boot -d:release
 
-$(NLVMC): $(LLVM_DEP) $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim nlvm-lib/*.nim
+$(NLVMC): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/*
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) $(NLVMCFLAGS) c nlvm
 
-$(NLVMR): $(LLVM_DEP) $(NIMC) Nim/compiler/*.nim  nlvm/*.nim llvm/*.nim nlvm-lib/*.nim
+$(NLVMR): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/*
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) -d:release $(NLVMCFLAGS) -o:nlvmr$(EXE) c nlvm
 
-nlvm/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim nlvm-lib/*.nim
+nlvm/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim lib/nlvm/*
 	cd nlvm && time ./nlvm $(NLVMFLAGS) -o:nlvm.ll $(NLVMCFLAGS) -c c nlvm
 
 nlvm/nlvm.self$(EXE): $(NLVMC)
@@ -70,15 +70,15 @@ nlvm/nlvm.self.ll: nlvm/nlvm.self$(EXE)
 compare: nlvm/nlvm.self.ll nlvm/nlvm.ll
 	diff -u nlvm/nlvm.self.ll nlvm/nlvm.ll
 
-Nim/testament/testament$(EXE): $(NIMC) Nim/testament/*.nim
-	$(NIMC) -d:release c Nim/testament/testament
+lib/nim/testament/testament$(EXE): $(NIMC) lib/nim/testament/*.nim
+	$(NIMC) -d:release c lib/nim/testament/testament
 
 .PHONY: run-testament run-testament-noskip
-run-testament: $(NLVMR) Nim/testament/testament
-	cd Nim; time testament/testament --megatest:off --targets:c "--nim:../nlvm/nlvmr" --skipFrom:../skipped-tests.txt all
+run-testament: $(NLVMR) lib/nim/testament/testament
+	cd lib/nim; time testament/testament --megatest:off --targets:c "--nim:../../nlvm/nlvmr" --skipFrom:../../skipped-tests.txt all
 
-run-testament-noskip: $(NLVMR) Nim/testament/testament
-	-cd Nim; time testament/testament --megatest:off --targets:c "--nim:../nlvm/nlvmr" all
+run-testament-noskip: $(NLVMR) lib/nim/testament/testament
+	-cd lib/nim; time testament/testament --megatest:off --targets:c "--nim:../../nlvm/nlvmr" all
 
 .PHONY: test
 test: run-testament
@@ -86,28 +86,28 @@ test: run-testament
 
 update-skipped: run-testament-noskip
 	# Output suitable for sticking into skipped-tests.txt
-	-jq -r -s '([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | .[].name' Nim/testresults/*json | sort | uniq > skipped-tests.txt
+	-jq -r -s '([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | .[].name' lib/nim/testresults/*json | sort | uniq > skipped-tests.txt
 	make stats
 
 .PHONY: badeggs.json
 badeggs.json:
-	-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled" and .result != "reCodeNotFound")]' Nim/testresults/*.json > badeggs.json
+	-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled" and .result != "reCodeNotFound")]' lib/nim/testresults/*.json > badeggs.json
 
 .PHONY: stats
 stats: badeggs.json
 	-jq 'group_by(.category)|.[]|((unique_by(.category)|.[].category) + " " + (length| tostring))' badeggs.json
-	-jq -s '. | flatten | group_by(.result) | map({(first.result): (length)}) | add' Nim/testresults/*json
-	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' Nim/testresults/*json
+	-jq -s '. | flatten | group_by(.result) | map({(first.result): (length)}) | add' lib/nim/testresults/*json
+	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' lib/nim/testresults/*json
 .PHONY: t2
 t2:
-	cp -r Nim/testresults tr2
+	cp -r lib/nim/testresults tr2
 
 .PHONY: self
 self: nlvm/nlvm.self
 
 .PHONY: clean
 clean:
-	rm -rf $(NLVMC) $(NLVMR) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self$(EXE) Nim/testresults/
+	rm -rf $(NLVMC) $(NLVMR) nlvm/nlvm.ll nlvm/nlvm.self.ll nlvm/nlvm.self$(EXE) lib/nim/testresults/
 
 # developer build - build all of llvm including tooling like IR inspectors etc
 # for the right version of LLVM
@@ -120,9 +120,10 @@ $(LLVM_DLL):
 
 # We only need a subset of the build in CI / statically linked release builds
 llvm/sta/bin/llvm-config$(EXE):
-	sh ./make-llvm.sh sta "lld-libraries lib/all llvm-config" \
+	sh ./make-llvm.sh sta "clang-libraries lld-libraries llvm-libraries llvm-config" \
 		-DLLVM_BUILD_LLVM_DYLIB=0 \
 		-DLLVM_LINK_LLVM_DYLIB=0 \
+		-DLIBCLANG_BUILD_STATIC=On \
 		$(STATIC_OPT) \
 		-DLLVM_ENABLE_ASSERTIONS=0 \
 		-DCMAKE_BUILD_TYPE=Release

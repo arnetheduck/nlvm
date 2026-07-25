@@ -14,7 +14,7 @@ import
   llvm/llvm,
   lllink,
   llplatform,
-  ../Nim/dist/checksums/src/checksums/md5
+  ../lib/nim/dist/checksums/src/checksums/md5
 
 type
   SectionKind = enum
@@ -10470,7 +10470,7 @@ proc genMain(g: LLGen) =
 
 proc loadBase(g: LLGen) =
   let base =
-    g.config.prefixDir.string / "../nlvm-lib/nlvmbase-$1-$2.ll" % [
+    g.config.prefixDir.string / "../../lib/nlvm/nlvmbase-$1-$2.ll" % [
       platform.CPU[g.config.target.targetCPU].name,
       platform.OS[g.config.target.targetOS].name,
     ]
@@ -10845,14 +10845,7 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
         graph.config.target.setTarget(os, cpu)
         tmp
       else:
-        toTriple(
-          graph.config.target,
-          abi = graph.config.getConfigVar("nlvm.abi", ""),
-          useWasi = graph.config.isDefined("wasi"),
-          isMingw =
-            graph.config.target.targetOS == osWindows and
-            graph.config.cCompiler in {ccGcc, ccLLVM_Gcc, ccClang},
-        )
+        graph.config.toTriple()
     )
 
     if graph.config.target.hostOS != graph.config.target.targetOS or
@@ -10896,4 +10889,3 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
   g.modules[s.position]
 
 const llgenPass* = makePass(myOpen, myProcess, myClose)
-  # Are we _making_ a shared library

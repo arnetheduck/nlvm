@@ -4,6 +4,7 @@
 
 Command:
   //compile, c                compile project
+  //cc                        compile C/C++ files like clang (passthrough)
 
 Arguments:
   arguments are passed to the program being run (if --run option is selected)

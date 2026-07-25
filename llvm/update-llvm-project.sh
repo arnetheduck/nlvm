@@ -9,7 +9,7 @@
 set -euo pipefail
 
 # The sub-projects we'll preserve
-DIRS="cmake lld llvm libunwind third-party"
+DIRS="cmake clang lld llvm libunwind third-party"
 
 # Resolve absolute paths
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -31,7 +31,8 @@ git -C "$SRC_DIR" checkout llvmorg-$VERSION
 # Copy all tracked files, excluding tests/benchmarks/other large cruft - tar is
 # used as an easy hack to preserve timestamps etc
 git -C "$SRC_DIR" ls-files $DIRS | \
-  grep -v -e '/test/' -e '/benchmarks/' -e 'third-party/benchmark/' -e 'third-party/unittest/' | \
+  grep -v -e '/test/' -e '/benchmarks/' -e 'third-party/benchmark/' \
+    -e 'third-party/unittest/' -e '/unittests/' | \
   tar -C "$SRC_DIR" -cT - |
 	tar -C "$DST_DIR" -x
 

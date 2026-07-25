@@ -13,16 +13,18 @@ rm -f nlvm/nlvmr
 make STATIC_LLVM=1 nlvm/nlvmr
 
 # Copy nlvm and library files
-# TODO these would go in /usr/{bin, share/Nim} normally
-mkdir -p $ROOT
+mkdir -p $ROOT $ROOT/lib
 cp nlvm/nlvmr $ROOT/nlvm
 strip $ROOT/nlvm
-cp -r nlvm-lib $ROOT
-mkdir -p $ROOT/Nim
-cd Nim
+
+cp -ar lib/nlvm $ROOT/lib/
+cp -ar lib/clang $ROOT/lib/
+
+mkdir -p $ROOT/lib/nim
+cd lib/nim
 # avoid build junk
-git archive --format=tar HEAD lib config | (cd ../$ROOT/Nim && tar xf -)
-cd ..
+git archive --format=tar HEAD lib config | (cd ../../$ROOT/lib/nim && tar xf -)
+cd ../..
 
 rm -rf dist
 mkdir -p dist
@@ -30,7 +32,7 @@ tar cvfJ dist/$ROOT.tar.xz $ROOT/
 
 # AppImages have some more requirements - set these up now
 cd $ROOT
-ln -s nlvm AppRun
+mv nlvm AppRun
 echo "[Desktop Entry]
 Name=nlvm
 Exec=AppRun

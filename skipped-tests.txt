@@ -11,6 +11,7 @@ tests/arc/t16458.nim c --gc:orc --d:useNimRtl
 tests/arc/t18977.nim c --mm:arc
 tests/arc/tarcmisc.nim c
 tests/arc/tasyncleak.nim c
+tests/arc/tasyncorc.nim c
 tests/arc/tcaseobjcopy.nim c
 tests/arc/tcaseobj.nim c
 tests/arc/tclosureiter.nim c

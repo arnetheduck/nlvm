@@ -24,6 +24,7 @@ Jacek Sieka (arnetheduck on gmail point com)
   - [Compiling `nlvm`](#compiling-nlvm)
 - [Compiling your code](#compiling-your-code)
   - [Pipeline](#pipeline)
+  - [Compiling C/C++ code with `nlvm cc`](#compiling-cc-code)
   - [Porting guide](#porting-guide)
     - [dynlib](#dynlib)
     - [{.header.}](#header)
@@ -49,10 +50,10 @@ Jacek Sieka (arnetheduck on gmail point com)
   * compiler-intrinsic guided optimisation for overflow checking, memory operations, exception handling
   * heap allocation elision
   * native constant initialization
-* Native cross compiler, including `wasm32` support with no extra tooling
-* Native integrated fast linker (`lld`)
+* Integrated [C/C++ compiler](#compiling-cc-code)
+* Integrated linker (`lld`)
+* Integrated [cross compiler](#cross-compiler), including `wasm32` support
 * Just-in-time execution and REPL (`nlvm r`) using the LLVM [ORCv2 JIT](https://llvm.org/docs/ORCv2.html)
-* Built-in [cross-compiler](#cross-compiler)
 
 Most things from `nim` work just fine (see the [porting guide](#porting-guide) below!):
 
@@ -60,8 +61,6 @@ Most things from `nim` work just fine (see the [porting guide](#porting-guide) b
 * similar command line options are supported (just change `nim` to `nlvm`!)
 * `C` header files are not used - the declaration in the `.nim` file needs to be
   accurate
-* If your program has `{.compile.}` dependencies, these work as usual but
-  require a corresponding compiler to be installed (ie clang, gcc)
 
 Test coverage is not too bad either:
 
@@ -103,8 +102,8 @@ Binaries are available from the [github releases](https://github.com/arnetheduck
 
 To do what I do, you will need:
 
-* A C/C++ compiler
-  * `gcc` on Linux
+* A C/C++ compiler (for building LLVM and the Nim compiler bootstrap)
+  * `gcc` or `clang` on Linux
   * `clang` on Windows
 * A cup of tea and a good book
   * Compiling `llvm` takes about an hour the first time (then it's cached)
@@ -169,12 +168,12 @@ On the command line, `nlvm` is mostly compatible with `nim`.
 For compiling pure Nimm code, you do not need a C compiler - `nlvm` will compile
 and link the code using the built-in `lld` linker:
 
-    cd $SRC/nlvm/Nim/examples
+    cd $SRC/nlvm/lib/nim/examples
     ../../nlvm/nlvm c fizzbuzz
 
 If you want to see the generated LLVM IR, use the `-c` option:
 
-    cd $SRC/nlvm/Nim/examples
+    cd $SRC/nlvm/lib/nim/examples
     ../../nlvm/nlvm c -c fizzbuzz
     less fizzbuzz.ll
 
@@ -188,7 +187,28 @@ You can then run the LLVM optimizer on it:
     less fizzbuzz.s
 
 Apart from the code of your `.nim` files, the compiler will also mix in the
-compiler runtime library in `nlvm-lib/`.
+compiler runtime library in `lib/nlvm`.
+
+## Compiling C/C++ code
+
+`nlvm` includes an integrated `clang` that can compile C/C++ code directly.
+
+Use the `cc` subcommand to pass arguments through to clang (preview, this may
+change in the future):
+
+```sh
+# Compile and link a C file
+nlvm cc test.c -o test
+
+# Compile to object file only
+nlvm cc -c test.c -o test.o
+
+# Cross-compile to windows With optimization and warnings
+nlvm --os:windows cc -O3 -Wall test.c -o test.exe
+
+# Compile C++
+nlvm cc test.cpp -o test
+```
 
 ## Pipeline
 
@@ -223,7 +243,7 @@ application, `nim` will try to open anything the user has installed.
 `{.passL.}` using normal system linking.
 
 ```nim
-# works with `nim`
+# works with `nim` but not with `nlvm`
 proc f() {. importc, dynlib: "mylib" .}
 
 # works with both `nim` and `nlvm`
@@ -277,8 +297,7 @@ when defined(linux) and defined(amd64):
 
 ### {.emit.}
 
-To deal with `emit`, the recommendation is to put the emitted code in a C file
-and `{.compile.}` it.
+Put the emitted code in a C file and `{.compile.}` it.
 
 ```nim
 proc myEmittedFunction() {.importc.}
@@ -304,19 +323,21 @@ create `Windows` executables on a `Linux` machine.
 
 ## Prerequisites
 
-For cross-compilation, a `clang`-based environment for that platform must first
-be [set up](https://clang.llvm.org/docs/CrossCompilation.html) - the environment
+For cross-compilation, an environment for that platform must first be
+[set up](https://clang.llvm.org/docs/CrossCompilation.html) - the environment
 consists of:
 
 * a `sysroot` - the basic libraries needed to create executables for the platform
   * for `Windows`, this is [llvm-mingw](https://github.com/mstorsjo/llvm-mingw/releases)
   * It can be [obtained](https://mcilloni.ovh/2021/02/09/cxx-cross-clang/)
     from the environment you're targeting.
+  * Place the env in `../<triple>` relative to the `nlvm` binary - the `mingw`
+    environment for example should be copied to `<nlvm-path>/../x86_64-w64-mingw32`.
 * The compiler runtime for that target (`compiler-rt` or `libgcc`)
   * provided by `llvm-mingw`
-* `clang` - for finding libraries in the sysroot and dealing with `{.compile.}`
-  * a cross-compilation version of `gcc` may also work, though this hasn't been
-    tested
+
+The integrated `clang` compiler supports cross-compiling out of the box - an
+external compiler can also be used provided it has been set up.
 
 ## Compiling
 
@@ -340,7 +361,7 @@ A helper script exists to set up `llvm-mingw`:
 nlvm c --os:windows --passl:-static test.nim
 
 # You can also use a target triple
-nlvm c --nlvm.triple=x86_64-w64-mingw32 --passl:-static Nim/examples/fizzbuzz.nim
+nlvm c --nlvm.triple=x86_64-w64-mingw32 --passl:-static lib/nim/examples/fizzbuzz.nim
 
 # Run the compiled program via wine
 wine test.exe
@@ -407,7 +428,7 @@ $ nlvm r
 >>> log2(100.0)
 stdin(1, 1) Error: undeclared identifier: 'log2'
 candidates (edit distance, scope distance); see '--spellSuggest':
- (2, 2): 'low' [proc declared in /home/arnetheduck/src/nlvm/Nim/lib/system.nim(1595, 6)]
+ (2, 2): 'low' [proc declared in lib/nim/lib/system.nim(1595, 6)]
 ...
 >>> import math
 .....
