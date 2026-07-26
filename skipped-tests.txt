@@ -202,8 +202,6 @@ tests/stdlib/trandom.nim js --backend:js --jsbigint64:off -d:nimStringHash2
 tests/stdlib/trandom.nim js --backend:js --jsbigint64:on
 tests/stdlib/trationals.nim c --mm:orc
 tests/stdlib/trationals.nim c --mm:refc
-tests/stdlib/tsetutils.nim c --mm:orc
-tests/stdlib/tsetutils.nim c --mm:refc
 tests/stdlib/tssl.nim c --mm:orc
 tests/stdlib/tssl.nim c --mm:refc
 tests/stdlib/tstackframes.nim c
