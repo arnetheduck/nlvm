@@ -23,7 +23,3 @@ CC=clang CXX=clang++ cmake -S llvm-project/llvm -B "$DIR" -GNinja \
 	"$@"
 
 ninja -C $DIR $TGTS
-
-# clang runtime headers and library
-rm -rf ../lib/clang
-cp -ar $DIR/lib/clang ../lib

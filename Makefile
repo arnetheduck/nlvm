@@ -27,12 +27,15 @@ NLVMR=nlvm/nlvmr$(EXE)
 
 ifdef STATIC_LLVM
 	NLVMCFLAGS=-d:staticLLVM
-	LLVM_DEP=llvm/sta/bin/llvm-config$(EXE)
-	export PATH := $(PWD)/llvm/sta/bin:$(PATH)
+	LLVM_OUT := llvm/sta
+	LLVM_DEP := $(LLVM_OUT)/bin/llvm-config$(EXE)
 else
-	LLVM_DEP:=$(LLVM_DLL)
+	LLVM_OUT := llvm/sha
+	LLVM_DEP := $(LLVM_DLL)
 	NLVMCFLAGS?=
 endif
+
+export PATH := $(PWD)/$(LLVM_OUT)/bin:$(PATH)
 
 .PHONY: all
 all: $(NLVMC)
@@ -48,10 +51,14 @@ lib/nim/koch$(EXE):
 $(NIMC): lib/nim/koch$(EXE) lib/nim/compiler/*.nim
 	cd lib/nim && ./koch boot -d:release
 
-$(NLVMC): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/*
+lib/clang/21/include/stdint.h: $(LLVM_DEP)
+	rm -rf lib/clang
+	cp -ar $(LLVM_OUT)/lib/clang lib/
+
+$(NLVMC): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/* lib/clang/21/include/stdint.h
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) $(NLVMCFLAGS) c nlvm
 
-$(NLVMR): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/*
+$(NLVMR): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/* lib/clang/21/include/stdint.h
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) -d:release $(NLVMCFLAGS) -o:nlvmr$(EXE) c nlvm
 
 nlvm/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim lib/nlvm/*
