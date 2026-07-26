@@ -8368,6 +8368,8 @@ proc genMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
     result = g.genMagicSetBinOp(llvm.Or, false, n)
   of mMinusSet:
     result = g.genMagicSetBinOp(llvm.And, true, n)
+  of mXorSet:
+    result = g.genMagicSetBinOp(llvm.Xor, false, n)
   of mConStrStr:
     result = g.genMagicConStrStr(n)
   of mDotDot:
