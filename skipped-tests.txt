@@ -2,13 +2,9 @@ lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --mm:refc --outdir:tests/dll
 lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --outdir:tests/dll
 lib/nimrtl.nim c  -d:nimDebugDlOpen --mm:refc --outdir:tests/dll
 lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll
-tests/align/talign_heap.nim c --mm:arc
-tests/align/talign_heap.nim c --mm:orc
-tests/align/talign_heap.nim c --mm:refc
 tests/align/talign.nim c --mm:orc
 tests/align/talign.nim c --mm:refc -d:useGcAssert -d:useSysAssert
 tests/arc/t16458.nim c --gc:orc --d:useNimRtl
-tests/arc/t18977.nim c --mm:arc
 tests/arc/tarcmisc.nim c
 tests/arc/tasyncleak.nim c
 tests/arc/tasyncorc.nim c
@@ -26,7 +22,6 @@ tests/casestmt/t7699.nim c
 tests/ccgbugs2/t25459b.nim c -d:checkAbi
 tests/ccgbugs2/tcodegen.nim c
 tests/ccgbugs2/tinefficient_const_table.nim c
-tests/ccgbugs/t15428.nim c
 tests/ccgbugs/t16027.nim c
 tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445
 tests/ccgbugs/t19585.nim c
@@ -136,7 +131,6 @@ tests/iter/tnestedclosures.nim c
 tests/iter/tshallowcopy_closures.nim c --mm:refc
 tests/iter/tyieldintry.nim c
 tests/iter/tyieldintry.nim c --experimental:strictdefs
-tests/lent/tbasic_lent_check.nim c
 tests/let/timportc.nim c
 tests/macros/tmemit.nim c
 tests/manyloc/keineschweine/keineschweine.nim c
@@ -182,10 +176,7 @@ tests/pragmas/tbitsize.nim c
 tests/pragmas/tnoreturn.nim c --mm:refc
 tests/pragmas/tpush.nim c
 tests/pragmas/treorder.nim c
-tests/range/toutofrangevarconv.nim c
 tests/realtimeGC/tmain.nim c
-tests/sets/t20997.nim c
-tests/stdlib/tcasts.nim c
 tests/stdlib/thashes.nim js --backend:js -d:nimStringHash2
 tests/stdlib/thashes.nim js --backend:js --jsbigint64:on
 tests/stdlib/tjson.nim c
@@ -222,9 +213,6 @@ tests/template/tcallsitelineinfo.nim c
 tests/template/tidentconcatenations.nim c
 tests/testament/tjoinable.nim c
 tests/testament/tshould_not_work.nim c
-tests/threads/tonthreadcreation.nim c  --threads:on -d:release --mm:orc --deepcopy:on
-tests/threads/tonthreadcreation.nim c  --threads:on --mm:orc --deepcopy:on
-tests/threads/tonthreadcreation.nim c  --threads:on --tlsEmulation:on --mm:orc --deepcopy:on
 tests/tools/tctags2.nim c
 tests/tools/tctags.nim c
 tests/tools/tnimgrep.nim c
