@@ -49,7 +49,7 @@ lib/nim/koch$(EXE):
 	cd lib/nim ; bin/nim c koch
 
 $(NIMC): lib/nim/koch$(EXE) lib/nim/compiler/*.nim
-	cd lib/nim && ./koch boot -d:release
+	cd lib/nim && ./koch boot -d:release --passC:-fPIC --passl:-fPIC
 
 lib/clang/21/include/stdint.h: $(LLVM_DEP)
 	rm -rf lib/clang

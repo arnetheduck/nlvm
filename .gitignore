@@ -25,3 +25,4 @@ dist/
 lib/clang/
 lib/dest*
 x86_64-w64-mingw32
+.config
