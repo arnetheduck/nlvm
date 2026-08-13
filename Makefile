@@ -81,30 +81,33 @@ lib/nim/testament/testament$(EXE): $(NIMC) lib/nim/testament/*.nim
 	$(NIMC) -d:release c lib/nim/testament/testament
 
 .PHONY: run-testament run-testament-noskip
-run-testament: $(NLVMR) lib/nim/testament/testament
+run-testament: $(NLVMR) lib/nim/testament/testament$(EXE)
 	cd lib/nim; time testament/testament --megatest:off --targets:c "--nim:../../nlvm/nlvmr" --skipFrom:../../skipped-tests.txt all
 
-run-testament-noskip: $(NLVMR) lib/nim/testament/testament
+run-testament-noskip: $(NLVMR) lib/nim/testament/testament$(EXE)
 	-cd lib/nim; time testament/testament --megatest:off --targets:c "--nim:../../nlvm/nlvmr" all
 
 .PHONY: test
 test: run-testament
-	-make stats
+	@-make stats
 
 update-skipped: run-testament-noskip
-	# Output suitable for sticking into skipped-tests.txt
-	-jq -r -s '([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | .[].name' lib/nim/testresults/*json | sort | uniq > skipped-tests.txt
-	make stats
+	# Output suitable for sticking into skipped-tests.txt (with classification comments)
+	# duplicate entries are merged by the classifier
+	@-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled")]' lib/nim/testresults/*.json \
+	  | jq -f classify-errors.jq \
+	  | jq -r '.[] | "\(.name) # \(.classification) / \(.result)"' | sort > skipped-tests.txt
+	@-make stats
 
 .PHONY: badeggs.json
 badeggs.json:
-	-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled" and .result != "reCodeNotFound")]' lib/nim/testresults/*.json > badeggs.json
+	@-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled" and .result != "reCodeNotFound")]' lib/nim/testresults/*.json | jq -f classify-errors.jq > badeggs.json
 
 .PHONY: stats
 stats: badeggs.json
-	-jq 'group_by(.category)|.[]|((unique_by(.category)|.[].category) + " " + (length| tostring))' badeggs.json
-	-jq -s '. | flatten | group_by(.result) | map({(first.result): (length)}) | add' lib/nim/testresults/*json
-	-jq -s '{bad: ([.[][]|select(.result != "reSuccess" and .result != "reDisabled")]) | length, ok: ([.[][]|select(.result == "reSuccess")]|length)}' lib/nim/testresults/*json
+	@-jq 'group_by(.classification) | map({(first.classification): length}) | add' badeggs.json
+	@-jq -s '. | flatten | unique_by(.name) | group_by(.result) | map({(first.result): (length)}) | add' lib/nim/testresults/*json
+	@-jq -s '. | flatten | unique_by(.name) | {bad: ([.[] | select(.result != "reSuccess" and .result != "reDisabled")] | length), ok: ([.[] | select(.result == "reSuccess")] | length)}' lib/nim/testresults/*json
 .PHONY: t2
 t2:
 	cp -r lib/nim/testresults tr2

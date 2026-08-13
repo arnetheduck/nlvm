@@ -1,223 +1,222 @@
-lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --mm:refc --outdir:tests/dll
-lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --outdir:tests/dll
-lib/nimrtl.nim c  -d:nimDebugDlOpen --mm:refc --outdir:tests/dll
-lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll
-tests/align/talign.nim c --mm:orc
-tests/align/talign.nim c --mm:refc -d:useGcAssert -d:useSysAssert
-tests/arc/t16458.nim c --gc:orc --d:useNimRtl
-tests/arc/tarcmisc.nim c
-tests/arc/tasyncleak.nim c
-tests/arc/tasyncorc.nim c
-tests/arc/tcaseobjcopy.nim c
-tests/arc/tcaseobj.nim c
-tests/arc/tclosureiter.nim c
-tests/arc/tdeepcopy.nim c
-tests/arc/thard_alignment.nim c
-tests/assert/t21195.nim c --verbosity:0 --os:standalone --mm:none
-tests/assert/tassert_c.nim c -d:nimPreviewSlimSystem --stackTrace:on --excessiveStackTrace:off
-tests/async/tasync_traceback2.nim c
-tests/async/tasync_traceback.nim c
-tests/avr/thello.nim c
-tests/casestmt/t7699.nim c
-tests/ccgbugs2/t25459b.nim c -d:checkAbi
-tests/ccgbugs2/tcodegen.nim c
-tests/ccgbugs2/tinefficient_const_table.nim c
-tests/ccgbugs/t16027.nim c
-tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445
-tests/ccgbugs/t19585.nim c
-tests/ccgbugs/t23796.nim c
-tests/ccgbugs/taddrconvs.nim c --mm:orc
-tests/ccgbugs/taddrconvs.nim c --mm:refc
-tests/ccgbugs/tassign_nil_strings.nim c --mm:refc
-tests/ccgbugs/tcgbug.nim c --mm:orc
-tests/ccgbugs/tcgbug.nim c --mm:refc
-tests/ccgbugs/tcodegenbug_bool.nim c
-tests/ccgbugs/tcodegendecllambda.nim c
-tests/ccgbugs/tcvarargs.nim c
-tests/ccgbugs/tforward_decl_only.nim c
-tests/ccgbugs/timportc_distinct.nim c
-tests/ccgbugs/tmangle_field.nim c
-tests/ccgbugs/tmissingvolatile.nim c
-tests/ccgbugs/tnoalias.nim c
-tests/ccgbugs/tprogmem.nim c
-tests/ccgbugs/tunsafeaddr.nim c
-tests/closure/ttimeinfo.nim c
-tests/codegen/titaniummangle.nim c --debugger:native
-tests/codegen/titaniummangle.nim c --debugger:native --mangle:cpp
-tests/compiler/tasm2.nim c
-tests/compiler/tasm.nim c
-tests/compiler/tcmdlineclib.nim c
-tests/compiles/tstaticlib.nim c
-tests/consts/taddressable_consts2.nim c
-tests/consts/taddressable_consts.nim c
-tests/converter/tgenericconverter.nim c
-tests/coroutines/tgc.nim c --gc:arc
-tests/coroutines/tgc.nim c --gc:orc
-tests/coroutines/tgc.nim c --gc:refc
-tests/coroutines/twait.nim c --gc:arc
-tests/coroutines/twait.nim c --gc:orc
-tests/coroutines/twait.nim c --gc:refc
-tests/cpp/t10148.nim c
-tests/cpp/t22679.nim c
-tests/cpp/t22680.nim c
-tests/cpp/t23962.nim c
-tests/cpp/texportc.nim c
-tests/cpp/tinitializers.nim c
-tests/c/temit.nim c
-tests/c/timportedsize.nim c
-tests/destructor/t23837.nim c --cursorinference:off
-tests/destructor/t23837.nim c --cursorinference:on
-tests/destructor/tbintree2.nim c
-tests/destructor/tconsume_twice.nim c
-tests/destructor/tcycle3.nim c
-tests/destructor/tdangingref_simple.nim c
-tests/destructor/texceptions.nim c
-tests/destructor/tgotoexc_leak.nim c
-tests/destructor/tnewruntime_misc.nim c
-tests/destructor/tuse_ownedref_after_move.nim c
-tests/destructor/tv2_raise.nim c
-tests/destructor/twidgets.nim c
-tests/destructor/twidgets_unown.nim c
-tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:on
-tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:on
-tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --threads:on
-tests/dll/client.nim c  -d:nimDebugDlOpen --gc:boehm --threads:on
-tests/dll/client.nim c  -d:nimDebugDlOpen --mm:refc --threads:on
-tests/dll/client.nim c  -d:nimDebugDlOpen --threads:on
-tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off --forceBuild --hotCodeReloading:on
-tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen --mm:refc --threads:off --forceBuild --hotCodeReloading:on
-tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen --threads:off --forceBuild --hotCodeReloading:on
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:off
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --threads:off
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --gc:boehm --threads:off
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --mm:refc --threads:off
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --threads:off
-tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:off
-tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off
-tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --threads:off
-tests/dll/visibility.nim c  -d:nimDebugDlOpen --gc:boehm --threads:off
-tests/dll/visibility.nim c  -d:nimDebugDlOpen --mm:refc --threads:off
-tests/dll/visibility.nim c  -d:nimDebugDlOpen --threads:off
-tests/effects/tdiagnostic_messages.nim c
-tests/errmsgs/t14444.nim c --hints:off
-tests/errmsgs/t23536.nim c --stackTrace:on --excessiveStackTrace:off
-tests/errmsgs/t24974.nim c
-tests/errmsgs/tcall_with_default_arg.nim c
-tests/errmsgs/tproper_stacktrace2.nim c --stackTrace:on
-tests/errmsgs/tproper_stacktrace3.nim c --stackTrace:on
-tests/errmsgs/tproper_stacktrace.nim c --stackTrace:on --hint:all:off --warnings:off
-tests/exception/t13115.nim c
-tests/exception/t18620.nim c --gc:arc
-tests/exception/t18620.nim c --gc:refc
-tests/exception/t21261.nim c
-tests/exception/t22469.nim c
-tests/exception/tunhandledexc.nim c
-tests/float/tfloat3.nim c
-tests/float/tfloats.nim c
-tests/gc/thavlak c  -d:release --gc:markAndSweep
-tests/generics/tforwardgeneric.nim c
-tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/ic/tconverter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/ic/tgenericinst_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/ic/tgenerics_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/ic/thallo_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/ic/timports_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks
-tests/int/tints.nim js --backend:js --jsbigint64:off -d:nimStringHash2
-tests/int/tints.nim js --backend:js --jsbigint64:on
-tests/iter/tnestedclosures.nim c
-tests/iter/tshallowcopy_closures.nim c --mm:refc
-tests/iter/tyieldintry.nim c
-tests/iter/tyieldintry.nim c --experimental:strictdefs
-tests/let/timportc.nim c
-tests/macros/tmemit.nim c
-tests/manyloc/keineschweine/keineschweine.nim c
-tests/manyloc/nake/nakefile.nim c
-tests/manyloc/standalone2/tavr.nim c
-tests/manyloc/standalone/barebone.nim c
-tests/method/tmethod_issues.nim c --mm:arc
-tests/method/tmethod_issues.nim c --mm:refc
-tests/misc/t15955.nim c
-tests/misc/t17286.nim c
-tests/misc/t18077.nim c
-tests/misc/t19046.nim c --threads:on
-tests/misc/t23240.nim c
-tests/misc/t9710.nim c --debugger:native
-tests/misc/tapp_lib_staticlib.nim c
-tests/misc/tjoinable.nim c
-tests/misc/tnoforward.nim c
-tests/misc/trunner.nim c
-tests/misc/trunner_special.nim c
-tests/misc/tsizeof3.nim c
-tests/misc/tsizeof.nim c
-tests/misc/tstrace.nim c
-tests/misc/ttlsemulation.nim c -d:nimTtlsemulationCase1 --threads --tlsEmulation:on
-tests/modules/t8665.nim c
-tests/modules/tmodule_name_clashes.nim c --mm:refc
-tests/modules/treorder.nim c -d:testdef
-tests/newconfig/tfoo.nim c
-tests/nimdoc/t15916.nim c
-tests/nimdoc/t17615.nim c
-tests/nimdoc/trunnableexamples.nim c
-tests/niminaction/Chapter8/sdl/sdl_test.nim c
-tests/objects/tobject_default_value.nim c -d:nimPreviewRangeDefault --mm:refc
-tests/objects/tobject_default_value.nim c -d:nimPreviewRangeDefault --warningAsError:ProveInit --mm:orc
-tests/osproc/treadlines.nim c
-tests/overflow/toverflow.nim c --overflowChecks:off
-tests/overflow/toverflow.nim js --overflowChecks:off --b:js
-tests/overflow/toverflow_reorder.nim c
-tests/overload/tstatic_with_converter.nim c
-tests/parallel/tdeepcopy2.nim c --mm:refc
-tests/parallel/tdeepcopy.nim c --mm:refc
-tests/parallel/tmissing_deepcopy.nim c --mm:refc
-tests/pragmas/tbitsize.nim c
-tests/pragmas/tnoreturn.nim c --mm:refc
-tests/pragmas/tpush.nim c
-tests/pragmas/treorder.nim c
-tests/realtimeGC/tmain.nim c
-tests/stdlib/thashes.nim js --backend:js -d:nimStringHash2
-tests/stdlib/thashes.nim js --backend:js --jsbigint64:on
-tests/stdlib/tjson.nim c
-tests/stdlib/tjson.nim cpp --backend:cpp
-tests/stdlib/tjson.nim js --backend:js --jsbigint64:off -d:nimStringHash2
-tests/stdlib/tjson.nim js --backend:js --jsbigint64:on
-tests/stdlib/tmath.nim c
-tests/stdlib/tmath.nim c -d:danger
-tests/stdlib/tmath.nim c --mm:refc
-tests/stdlib/tmisc_issues.nim c --mm:refc
-tests/stdlib/tosproc.nim c --mm:orc
-tests/stdlib/tosproc.nim c --mm:refc
-tests/stdlib/trandom.nim js --backend:js --jsbigint64:off -d:nimStringHash2
-tests/stdlib/trandom.nim js --backend:js --jsbigint64:on
-tests/stdlib/trationals.nim c --mm:orc
-tests/stdlib/trationals.nim c --mm:refc
-tests/stdlib/tssl.nim c --mm:orc
-tests/stdlib/tssl.nim c --mm:refc
-tests/stdlib/tstackframes.nim c
-tests/stdlib/tstdlib_various.nim c --mm:refc
-tests/stdlib/tstring.nim js --backend:js --mm:orc
-tests/stdlib/tstring.nim js --backend:js --mm:refc
-tests/stdlib/tstrutils.nim js --backend:js --jsbigint64:off -d:nimStringHash2
-tests/stdlib/tstrutils.nim js --backend:js --jsbigint64:on
-tests/stdlib/ttimes.nim js --backend:js --jsbigint64:off -d:nimStringHash2
-tests/stdlib/ttimes.nim js --backend:js --jsbigint64:on
-tests/stdlib/tvolatile.nim c
-tests/system/tdollars.nim js --backend:js --jsbigint64:off -d:nimStringHash2
-tests/system/tdollars.nim js --backend:js --jsbigint64:on
-tests/system/tgogc.nim c
-tests/system/tnim_stacktrace_override.nim c
-tests/template/tcallsitelineinfo2.nim c
-tests/template/tcallsitelineinfo.nim c
-tests/template/tidentconcatenations.nim c
-tests/testament/tjoinable.nim c
-tests/testament/tshould_not_work.nim c
-tests/tools/tctags2.nim c
-tests/tools/tctags.nim c
-tests/tools/tnimgrep.nim c
-tests/views/tsplit_into_seq.nim c
-tests/views/tsplit_into_table.nim c
-tests/vm/tcaseobj.nim c
-tests/vm/tvmmisc.nim c
-tests/vm/tvmops.nim c
+lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --mm:refc --outdir:tests/dll # Compiler/internal / reNimcCrash
+lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --outdir:tests/dll # Compiler/internal / reNimcCrash
+lib/nimrtl.nim c  -d:nimDebugDlOpen --mm:refc --outdir:tests/dll # Compiler/internal / reNimcCrash
+lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll # Compiler/internal / reNimcCrash
+tests/align/talign.nim c --mm:orc # Unclassified / reCodeNotFound
+tests/align/talign.nim c --mm:refc -d:useGcAssert -d:useSysAssert # Unclassified / reCodeNotFound
+tests/arc/t16458.nim c --gc:orc --d:useNimRtl # Linker/nimrtl / reNimcCrash
+tests/arc/tarcmisc.nim c # Runtime Crash / reExitcodesDiffer
+tests/arc/tasyncleak.nim c # Memory/count / reOutputsDiffer
+tests/arc/tcaseobjcopy.nim c # Memory/leak / reExitcodesDiffer
+tests/arc/tcaseobj.nim c # Memory/leak / reExitcodesDiffer
+tests/arc/tclosureiter.nim c # Memory/count / reOutputsDiffer
+tests/arc/tdeepcopy.nim c # Unclassified / reOutputsDiffer
+tests/arc/thard_alignment.nim c # Linker / reNimcCrash
+tests/assert/t21195.nim c --verbosity:0 --os:standalone --mm:none # Compiler/error / reNimcCrash
+tests/assert/tassert_c.nim c -d:nimPreviewSlimSystem --stackTrace:on --excessiveStackTrace:off # Unclassified / reOutputsDiffer
+tests/async/tasync_traceback2.nim c # Assertion / reExitcodesDiffer
+tests/async/tasync_traceback.nim c # Unclassified / reExitcodesDiffer
+tests/avr/thello.nim c # Runtime Crash / reNimcCrash
+tests/casestmt/t7699.nim c # Unclassified / reMsgsDiffer | reExitcodesDiffer
+tests/ccgbugs2/t25459b.nim c -d:checkAbi # Linker / reNimcCrash
+tests/ccgbugs2/tcodegen.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs2/tinefficient_const_table.nim c # Unclassified / reCodeNotFound
+tests/ccgbugs/t16027.nim c # Unclassified / reCodeNotFound
+tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445 # Pragmas/{.header.} / reNimcCrash
+tests/ccgbugs/t19585.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/t23796.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/taddrconvs.nim c --mm:orc # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/taddrconvs.nim c --mm:refc # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/tassign_nil_strings.nim c --mm:refc # Unclassified / reCodeNotFound
+tests/ccgbugs/tcgbug.nim c --mm:orc # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/tcgbug.nim c --mm:refc # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/tcodegenbug_bool.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/tcodegendecllambda.nim c # Unclassified / reCodeNotFound
+tests/ccgbugs/tcvarargs.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/tforward_decl_only.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/timportc_distinct.nim c # Unclassified / reCodeNotFound
+tests/ccgbugs/tmangle_field.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/tmissingvolatile.nim c # Unclassified / reCodeNotFound
+tests/ccgbugs/tnoalias.nim c # Unclassified / reCodeNotFound
+tests/ccgbugs/tprogmem.nim c # Unclassified / reCodeNotFound
+tests/ccgbugs/tunsafeaddr.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/closure/ttimeinfo.nim c # Compiler/internal / reNimcCrash
+tests/codegen/titaniummangle.nim c --debugger:native --mangle:cpp # Unclassified / reCodeNotFound
+tests/codegen/titaniummangle.nim c --debugger:native # Unclassified / reCodeNotFound
+tests/compiler/tasm2.nim c # Compiler/internal / reNimcCrash
+tests/compiler/tasm.nim c # Compiler/internal / reNimcCrash
+tests/compiler/tcmdlineclib.nim c # Compiler/error / reNimcCrash
+tests/compiles/tstaticlib.nim c # Assertion / reExitcodesDiffer
+tests/consts/taddressable_consts2.nim c # Linker / reNimcCrash
+tests/consts/taddressable_consts.nim c # Linker / reNimcCrash
+tests/converter/tgenericconverter.nim c # Compiler/internal / reNimcCrash
+tests/coroutines/tgc.nim c --gc:arc # Runtime Crash / reExitcodesDiffer
+tests/coroutines/tgc.nim c --gc:orc # Runtime Crash / reExitcodesDiffer
+tests/coroutines/tgc.nim c --gc:refc # Runtime Crash / reExitcodesDiffer
+tests/coroutines/twait.nim c --gc:arc # Runtime Crash / reExitcodesDiffer
+tests/coroutines/twait.nim c --gc:orc # Runtime Crash / reExitcodesDiffer
+tests/coroutines/twait.nim c --gc:refc # Runtime Crash / reExitcodesDiffer
+tests/cpp/t10148.nim c # Linker / reNimcCrash
+tests/cpp/t22679.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/cpp/t22680.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/cpp/t23962.nim c # Linker / reNimcCrash
+tests/cpp/texportc.nim c # Assertion / reExitcodesDiffer
+tests/cpp/tinitializers.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/c/temit.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/c/timportedsize.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/destructor/t23837.nim c --cursorinference:off # Pragmas/{.emit.} / reNimcCrash
+tests/destructor/t23837.nim c --cursorinference:on # Pragmas/{.emit.} / reNimcCrash
+tests/destructor/tbintree2.nim c # Compiler/error / reNimcCrash
+tests/destructor/tconsume_twice.nim c # Unclassified / reMsgsDiffer
+tests/destructor/tcycle3.nim c # Runtime Crash / reExitcodesDiffer
+tests/destructor/tdangingref_simple.nim c # Compiler/error / reNimcCrash
+tests/destructor/texceptions.nim c # Unclassified / reOutputsDiffer
+tests/destructor/tgotoexc_leak.nim c # Unclassified / reOutputsDiffer
+tests/destructor/tnewruntime_misc.nim c # Compiler/error / reNimcCrash
+tests/destructor/tuse_ownedref_after_move.nim c # Unclassified / reMsgsDiffer
+tests/destructor/tv2_raise.nim c # Compiler/error / reNimcCrash
+tests/destructor/twidgets.nim c # Compiler/error / reNimcCrash
+tests/destructor/twidgets_unown.nim c # Compiler/error / reNimcCrash
+tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:on # Linker/nimrtl / reNimcCrash
+tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:on # Linker/nimrtl / reNimcCrash
+tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --threads:on # Linker/nimrtl / reNimcCrash
+tests/dll/client.nim c  -d:nimDebugDlOpen --gc:boehm --threads:on # Linker/nimrtl / reNimcCrash
+tests/dll/client.nim c  -d:nimDebugDlOpen --mm:refc --threads:on # Linker/nimrtl / reNimcCrash
+tests/dll/client.nim c  -d:nimDebugDlOpen --threads:on # Linker/nimrtl / reNimcCrash
+tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off --forceBuild --hotCodeReloading:on # Linker/nimrtl / reNimcCrash
+tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen --mm:refc --threads:off --forceBuild --hotCodeReloading:on # Linker/nimrtl / reNimcCrash
+tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen --threads:off --forceBuild --hotCodeReloading:on # Linker/nimrtl / reNimcCrash
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:off # Linker/nimrtl / reNimcCrash
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off # Linker/nimrtl / reNimcCrash
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --threads:off # Linker/nimrtl / reNimcCrash
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --gc:boehm --threads:off # Linker/nimrtl / reNimcCrash
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --mm:refc --threads:off # Linker/nimrtl / reNimcCrash
+tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --threads:off # Linker/nimrtl / reNimcCrash
+tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:off # Unclassified / reOutputsDiffer
+tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off # Unclassified / reOutputsDiffer
+tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --threads:off # Unclassified / reOutputsDiffer
+tests/dll/visibility.nim c  -d:nimDebugDlOpen --gc:boehm --threads:off # Unclassified / reOutputsDiffer
+tests/dll/visibility.nim c  -d:nimDebugDlOpen --mm:refc --threads:off # Unclassified / reOutputsDiffer
+tests/dll/visibility.nim c  -d:nimDebugDlOpen --threads:off # Unclassified / reOutputsDiffer
+tests/effects/tdiagnostic_messages.nim c # Compiler/error / reMsgsDiffer
+tests/errmsgs/t14444.nim c --hints:off # Compiler/error / reOutputsDiffer
+tests/errmsgs/t23536.nim c --stackTrace:on --excessiveStackTrace:off # Assertion / reExitcodesDiffer
+tests/errmsgs/t24974.nim c # Assertion / reOutputsDiffer
+tests/errmsgs/tcall_with_default_arg.nim c # Compiler/error / reOutputsDiffer
+tests/errmsgs/tproper_stacktrace2.nim c --stackTrace:on # Runtime Crash / reOutputsDiffer
+tests/errmsgs/tproper_stacktrace3.nim c --stackTrace:on # Assertion / reOutputsDiffer
+tests/errmsgs/tproper_stacktrace.nim c --stackTrace:on --hint:all:off --warnings:off # Compiler/error / reExitcodesDiffer
+tests/exception/t13115.nim c # Assertion / reExitcodesDiffer
+tests/exception/t18620.nim c --gc:arc # Assertion / reExitcodesDiffer
+tests/exception/t18620.nim c --gc:refc # Assertion / reExitcodesDiffer
+tests/exception/t21261.nim c # Compiler/error / reOutputsDiffer
+tests/exception/t22469.nim c # Compiler/error / reOutputsDiffer
+tests/exception/tunhandledexc.nim c # Compiler/error / reOutputsDiffer
+tests/float/tfloat3.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/float/tfloats.nim c # Assertion / reExitcodesDiffer
+tests/gc/thavlak c  -d:release --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
+tests/generics/tforwardgeneric.nim c # Unclassified / reCodeNotFound
+tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
+tests/ic/tconverter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
+tests/ic/tgenericinst_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Pragmas/{.emit.} / reNimcCrash
+tests/ic/tgenerics_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
+tests/ic/thallo_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
+tests/ic/timports_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
+tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
+tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
+tests/int/tints.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
+tests/int/tints.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
+tests/iter/tnestedclosures.nim c # LLVM IR / reNimcCrash
+tests/iter/tshallowcopy_closures.nim c --mm:refc # Unclassified / reCodeNotFound
+tests/iter/tyieldintry.nim c --experimental:strictdefs # Runtime Crash / reExitcodesDiffer
+tests/iter/tyieldintry.nim c # Runtime Crash / reExitcodesDiffer
+tests/let/timportc.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/macros/tmemit.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/manyloc/keineschweine/keineschweine.nim c # Compiler/error / reNimcCrash
+tests/manyloc/nake/nakefile.nim c # Compiler/error / reNimcCrash
+tests/manyloc/standalone2/tavr.nim c # Runtime Crash / reNimcCrash
+tests/manyloc/standalone/barebone.nim c # Compiler/error / reNimcCrash
+tests/method/tmethod_issues.nim c --mm:arc # LLVM IR / reNimcCrash
+tests/method/tmethod_issues.nim c --mm:refc # LLVM IR / reNimcCrash
+tests/misc/t15955.nim c # Runtime Crash / reExitcodesDiffer
+tests/misc/t17286.nim c # Assertion / reNimcCrash
+tests/misc/t18077.nim c # Compiler/error / reNimcCrash
+tests/misc/t19046.nim c --threads:on # Linker / reNimcCrash
+tests/misc/t23240.nim c # Unclassified / reMsgsDiffer
+tests/misc/t9710.nim c --debugger:native # Compiler/internal / reNimcCrash
+tests/misc/tapp_lib_staticlib.nim c # Runtime Crash / reExitcodesDiffer
+tests/misc/tjoinable.nim c # Assertion / reExitcodesDiffer
+tests/misc/tnoforward.nim c # Compiler/error / reNimcCrash
+tests/misc/trunner.nim c # Assertion / reExitcodesDiffer
+tests/misc/trunner_special.nim c # Compiler/error / reExitcodesDiffer
+tests/misc/tsizeof3.nim c # Linker / reNimcCrash
+tests/misc/tsizeof.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/misc/tstrace.nim c # Runtime Crash / reOutputsDiffer
+tests/misc/ttlsemulation.nim c -d:nimTtlsemulationCase1 --threads --tlsEmulation:on # Assertion / reExitcodesDiffer
+tests/modules/t8665.nim c # Compiler/error / reNimcCrash
+tests/modules/tmodule_name_clashes.nim c --mm:refc # Unclassified / reCodeNotFound
+tests/modules/treorder.nim c -d:testdef # Compiler/error / reNimcCrash
+tests/newconfig/tfoo.nim c # Unclassified / reExeNotFound
+tests/nimdoc/t15916.nim c # Compiler/error / reNimcCrash
+tests/nimdoc/t17615.nim c # Unclassified / reMsgsDiffer
+tests/nimdoc/trunnableexamples.nim c # Compiler/error / reNimcCrash
+tests/niminaction/Chapter8/sdl/sdl_test.nim c # Linker / reNimcCrash
+tests/objects/tobject_default_value.nim c -d:nimPreviewRangeDefault --mm:refc # Runtime Crash / reExitcodesDiffer
+tests/objects/tobject_default_value.nim c -d:nimPreviewRangeDefault --warningAsError:ProveInit --mm:orc # Assertion / reExitcodesDiffer
+tests/osproc/treadlines.nim c # LLVM IR / reOutputsDiffer
+tests/overflow/toverflow.nim c --overflowChecks:off # Assertion / reExitcodesDiffer
+tests/overflow/toverflow.nim js --overflowChecks:off --b:js # Compiler/error / reNimcCrash
+tests/overflow/toverflow_reorder.nim c # Assertion / reExitcodesDiffer
+tests/overload/tstatic_with_converter.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/parallel/tdeepcopy2.nim c --mm:refc # Unclassified / reOutputsDiffer
+tests/parallel/tdeepcopy.nim c --mm:refc # Unclassified / reOutputsDiffer
+tests/parallel/tmissing_deepcopy.nim c --mm:refc # Unclassified / reCodeNotFound
+tests/pragmas/tbitsize.nim c # Assertion / reExitcodesDiffer
+tests/pragmas/tnoreturn.nim c --mm:refc # Unclassified / reCodeNotFound
+tests/pragmas/tpush.nim c # Compiler/error / reExitcodesDiffer
+tests/pragmas/treorder.nim c # Compiler/error / reNimcCrash
+tests/realtimeGC/tmain.nim c # Linker / reNimcCrash
+tests/stdlib/thashes.nim js --backend:js -d:nimStringHash2 # Compiler/error / reNimcCrash
+tests/stdlib/thashes.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
+tests/stdlib/tjson.nim c # Assertion / reExitcodesDiffer
+tests/stdlib/tjson.nim cpp --backend:cpp # Assertion / reExitcodesDiffer
+tests/stdlib/tjson.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
+tests/stdlib/tjson.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
+tests/stdlib/tmath.nim c # Assertion / reExitcodesDiffer
+tests/stdlib/tmath.nim c -d:danger # Assertion / reExitcodesDiffer
+tests/stdlib/tmath.nim c --mm:refc # Assertion / reExitcodesDiffer
+tests/stdlib/tmisc_issues.nim c --mm:refc # Assertion / reExitcodesDiffer
+tests/stdlib/tosproc.nim c --mm:orc # Assertion / reExitcodesDiffer
+tests/stdlib/tosproc.nim c --mm:refc # Assertion / reExitcodesDiffer
+tests/stdlib/trandom.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
+tests/stdlib/trandom.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
+tests/stdlib/trationals.nim c --mm:orc # Compiler/error / reNimcCrash
+tests/stdlib/trationals.nim c --mm:refc # Compiler/error / reNimcCrash
+tests/stdlib/tssl.nim c --mm:orc # Compiler/error / reExitcodesDiffer
+tests/stdlib/tssl.nim c --mm:refc # Compiler/error / reExitcodesDiffer
+tests/stdlib/tstackframes.nim c # Pragmas/{.emit.} / reExitcodesDiffer
+tests/stdlib/tstdlib_various.nim c --mm:refc # Unclassified / reExitcodesDiffer
+tests/stdlib/tstring.nim js --backend:js --mm:orc # Compiler/error / reNimcCrash
+tests/stdlib/tstring.nim js --backend:js --mm:refc # Compiler/error / reNimcCrash
+tests/stdlib/tstrutils.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
+tests/stdlib/tstrutils.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
+tests/stdlib/ttimes.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
+tests/stdlib/ttimes.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
+tests/stdlib/tvolatile.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/system/tdollars.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
+tests/system/tdollars.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
+tests/system/tgogc.nim c # LLVM IR / reNimcCrash
+tests/system/tnim_stacktrace_override.nim c # Compiler/error / reOutputsDiffer
+tests/template/tcallsitelineinfo2.nim c # Compiler/error / reOutputsDiffer
+tests/template/tcallsitelineinfo.nim c # Compiler/error / reOutputsDiffer
+tests/template/tidentconcatenations.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/testament/tjoinable.nim c # Assertion / reExitcodesDiffer
+tests/testament/tshould_not_work.nim c # Assertion / reExitcodesDiffer
+tests/tools/tctags2.nim c # Compiler/error / reNimcCrash
+tests/tools/tctags.nim c # Compiler/error / reNimcCrash
+tests/tools/tnimgrep.nim c # Unclassified / reExitcodesDiffer
+tests/views/tsplit_into_seq.nim c # Compiler/internal / reNimcCrash
+tests/views/tsplit_into_table.nim c # Assertion / reNimcCrash
+tests/vm/tcaseobj.nim c # Assertion / reExitcodesDiffer
+tests/vm/tvmmisc.nim c # Assertion / reExitcodesDiffer
+tests/vm/tvmops.nim c # Assertion / reNimcCrash
