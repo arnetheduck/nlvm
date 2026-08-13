@@ -5,12 +5,7 @@ lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll # Compiler/internal / reN
 tests/align/talign.nim c --mm:orc # Unclassified / reCodeNotFound
 tests/align/talign.nim c --mm:refc -d:useGcAssert -d:useSysAssert # Unclassified / reCodeNotFound
 tests/arc/t16458.nim c --gc:orc --d:useNimRtl # Linker/nimrtl / reNimcCrash
-tests/arc/tarcmisc.nim c # Runtime Crash / reExitcodesDiffer
 tests/arc/tasyncleak.nim c # Memory/count / reOutputsDiffer
-tests/arc/tcaseobjcopy.nim c # Memory/leak / reExitcodesDiffer
-tests/arc/tcaseobj.nim c # Memory/leak / reExitcodesDiffer
-tests/arc/tclosureiter.nim c # Memory/count / reOutputsDiffer
-tests/arc/tdeepcopy.nim c # Unclassified / reOutputsDiffer
 tests/arc/thard_alignment.nim c # Linker / reNimcCrash
 tests/assert/t21195.nim c --verbosity:0 --os:standalone --mm:none # Compiler/error / reNimcCrash
 tests/assert/tassert_c.nim c -d:nimPreviewSlimSystem --stackTrace:on --excessiveStackTrace:off # Unclassified / reOutputsDiffer
@@ -49,7 +44,6 @@ tests/compiler/tcmdlineclib.nim c # Compiler/error / reNimcCrash
 tests/compiles/tstaticlib.nim c # Assertion / reExitcodesDiffer
 tests/consts/taddressable_consts2.nim c # Linker / reNimcCrash
 tests/consts/taddressable_consts.nim c # Linker / reNimcCrash
-tests/converter/tgenericconverter.nim c # Compiler/internal / reNimcCrash
 tests/coroutines/tgc.nim c --gc:arc # Runtime Crash / reExitcodesDiffer
 tests/coroutines/tgc.nim c --gc:orc # Runtime Crash / reExitcodesDiffer
 tests/coroutines/tgc.nim c --gc:refc # Runtime Crash / reExitcodesDiffer
@@ -66,17 +60,8 @@ tests/c/temit.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/c/timportedsize.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/destructor/t23837.nim c --cursorinference:off # Pragmas/{.emit.} / reNimcCrash
 tests/destructor/t23837.nim c --cursorinference:on # Pragmas/{.emit.} / reNimcCrash
-tests/destructor/tbintree2.nim c # Compiler/error / reNimcCrash
-tests/destructor/tconsume_twice.nim c # Unclassified / reMsgsDiffer
 tests/destructor/tcycle3.nim c # Runtime Crash / reExitcodesDiffer
-tests/destructor/tdangingref_simple.nim c # Compiler/error / reNimcCrash
-tests/destructor/texceptions.nim c # Unclassified / reOutputsDiffer
-tests/destructor/tgotoexc_leak.nim c # Unclassified / reOutputsDiffer
-tests/destructor/tnewruntime_misc.nim c # Compiler/error / reNimcCrash
-tests/destructor/tuse_ownedref_after_move.nim c # Unclassified / reMsgsDiffer
-tests/destructor/tv2_raise.nim c # Compiler/error / reNimcCrash
-tests/destructor/twidgets.nim c # Compiler/error / reNimcCrash
-tests/destructor/twidgets_unown.nim c # Compiler/error / reNimcCrash
+tests/destructor/tv2_raise.nim c # Memory/leak / reExitcodesDiffer
 tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:on # Linker/nimrtl / reNimcCrash
 tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:on # Linker/nimrtl / reNimcCrash
 tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --threads:on # Linker/nimrtl / reNimcCrash
@@ -124,8 +109,6 @@ tests/ic/thallo_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion
 tests/ic/timports_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
 tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
 tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/int/tints.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
-tests/int/tints.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
 tests/iter/tnestedclosures.nim c # LLVM IR / reNimcCrash
 tests/iter/tshallowcopy_closures.nim c --mm:refc # Unclassified / reCodeNotFound
 tests/iter/tyieldintry.nim c --experimental:strictdefs # Runtime Crash / reExitcodesDiffer
@@ -161,50 +144,29 @@ tests/nimdoc/t15916.nim c # Compiler/error / reNimcCrash
 tests/nimdoc/t17615.nim c # Unclassified / reMsgsDiffer
 tests/nimdoc/trunnableexamples.nim c # Compiler/error / reNimcCrash
 tests/niminaction/Chapter8/sdl/sdl_test.nim c # Linker / reNimcCrash
-tests/objects/tobject_default_value.nim c -d:nimPreviewRangeDefault --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/objects/tobject_default_value.nim c -d:nimPreviewRangeDefault --warningAsError:ProveInit --mm:orc # Assertion / reExitcodesDiffer
 tests/osproc/treadlines.nim c # LLVM IR / reOutputsDiffer
 tests/overflow/toverflow.nim c --overflowChecks:off # Assertion / reExitcodesDiffer
-tests/overflow/toverflow.nim js --overflowChecks:off --b:js # Compiler/error / reNimcCrash
 tests/overflow/toverflow_reorder.nim c # Assertion / reExitcodesDiffer
 tests/overload/tstatic_with_converter.nim c # Pragmas/{.emit.} / reNimcCrash
-tests/parallel/tdeepcopy2.nim c --mm:refc # Unclassified / reOutputsDiffer
-tests/parallel/tdeepcopy.nim c --mm:refc # Unclassified / reOutputsDiffer
 tests/parallel/tmissing_deepcopy.nim c --mm:refc # Unclassified / reCodeNotFound
 tests/pragmas/tbitsize.nim c # Assertion / reExitcodesDiffer
 tests/pragmas/tnoreturn.nim c --mm:refc # Unclassified / reCodeNotFound
 tests/pragmas/tpush.nim c # Compiler/error / reExitcodesDiffer
 tests/pragmas/treorder.nim c # Compiler/error / reNimcCrash
 tests/realtimeGC/tmain.nim c # Linker / reNimcCrash
-tests/stdlib/thashes.nim js --backend:js -d:nimStringHash2 # Compiler/error / reNimcCrash
-tests/stdlib/thashes.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
-tests/stdlib/tjson.nim c # Assertion / reExitcodesDiffer
-tests/stdlib/tjson.nim cpp --backend:cpp # Assertion / reExitcodesDiffer
-tests/stdlib/tjson.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
-tests/stdlib/tjson.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
 tests/stdlib/tmath.nim c # Assertion / reExitcodesDiffer
 tests/stdlib/tmath.nim c -d:danger # Assertion / reExitcodesDiffer
 tests/stdlib/tmath.nim c --mm:refc # Assertion / reExitcodesDiffer
 tests/stdlib/tmisc_issues.nim c --mm:refc # Assertion / reExitcodesDiffer
 tests/stdlib/tosproc.nim c --mm:orc # Assertion / reExitcodesDiffer
 tests/stdlib/tosproc.nim c --mm:refc # Assertion / reExitcodesDiffer
-tests/stdlib/trandom.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
-tests/stdlib/trandom.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
 tests/stdlib/trationals.nim c --mm:orc # Compiler/error / reNimcCrash
 tests/stdlib/trationals.nim c --mm:refc # Compiler/error / reNimcCrash
 tests/stdlib/tssl.nim c --mm:orc # Compiler/error / reExitcodesDiffer
 tests/stdlib/tssl.nim c --mm:refc # Compiler/error / reExitcodesDiffer
 tests/stdlib/tstackframes.nim c # Pragmas/{.emit.} / reExitcodesDiffer
 tests/stdlib/tstdlib_various.nim c --mm:refc # Unclassified / reExitcodesDiffer
-tests/stdlib/tstring.nim js --backend:js --mm:orc # Compiler/error / reNimcCrash
-tests/stdlib/tstring.nim js --backend:js --mm:refc # Compiler/error / reNimcCrash
-tests/stdlib/tstrutils.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
-tests/stdlib/tstrutils.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
-tests/stdlib/ttimes.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
-tests/stdlib/ttimes.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
 tests/stdlib/tvolatile.nim c # Pragmas/{.emit.} / reNimcCrash
-tests/system/tdollars.nim js --backend:js --jsbigint64:off -d:nimStringHash2 # Compiler/error / reNimcCrash
-tests/system/tdollars.nim js --backend:js --jsbigint64:on # Compiler/error / reNimcCrash
 tests/system/tgogc.nim c # LLVM IR / reNimcCrash
 tests/system/tnim_stacktrace_override.nim c # Compiler/error / reOutputsDiffer
 tests/template/tcallsitelineinfo2.nim c # Compiler/error / reOutputsDiffer
@@ -215,8 +177,4 @@ tests/testament/tshould_not_work.nim c # Assertion / reExitcodesDiffer
 tests/tools/tctags2.nim c # Compiler/error / reNimcCrash
 tests/tools/tctags.nim c # Compiler/error / reNimcCrash
 tests/tools/tnimgrep.nim c # Unclassified / reExitcodesDiffer
-tests/views/tsplit_into_seq.nim c # Compiler/internal / reNimcCrash
-tests/views/tsplit_into_table.nim c # Assertion / reNimcCrash
-tests/vm/tcaseobj.nim c # Assertion / reExitcodesDiffer
-tests/vm/tvmmisc.nim c # Assertion / reExitcodesDiffer
 tests/vm/tvmops.nim c # Assertion / reNimcCrash

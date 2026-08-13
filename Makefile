@@ -91,9 +91,9 @@ run-testament-noskip: $(NLVMR) lib/nim/testament/testament$(EXE)
 test: run-testament
 	@-make stats
 
+# Output suitable for sticking into skipped-tests.txt (with classification comments)
+# duplicate entries are merged by the classifier
 update-skipped: run-testament-noskip
-	# Output suitable for sticking into skipped-tests.txt (with classification comments)
-	# duplicate entries are merged by the classifier
 	@-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled")]' lib/nim/testresults/*.json \
 	  | jq -f classify-errors.jq \
 	  | jq -r '.[] | "\(.name) # \(.classification) / \(.result)"' | sort > skipped-tests.txt

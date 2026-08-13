@@ -347,9 +347,10 @@ proc dIBuilderCreateFunction*(
     flags: cuint,
     isOptimized: bool,
 ): MetadataRef =
+  let flags = cast[DIFlags](flags)
   dIBuilderCreateFunction(
     d, scope, name.cstring, name.clen, linkageName.cstring, linkageName.clen, file,
-    lineNo, ty, isLocalToUnit.Bool, isDefinition.Bool, scopeLine, flags.DIFlags,
+    lineNo, ty, isLocalToUnit.Bool, isDefinition.Bool, scopeLine, flags,
     isOptimized.Bool,
   )
 
@@ -382,10 +383,11 @@ proc dIBuilderCreateStructType*(
     vtableHolder: MetadataRef,
     uniqueId: string,
 ): MetadataRef =
+  let flags = cast[DIFlags](flags)
   dIBuilderCreateStructType(
-    d, scope, name.cstring, name.clen, file, lineNumber, sizeBits, alignBits,
-    flags.DIFlags, derivedFrom, elements.oaAddr, elements.oaLen, runtimeLang,
-    vtableHolder, uniqueId.cstring, uniqueId.clen,
+    d, scope, name.cstring, name.clen, file, lineNumber, sizeBits, alignBits, flags,
+    derivedFrom, elements.oaAddr, elements.oaLen, runtimeLang, vtableHolder,
+    uniqueId.cstring, uniqueId.clen,
   )
 
 proc dIBuilderCreateMemberType*(
@@ -400,9 +402,10 @@ proc dIBuilderCreateMemberType*(
     flags: cuint,
     ty: MetadataRef,
 ): MetadataRef =
+  let flags = cast[DIFlags](flags)
   dIBuilderCreateMemberType(
     d, scope, name.cstring, name.clen, file, lineNo, sizeBits, alignBits, offsetBits,
-    flags.DIFlags, ty,
+    flags, ty,
   )
 
 proc dIBuilderCreateGlobalVariableExpression*(
@@ -434,9 +437,10 @@ proc dIBuilderCreateAutoVariable*(
     flags: cuint,
     alignBits: uint32,
 ): MetadataRef =
+  let flags = cast[DIFlags](flags)
   dIBuilderCreateAutoVariable(
-    d, scope, name.cstring, name.clen, file, lineNo, ty, alwaysPreserve.Bool,
-    flags.DIFlags, alignBits,
+    d, scope, name.cstring, name.clen, file, lineNo, ty, alwaysPreserve.Bool, flags,
+    alignBits,
   )
 
 proc dIBuilderCreateParameterVariable*(
@@ -450,9 +454,10 @@ proc dIBuilderCreateParameterVariable*(
     alwaysPreserve: bool,
     flags: cuint,
 ): MetadataRef =
+  let flags = cast[DIFlags](flags)
   dIBuilderCreateParameterVariable(
     d, scope, name.cstring, name.clen, argNo, file, lineNo, ty, alwaysPreserve.Bool,
-    flags.DIFlags,
+    flags,
   )
 
 proc dIBuilderCreateArrayType*(
