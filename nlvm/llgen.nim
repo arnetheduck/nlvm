@@ -3016,9 +3016,7 @@ proc genTupleNodeInfo(g: LLGen, t: PType): llvm.ValueRef =
   g.nodeInfos[sig] = result
 
 proc genEnumNodeInfoInit(g: LLGen, t: PType, typName: string): llvm.ValueRef =
-  let
-    sig = hashType(t, g.config)
-    prefix = ".nodeinfo." & typName & "."
+  let prefix = ".nodeinfo." & typName & "."
 
   var fields: seq[ValueRef] = @[]
   for i in 0 ..< t.n.len:
