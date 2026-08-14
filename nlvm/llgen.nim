@@ -10236,7 +10236,7 @@ proc newLLGen(
     lto: LtoKind,
 ): LLGen =
   let
-    lc = llvm.getGlobalContext()
+    lc = llvm.contextCreate()
 
     name = graph.config.m.fileInfos[graph.config.projectMainIdx.int].shortName
     intType = llvm.intTypeInContext(lc, graph.config.target.intSize.cuint * 8)
@@ -10564,7 +10564,7 @@ proc writeOutput(g: LLGen, project: string) =
 
   let outFile = g.config.getOutFile(g.config.outFile, ext)
 
-  #g.runOptimizers()
+  g.runOptimizers()
 
   var err: cstring
   if optCompileOnly in g.config.globalOptions:

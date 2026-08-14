@@ -16,28 +16,23 @@
 ## |*                                                                            *|
 ## \*===----------------------------------------------------------------------===
 
-##
+## !!!Ignored construct:  # LLVM_C_BITREADER_H [NewLine] # LLVM_C_BITREADER_H [NewLine] # llvm-c/Deprecated.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] # llvm-c/Visibility.h [NewLine]
 ##  @defgroup LLVMCBitReader Bit Reader
 ##  @ingroup LLVMC
 ##
 ##  @{
-##
-##  Builds a module from the bitcode in the specified memory buffer, returning a
+##   Builds a module from the bitcode in the specified memory buffer, returning a
 ##    reference to the module via the OutModule parameter. Returns 0 on success.
 ##    Optionally returns a human-readable error message via OutMessage.
 ##
-##    This is deprecated. Use LLVMParseBitcode2.
-
-proc parseBitcode*(
-  memBuf: MemoryBufferRef, outModule: ptr ModuleRef, outMessage: cstringArray
-): Bool {.importc: "LLVMParseBitcode", dynlib: LLVMLib.}
+##    This is deprecated. Use LLVMParseBitcode2. ( LLVMBool LLVMParseBitcode ( LLVMMemoryBufferRef MemBuf , LLVMModuleRef * OutModule , char * * OutMessage ) , Use of the global context is deprecated, use LLVMParseBitcodeInContext2  instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##  Builds a module from the bitcode in the specified memory buffer, returning a
 ##    reference to the module via the OutModule parameter. Returns 0 on success.
 
-proc parseBitcode2*(
-  memBuf: MemoryBufferRef, outModule: ptr ModuleRef
-): Bool {.importc: "LLVMParseBitcode2", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMBool LLVMParseBitcode2 ( LLVMMemoryBufferRef MemBuf , LLVMModuleRef * OutModule ) , Use of the global context is deprecated, use LLVMParseBitcodeInContext2  instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##  This is deprecated. Use LLVMParseBitcodeInContext2.
 
@@ -78,13 +73,11 @@ proc getBitcodeModuleInContext2*(
 
 ##  This is deprecated. Use LLVMGetBitcodeModule2.
 
-proc getBitcodeModule*(
-  memBuf: MemoryBufferRef, outM: ptr ModuleRef, outMessage: cstringArray
-): Bool {.importc: "LLVMGetBitcodeModule", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMBool LLVMGetBitcodeModule ( LLVMMemoryBufferRef MemBuf , LLVMModuleRef * OutM , char * * OutMessage ) , Use of the global context is deprecated, use  LLVMGetBitcodeModuleInContext2 instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
-proc getBitcodeModule2*(
-  memBuf: MemoryBufferRef, outM: ptr ModuleRef
-): Bool {.importc: "LLVMGetBitcodeModule2", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMBool LLVMGetBitcodeModule2 ( LLVMMemoryBufferRef MemBuf , LLVMModuleRef * OutM ) , Use of the global context is deprecated, use  LLVMGetBitcodeModuleInContext2 instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  @}

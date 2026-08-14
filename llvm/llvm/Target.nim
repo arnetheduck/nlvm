@@ -16,7 +16,7 @@
 ##
 ## ===----------------------------------------------------------------------===
 
-## !!!Ignored construct:  # LLVM_C_TARGET_H [NewLine] # LLVM_C_TARGET_H [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] # llvm-c/Visibility.h [NewLine] # llvm/Config/llvm-config.h [NewLine]
+## !!!Ignored construct:  # LLVM_C_TARGET_H [NewLine] # LLVM_C_TARGET_H [NewLine] # llvm-c/Deprecated.h [NewLine] # llvm-c/ExternC.h [NewLine] # llvm-c/Types.h [NewLine] # llvm-c/Visibility.h [NewLine] # llvm/Config/llvm-config.h [NewLine]
 ##  @defgroup LLVMCTarget Target information
 ##  @ingroup LLVMC
 ##
@@ -141,17 +141,15 @@ proc pointerSizeForAS*(
 ##  Returns the integer type that is the same size as a pointer on a target.
 ##     See the method llvm::DataLayout::getIntPtrType.
 
-proc intPtrType*(
-  td: TargetDataRef
-): TypeRef {.importc: "LLVMIntPtrType", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMTypeRef LLVMIntPtrType ( LLVMTargetDataRef TD ) , Use of the global context is deprecated, use  LLVMIntPtrTypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##  Returns the integer type that is the same size as a pointer on a target.
 ##     This version allows the address space to be specified.
 ##     See the method llvm::DataLayout::getIntPtrType.
 
-proc intPtrTypeForAS*(
-  td: TargetDataRef, `as`: cuint
-): TypeRef {.importc: "LLVMIntPtrTypeForAS", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMTypeRef LLVMIntPtrTypeForAS ( LLVMTargetDataRef TD , unsigned AS ) , Use of the global context is deprecated, use LLVMIntPtrTypeForASInContext  instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##  Returns the integer type that is the same size as a pointer on a target.
 ##     See the method llvm::DataLayout::getIntPtrType.

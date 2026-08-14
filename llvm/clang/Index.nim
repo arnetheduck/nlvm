@@ -1936,6 +1936,9 @@ type CXIndexOptionsCXCursorKind* {.size: sizeof(cint).} = enum
     ##  OpenMP assume directive.
     ##
   CXCursorOMPStripeDirective = 310
+    ##  OpenMP fuse directive
+    ##
+  CXCursorOMPFuseDirective = 311
     ##  OpenACC Compute Construct.
     ##
   CXCursorOpenACCComputeConstruct = 320
@@ -2307,9 +2310,7 @@ type CXIndexOptionsCXVisibilityKind* {.size: sizeof(cint).} = enum
 
 proc getCursorVisibility*(
   cursor: CXIndexOptionsCXCursor
-): CXIndexOptionsCXVisibilityKind {.
-  importc: "clang_getCursorVisibility", dynlib: CLangLib
-.}
+): CXAvailabilityKind {.importc: "clang_getCursorVisibility", dynlib: CLangLib.}
 
 ##
 ##  Determine the availability of the entity that this cursor refers to,
@@ -7383,6 +7384,7 @@ proc getCursorUnaryOperatorKind*(
 ##
 ##  @}
 ##
+##  CINDEX_DEPRECATED - disabled to silence MSVC deprecation warnings
 
 type CXIndexOptionsCXRemapping* = pointer
 

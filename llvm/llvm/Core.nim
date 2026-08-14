@@ -37,8 +37,8 @@
 ##
 ##  @{
 ##   External users depend on the following values being stable. It is not safe
-##  to reorder them. typedef enum {  Terminator Instructions LLVMRet = 1 , LLVMBr = 2 , LLVMSwitch = 3 , LLVMIndirectBr = 4 , LLVMInvoke = 5 ,  removed 6 due to API changes LLVMUnreachable = 7 , LLVMCallBr = 67 ,  Standard Unary Operators LLVMFNeg = 66 ,  Standard Binary Operators LLVMAdd = 8 , LLVMFAdd = 9 , LLVMSub = 10 , LLVMFSub = 11 , LLVMMul = 12 , LLVMFMul = 13 , LLVMUDiv = 14 , LLVMSDiv = 15 , LLVMFDiv = 16 , LLVMURem = 17 , LLVMSRem = 18 , LLVMFRem = 19 ,  Logical Operators LLVMShl = 20 , LLVMLShr = 21 , LLVMAShr = 22 , LLVMAnd = 23 , LLVMOr = 24 , LLVMXor = 25 ,  Memory Operators LLVMAlloca = 26 , LLVMLoad = 27 , LLVMStore = 28 , LLVMGetElementPtr = 29 ,  Cast Operators LLVMTrunc = 30 , LLVMZExt = 31 , LLVMSExt = 32 , LLVMFPToUI = 33 , LLVMFPToSI = 34 , LLVMUIToFP = 35 , LLVMSIToFP = 36 , LLVMFPTrunc = 37 , LLVMFPExt = 38 , LLVMPtrToInt = 39 , LLVMIntToPtr = 40 , LLVMBitCast = 41 , LLVMAddrSpaceCast = 60 ,  Other Operators LLVMICmp = 42 , LLVMFCmp = 43 , LLVMPHI = 44 , LLVMCall = 45 , LLVMSelect = 46 , LLVMUserOp1 = 47 , LLVMUserOp2 = 48 , LLVMVAArg = 49 , LLVMExtractElement = 50 , LLVMInsertElement = 51 , LLVMShuffleVector = 52 , LLVMExtractValue = 53 , LLVMInsertValue = 54 , LLVMFreeze = 68 ,  Atomic operators LLVMFence = 55 , LLVMAtomicCmpXchg = 56 , LLVMAtomicRMW = 57 ,  Exception Handling Operators LLVMResume = 58 , LLVMLandingPad = 59 , LLVMCleanupRet = 61 , LLVMCatchRet = 62 , LLVMCatchPad = 63 , LLVMCleanupPad = 64 , LLVMCatchSwitch = 65 } LLVMOpcode ;
-## Error: expected ';'!!!
+##  to reorder them. typedef enum {  Terminator Instructions LLVMRet = 1 , LLVMBr = 2 , LLVMSwitch = 3 , LLVMIndirectBr = 4 , LLVMInvoke = 5 ,  removed 6 due to API changes LLVMUnreachable = 7 , LLVMCallBr = 67 ,  Standard Unary Operators LLVMFNeg = 66 ,  Standard Binary Operators LLVMAdd = 8 , LLVMFAdd = 9 , LLVMSub = 10 , LLVMFSub = 11 , LLVMMul = 12 , LLVMFMul = 13 , LLVMUDiv = 14 , LLVMSDiv = 15 , LLVMFDiv = 16 , LLVMURem = 17 , LLVMSRem = 18 , LLVMFRem = 19 ,  Logical Operators LLVMShl = 20 , LLVMLShr = 21 , LLVMAShr = 22 , LLVMAnd = 23 , LLVMOr = 24 , LLVMXor = 25 ,  Memory Operators LLVMAlloca = 26 , LLVMLoad = 27 , LLVMStore = 28 , LLVMGetElementPtr = 29 ,  Cast Operators LLVMTrunc = 30 , LLVMZExt = 31 , LLVMSExt = 32 , LLVMFPToUI = 33 , LLVMFPToSI = 34 , LLVMUIToFP = 35 , LLVMSIToFP = 36 , LLVMFPTrunc = 37 , LLVMFPExt = 38 , LLVMPtrToInt = 39 , LLVMPtrToAddr = 69 , LLVMIntToPtr = 40 , LLVMBitCast = 41 , LLVMAddrSpaceCast = 60 ,  Other Operators LLVMICmp = 42 , LLVMFCmp = 43 , LLVMPHI = 44 , LLVMCall = 45 , LLVMSelect = 46 , LLVMUserOp1 = 47 , LLVMUserOp2 = 48 , LLVMVAArg = 49 , LLVMExtractElement = 50 , LLVMInsertElement = 51 , LLVMShuffleVector = 52 , LLVMExtractValue = 53 , LLVMInsertValue = 54 , LLVMFreeze = 68 ,  Atomic operators LLVMFence = 55 , LLVMAtomicCmpXchg = 56 , LLVMAtomicRMW = 57 ,  Exception Handling Operators LLVMResume = 58 , LLVMLandingPad = 59 , LLVMCleanupRet = 61 , LLVMCatchRet = 62 , LLVMCatchPad = 63 , LLVMCleanupPad = 64 , LLVMCatchSwitch = 65 } LLVMOpcode ;
+## Error: token expected: ) but got: [identifier]!!!
 
 type
   ##
@@ -426,7 +426,13 @@ const
 ##  See https://llvm.org/docs/LangRef.html#getelementptr-instruction
 ##
 
-type GEPNoWrapFlags* = cuint
+type
+  GEPNoWrapFlags* = cuint
+  DbgRecordKind* {.size: sizeof(cint).} = enum
+    DbgRecordLabel
+    DbgRecordDeclare
+    DbgRecordValue
+    DbgRecordAssign
 
 ##
 ##  @}
@@ -486,9 +492,8 @@ proc contextCreate*(): ContextRef {.importc: "LLVMContextCreate", dynlib: LLVMLi
 ##  Obtain the global context instance.
 ##
 
-proc getGlobalContext*(): ContextRef {.
-  importc: "LLVMGetGlobalContext", dynlib: LLVMLib
-.}
+## !!!Ignored construct:  ( LLVMContextRef LLVMGetGlobalContext ( void ) , Use of the global context is deprecated, create  one using LLVMContextCreate instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  Set the diagnostic handler for this context.
@@ -580,9 +585,8 @@ proc getMDKindIDInContext*(
   c: ContextRef, name: cstring, sLen: cuint
 ): cuint {.importc: "LLVMGetMDKindIDInContext", dynlib: LLVMLib.}
 
-proc getMDKindID*(
-  name: cstring, sLen: cuint
-): cuint {.importc: "LLVMGetMDKindID", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( unsigned LLVMGetMDKindID ( const char * Name , unsigned SLen ) , Use of the global context is deprecated, use LLVMGetMDKindIDInContext  instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  Maps a synchronization scope name to a ID unique within this context.
@@ -738,9 +742,8 @@ proc getTypeByName2*(
 ##  will be leaked.
 ##
 
-proc moduleCreateWithName*(
-  moduleID: cstring
-): ModuleRef {.importc: "LLVMModuleCreateWithName", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMModuleRef LLVMModuleCreateWithName ( const char * ModuleID ) , Use of the global context is deprecated, use  LLVMModuleCreateWithNameInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  Create a new, empty module in a specific context.
@@ -1300,6 +1303,22 @@ proc addFunction*(
 ): ValueRef {.importc: "LLVMAddFunction", dynlib: LLVMLib.}
 
 ##
+##  Obtain or insert a function into a module.
+##
+##  If a function with the specified name already exists in the module, it
+##  is returned. Otherwise, a new function is created in the module with the
+##  specified name and type and is returned.
+##
+##  The returned value corresponds to a llvm::Function instance.
+##
+##  @see llvm::Module::getOrInsertFunction()
+##
+
+proc getOrInsertFunction*(
+  m: ModuleRef, name: cstring, nameLen: csize_t, functionTy: TypeRef
+): ValueRef {.importc: "LLVMGetOrInsertFunction", dynlib: LLVMLib.}
+
+##
 ##  Obtain a Function value from a Module by its name.
 ##
 ##  The returned value corresponds to a llvm::Function value.
@@ -1490,13 +1509,27 @@ proc intTypeInContext*(
 ##  width.
 ##
 
-proc int1Type*(): TypeRef {.importc: "LLVMInt1Type", dynlib: LLVMLib.}
-proc int8Type*(): TypeRef {.importc: "LLVMInt8Type", dynlib: LLVMLib.}
-proc int16Type*(): TypeRef {.importc: "LLVMInt16Type", dynlib: LLVMLib.}
-proc int32Type*(): TypeRef {.importc: "LLVMInt32Type", dynlib: LLVMLib.}
-proc int64Type*(): TypeRef {.importc: "LLVMInt64Type", dynlib: LLVMLib.}
-proc int128Type*(): TypeRef {.importc: "LLVMInt128Type", dynlib: LLVMLib.}
-proc intType*(numBits: cuint): TypeRef {.importc: "LLVMIntType", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMTypeRef LLVMInt1Type ( void ) , Use of the global context is deprecated, use  LLVMInt1TypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMInt8Type ( void ) , Use of the global context is deprecated, use  LLVMInt8TypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMInt16Type ( void ) , Use of the global context is deprecated, use  LLVMInt16TypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMInt32Type ( void ) , Use of the global context is deprecated, use  LLVMInt32TypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMInt64Type ( void ) , Use of the global context is deprecated, use  LLVMInt64TypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMInt128Type ( void ) , Use of the global context is deprecated, use  LLVMInt128TypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMIntType ( unsigned NumBits ) , Use of the global context is deprecated, use  LLVMIntTypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
 proc getIntTypeWidth*(
   integerTy: TypeRef
 ): cuint {.importc: "LLVMGetIntTypeWidth", dynlib: LLVMLib.}
@@ -1572,13 +1605,27 @@ proc pPCFP128TypeInContext*(
 ##  These map to the functions in this group of the same name.
 ##
 
-proc halfType*(): TypeRef {.importc: "LLVMHalfType", dynlib: LLVMLib.}
-proc bFloatType*(): TypeRef {.importc: "LLVMBFloatType", dynlib: LLVMLib.}
-proc floatType*(): TypeRef {.importc: "LLVMFloatType", dynlib: LLVMLib.}
-proc doubleType*(): TypeRef {.importc: "LLVMDoubleType", dynlib: LLVMLib.}
-proc x86FP80Type*(): TypeRef {.importc: "LLVMX86FP80Type", dynlib: LLVMLib.}
-proc fP128Type*(): TypeRef {.importc: "LLVMFP128Type", dynlib: LLVMLib.}
-proc pPCFP128Type*(): TypeRef {.importc: "LLVMPPCFP128Type", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMTypeRef LLVMHalfType ( void ) , Use of the global context is deprecated, use  LLVMHalfTypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMBFloatType ( void ) , Use of the global context is deprecated, use  LLVMBFloatTypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMFloatType ( void ) , Use of the global context is deprecated, use  LLVMFloatTypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMDoubleType ( void ) , Use of the global context is deprecated, use  LLVMDoubleTypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMX86FP80Type ( void ) , Use of the global context is deprecated, use  LLVMX86FP80TypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMFP128Type ( void ) , Use of the global context is deprecated, use  LLVMFP128TypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMPPCFP128Type ( void ) , Use of the global context is deprecated, use  LLVMPPCFP128TypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
 ##
 ##  @}
 ##
@@ -1669,9 +1716,8 @@ proc structTypeInContext*(
 ##  @see llvm::StructType::create()
 ##
 
-proc structType*(
-  elementTypes: ptr TypeRef, elementCount: cuint, packed: Bool
-): TypeRef {.importc: "LLVMStructType", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMTypeRef LLVMStructType ( LLVMTypeRef * ElementTypes , unsigned ElementCount , LLVMBool Packed ) , Use of the global context is deprecated, use LLVMStructTypeInContext  instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  Create an empty structure in a context having a specified name.
@@ -2044,9 +2090,15 @@ proc metadataTypeInContext*(
 ##  global context.
 ##
 
-proc voidType*(): TypeRef {.importc: "LLVMVoidType", dynlib: LLVMLib.}
-proc labelType*(): TypeRef {.importc: "LLVMLabelType", dynlib: LLVMLib.}
-proc x86AMXType*(): TypeRef {.importc: "LLVMX86AMXType", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMTypeRef LLVMVoidType ( void ) , Use of the global context is deprecated, use  LLVMVoidTypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMLabelType ( void ) , Use of the global context is deprecated, use  LLVMLabelTypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
+## !!!Ignored construct:  ( LLVMTypeRef LLVMX86AMXType ( void ) , Use of the global context is deprecated, use  LLVMX86AMXTypeInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
 ##
 ##  Create a target extension type in LLVM context.
 ##
@@ -2555,6 +2607,16 @@ proc constRealOfStringAndSize*(
 ): ValueRef {.importc: "LLVMConstRealOfStringAndSize", dynlib: LLVMLib.}
 
 ##
+##  Obtain a constant for a floating point value from array of 64 bit values.
+##  The length of the array N must be ceildiv(bits, 64), where bits is the
+##  scalar size in bits of the floating-point type.
+##
+
+proc constFPFromBits*(
+  ty: TypeRef, n: ptr uint64
+): ValueRef {.importc: "LLVMConstFPFromBits", dynlib: LLVMLib.}
+
+##
 ##  Obtain the zero extended value for an integer constant value.
 ##
 ##  @see llvm::ConstantInt::getZExtValue()
@@ -2627,9 +2689,8 @@ proc constStringInContext2*(
 ##  @see llvm::ConstantDataArray::getString()
 ##
 
-proc constString*(
-  str: cstring, length: cuint, dontNullTerminate: Bool
-): ValueRef {.importc: "LLVMConstString", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMValueRef LLVMConstString ( const char * Str , unsigned Length , LLVMBool DontNullTerminate ) , Use of the global context is deprecated, use LLVMConstStringInContext2  instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  Returns true if the specified constant is an array of i8.
@@ -2683,9 +2744,8 @@ proc constStructInContext*(
 ##  @see LLVMConstStructInContext()
 ##
 
-proc constStruct*(
-  constantVals: ptr ValueRef, count: cuint, packed: Bool
-): ValueRef {.importc: "LLVMConstStruct", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMValueRef LLVMConstStruct ( LLVMValueRef * ConstantVals , unsigned Count , LLVMBool Packed ) , Use of the global context is deprecated, use LLVMConstStructInContext  instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  Create a ConstantArray from values.
@@ -3059,6 +3119,16 @@ proc globalSetMetadata*(
 ) {.importc: "LLVMGlobalSetMetadata", dynlib: LLVMLib.}
 
 ##
+##  Adds a metadata attachment.
+##
+##  @see llvm::GlobalObject::addMetadata()
+##
+
+proc globalAddMetadata*(
+  global: ValueRef, kind: cuint, md: MetadataRef
+) {.importc: "LLVMGlobalAddMetadata", dynlib: LLVMLib.}
+
+##
 ##  Erases a metadata attachment of the given kind if it exists.
 ##
 ##  @see llvm::GlobalObject::eraseMetadata()
@@ -3077,6 +3147,16 @@ proc globalEraseMetadata*(
 proc globalClearMetadata*(
   global: ValueRef
 ) {.importc: "LLVMGlobalClearMetadata", dynlib: LLVMLib.}
+
+##
+##  Add debuginfo metadata to this global.
+##
+##  @see llvm::GlobalVariable::addDebugInfo()
+##
+
+proc globalAddDebugInfo*(
+  global: ValueRef, gve: MetadataRef
+) {.importc: "LLVMGlobalAddDebugInfo", dynlib: LLVMLib.}
 
 ##
 ##  Retrieves an array of metadata entries representing the metadata attached to
@@ -3921,9 +4001,8 @@ proc mDStringInContext*(
 
 ##  Deprecated: Use LLVMMDStringInContext2 instead.
 
-proc mDString*(
-  str: cstring, sLen: cuint
-): ValueRef {.importc: "LLVMMDString", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMValueRef LLVMMDString ( const char * Str , unsigned SLen ) , Use of the global context is deprecated, use LLVMMDStringInContext2  instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##  Deprecated: Use LLVMMDNodeInContext2 instead.
 
@@ -3933,9 +4012,8 @@ proc mDNodeInContext*(
 
 ##  Deprecated: Use LLVMMDNodeInContext2 instead.
 
-proc mDNode*(
-  vals: ptr ValueRef, count: cuint
-): ValueRef {.importc: "LLVMMDNode", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMValueRef LLVMMDNode ( LLVMValueRef * Vals , unsigned Count ) , Use of the global context is deprecated, use LLVMMDNodeInContext2  instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  @}
@@ -4213,9 +4291,8 @@ proc appendBasicBlockInContext*(
 ##  @see llvm::BasicBlock::Create()
 ##
 
-proc appendBasicBlock*(
-  fn: ValueRef, name: cstring
-): BasicBlockRef {.importc: "LLVMAppendBasicBlock", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMBasicBlockRef LLVMAppendBasicBlock ( LLVMValueRef Fn , const char * Name ) , Use of the global context is deprecated, use  LLVMAppendBasicBlockInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  Insert a basic block in a function before another basic block.
@@ -4236,9 +4313,8 @@ proc insertBasicBlockInContext*(
 ##  @see llvm::BasicBlock::Create()
 ##
 
-proc insertBasicBlock*(
-  insertBeforeBB: BasicBlockRef, name: cstring
-): BasicBlockRef {.importc: "LLVMInsertBasicBlock", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMBasicBlockRef LLVMInsertBasicBlock ( LLVMBasicBlockRef InsertBeforeBB , const char * Name ) , Use of the global context is deprecated, use  LLVMInsertBasicBlockInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
 
 ##
 ##  Remove a basic block from a function and delete it.
@@ -4562,6 +4638,50 @@ proc getNextDbgRecord*(
 proc getPreviousDbgRecord*(
   dbgRecord: DbgRecordRef
 ): DbgRecordRef {.importc: "LLVMGetPreviousDbgRecord", dynlib: LLVMLib.}
+
+##
+##  Get the debug location attached to the debug record.
+##
+##  @see llvm::DbgRecord::getDebugLoc()
+##
+
+proc dbgRecordGetDebugLoc*(
+  rec: DbgRecordRef
+): MetadataRef {.importc: "LLVMDbgRecordGetDebugLoc", dynlib: LLVMLib.}
+
+proc dbgRecordGetKind*(
+  rec: DbgRecordRef
+): DbgRecordKind {.importc: "LLVMDbgRecordGetKind", dynlib: LLVMLib.}
+
+##
+##  Get the value of the DbgVariableRecord.
+##
+##  @see llvm::DbgVariableRecord::getValue()
+##
+
+proc dbgVariableRecordGetValue*(
+  rec: DbgRecordRef, opIdx: cuint
+): ValueRef {.importc: "LLVMDbgVariableRecordGetValue", dynlib: LLVMLib.}
+
+##
+##  Get the debug info variable of the DbgVariableRecord.
+##
+##  @see llvm::DbgVariableRecord::getVariable()
+##
+
+proc dbgVariableRecordGetVariable*(
+  rec: DbgRecordRef
+): MetadataRef {.importc: "LLVMDbgVariableRecordGetVariable", dynlib: LLVMLib.}
+
+##
+##  Get the debug info expression of the DbgVariableRecord.
+##
+##  @see llvm::DbgVariableRecord::getExpression()
+##
+
+proc dbgVariableRecordGetExpression*(
+  rec: DbgRecordRef
+): MetadataRef {.importc: "LLVMDbgVariableRecordGetExpression", dynlib: LLVMLib.}
 
 ##
 ##  @defgroup LLVMCCoreValueInstructionCall Call Sites and Invocations
@@ -4912,6 +5032,34 @@ proc getSwitchDefaultDest*(
 ): BasicBlockRef {.importc: "LLVMGetSwitchDefaultDest", dynlib: LLVMLib.}
 
 ##
+##  Obtain the case value for a successor of a switch instruction. i corresponds
+##  to the successor index. The first successor is the default destination, so i
+##  must be greater than zero.
+##
+##  This only works on llvm::SwitchInst instructions.
+##
+##  @see llvm::SwitchInst::CaseHandle::getCaseValue()
+##
+
+proc getSwitchCaseValue*(
+  switchInstr: ValueRef, i: cuint
+): ValueRef {.importc: "LLVMGetSwitchCaseValue", dynlib: LLVMLib.}
+
+##
+##  Set the case value for a successor of a switch instruction. i corresponds to
+##  the successor index. The first successor is the default destination, so i
+##  must be greater than zero.
+##
+##  This only works on llvm::SwitchInst instructions.
+##
+##  @see llvm::SwitchInst::CaseHandle::setValue()
+##
+
+proc setSwitchCaseValue*(
+  switchInstr: ValueRef, i: cuint, caseValue: ValueRef
+) {.importc: "LLVMSetSwitchCaseValue", dynlib: LLVMLib.}
+
+##
 ##  @}
 ##
 ##
@@ -5079,7 +5227,9 @@ proc createBuilderInContext*(
   c: ContextRef
 ): BuilderRef {.importc: "LLVMCreateBuilderInContext", dynlib: LLVMLib.}
 
-proc createBuilder*(): BuilderRef {.importc: "LLVMCreateBuilder", dynlib: LLVMLib.}
+## !!!Ignored construct:  ( LLVMBuilderRef LLVMCreateBuilder ( void ) , Use of the global context is deprecated, use  LLVMCreateBuilderInContext instead ) ;
+## Error: token expected: ) but got: [identifier]!!!
+
 ##
 ##  Set the builder position before Instr but after any attached debug records,
 ##  or if Instr is null set the position to the end of Block.
@@ -5787,10 +5937,7 @@ proc buildGlobalStringPtr*(
   b: BuilderRef, str: cstring, name: cstring
 ): ValueRef {.importc: "LLVMBuildGlobalStringPtr", dynlib: LLVMLib.}
 
-proc getVolatile*(
-  memoryAccessInst: ValueRef
-): Bool {.importc: "LLVMGetVolatile", dynlib: LLVMLib.}
-
+proc getVolatile*(inst: ValueRef): Bool {.importc: "LLVMGetVolatile", dynlib: LLVMLib.}
 proc setVolatile*(
   memoryAccessInst: ValueRef, isVolatile: Bool
 ) {.importc: "LLVMSetVolatile", dynlib: LLVMLib.}
