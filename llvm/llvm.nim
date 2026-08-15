@@ -33,45 +33,47 @@ when defined(staticLLVM):
 
   {.passL: gorge(currentSourceDir / "sta/bin/llvm-config --libs all").}
 
-  {.passL: "-lclangLex".}
-  {.passL: "-lclangBasic".}
-  {.passL: "-lclangAPINotes".}
-  {.passL: "-lclangAST".}
-  {.passL: "-lclangASTMatchers".}
   {.passL: "-lclangAnalysis".}
   {.passL: "-lclangAnalysisFlowSensitive".}
   {.passL: "-lclangAnalysisFlowSensitiveModels".}
-  {.passL: "-lclangStaticAnalyzerCore".}
-  {.passL: "-lclangStaticAnalyzerCheckers".}
-  {.passL: "-lclangStaticAnalyzerFrontend".}
-  {.passL: "-lclangEdit".}
-  {.passL: "-lclangRewrite".}
-  {.passL: "-lclangSerialization".}
-  {.passL: "-lclangSema".}
-  {.passL: "-lclangParse".}
-  {.passL: "-lclangFrontend".}
-  {.passL: "-lclangFrontendTool".}
-  {.passL: "-lclangCrossTU".}
+  {.passL: "-lclangAnalysisLifetimeSafety".}
+  {.passL: "-lclangAPINotes".}
+  {.passL: "-lclangAST".}
+  {.passL: "-lclangASTMatchers".}
+  {.passL: "-lclangBasic".}
   {.passL: "-lclangCodeGen".}
+  {.passL: "-lclangCrossTU".}
   {.passL: "-lclangDependencyScanning".}
   {.passL: "-lclangDirectoryWatcher".}
   {.passL: "-lclangDriver".}
   {.passL: "-lclangDynamicASTMatchers".}
+  {.passL: "-lclangEdit".}
   {.passL: "-lclangExtractAPI".}
   {.passL: "-lclangFormat".}
+  {.passL: "-lclangFrontend".}
+  {.passL: "-lclangFrontendTool".}
   {.passL: "-lclangHandleCXX".}
   {.passL: "-lclangHandleLLVM".}
   {.passL: "-lclangIndex".}
   {.passL: "-lclangIndexSerialization".}
   {.passL: "-lclangInstallAPI".}
   {.passL: "-lclangInterpreter".}
+  {.passL: "-lclangLex".}
+  {.passL: "-lclangOptions".}
+  {.passL: "-lclangParse".}
+  {.passL: "-lclangRewrite".}
   {.passL: "-lclangRewriteFrontend".}
+  {.passL: "-lclangSema".}
+  {.passL: "-lclangSerialization".}
+  {.passL: "-lclangStaticAnalyzerCheckers".}
+  {.passL: "-lclangStaticAnalyzerCore".}
+  {.passL: "-lclangStaticAnalyzerFrontend".}
   {.passL: "-lclangSupport".}
+  {.passL: "-lclangTooling".}
+  {.passL: "-lclangToolingASTDiff".}
   {.passL: "-lclangToolingCore".}
   {.passL: "-lclangToolingInclusions".}
   {.passL: "-lclangToolingInclusionsStdlib".}
-  {.passL: "-lclangTooling".}
-  {.passL: "-lclangToolingASTDiff".}
   {.passL: "-lclangToolingRefactoring".}
   {.passL: "-lclangToolingSyntax".}
   {.passL: "-lclangTransformer".}

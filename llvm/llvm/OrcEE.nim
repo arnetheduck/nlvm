@@ -32,6 +32,17 @@ type
 ##  @{
 ##
 ##
+##  Create a ObjectLinkingLayer instance using the standard JITLink
+##  InProcessMemoryManager for memory management.
+##
+
+proc orcCreateObjectLinkingLayerWithInProcessMemoryManager*(
+  result: ptr OrcObjectLayerRef, es: OrcExecutionSessionRef
+): ErrorRef {.
+  importc: "LLVMOrcCreateObjectLinkingLayerWithInProcessMemoryManager", dynlib: LLVMLib
+.}
+
+##
 ##  Create a RTDyldObjectLinkingLayer instance using the standard
 ##  SectionMemoryManager for memory management.
 ##
@@ -40,6 +51,19 @@ proc orcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager*(
   es: OrcExecutionSessionRef
 ): OrcObjectLayerRef {.
   importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManager",
+  dynlib: LLVMLib
+.}
+
+##
+##  Create a RTDyldObjectLinkingLayer instance using the standard
+##  SectionMemoryManager for memory management. If ReserveAlloc is true then
+##  a contiguous range of memory will be reserved for each object file.
+##
+
+proc orcCreateRTDyldObjectLinkingLayerWithSectionMemoryManagerReserveAlloc*(
+  es: OrcExecutionSessionRef, reserveAlloc: Bool
+): OrcObjectLayerRef {.
+  importc: "LLVMOrcCreateRTDyldObjectLinkingLayerWithSectionMemoryManagerReserveAlloc",
   dynlib: LLVMLib
 .}
 

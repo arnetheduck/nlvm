@@ -40,25 +40,25 @@ export PATH := $(PWD)/$(LLVM_OUT)/bin:$(PATH)
 .PHONY: all
 all: $(NLVMC)
 
-lib/nim/koch$(EXE):
+lib/nim/koch$(EXE): $(LLVM_DEP)
 	cd lib/nim ;\
 	[ -d csources_v3 ] || git clone -q --depth 1 -b master https://github.com/nim-lang/csources_v3.git ;\
 	cd csources_v3 ;\
 	git pull ;\
-	$(MAKE) -f makefile
-	cd lib/nim ; bin/nim c koch
+	CC=clang $(MAKE) -f makefile
+	cd lib/nim ; bin/nim $(NIMFLAGS) c koch
 
 $(NIMC): lib/nim/koch$(EXE) lib/nim/compiler/*.nim
-	cd lib/nim && ./koch boot -d:release --passC:-fPIC --passl:-fPIC
+	cd lib/nim && ./koch boot $(NIMFLAGS) -d:release --passC:-fPIC --passl:-fPIC
 
-lib/clang/21/include/stdint.h: $(LLVM_DEP)
+lib/clang/$(LLVM_MAJ)/include/stdint.h: $(LLVM_DEP)
 	rm -rf lib/clang
 	cp -ar $(LLVM_OUT)/lib/clang lib/
 
-$(NLVMC): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/* lib/clang/21/include/stdint.h
+$(NLVMC): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/* lib/clang/$(LLVM_MAJ)/include/stdint.h
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) $(NLVMCFLAGS) c nlvm
 
-$(NLVMR): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/* lib/clang/21/include/stdint.h
+$(NLVMR): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/* lib/clang/$(LLVM_MAJ)/include/stdint.h
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) -d:release $(NLVMCFLAGS) -o:nlvmr$(EXE) c nlvm
 
 nlvm/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim lib/nlvm/*
