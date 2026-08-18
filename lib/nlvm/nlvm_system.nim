@@ -12,6 +12,8 @@
 
 # Nothing in here may raise
 {.push raises: [].}
+{.push checks: off.}
+
 {.used.}
 import system/ansi_c
 import ./nlvm_unwind
@@ -42,9 +44,9 @@ const
 # Need these for the runtime type information
 include system/inclrtl, system/hti
 
-template dprintf(s: cstring, x: varargs[untyped]) =
+template dprintf(body: varargs[untyped]) =
   when defined(nlvmDebugSystem):
-    c_printf(s, x)
+    c_printf(body)
   else:
     discard
 
@@ -62,8 +64,6 @@ type
     ## data is placed last, allowing us to add fields at the beginning of this
     ## struct without breaking ABI - in nlvm, this is not strictly necessary
     ## because we don't support an ABI yet, but might as well prepare :)
-    ## TODO technically, we could be allocating this memory together with the
-    ##      memory for the nimException, instead of keeping a ref here!
     nimException: ref Exception
     nextException: ptr UnwindException
     handlerCount: int
@@ -117,7 +117,7 @@ func readUleb128(v: var pointer): uint64 =
   ## Read unsigned variable-length integer - no error checking
   var shift: uint
 
-  while true:
+  while shift < 64:
     let b = v.readBytes(uint8)
     result = result or (uint64(b and 0x7F) shl shift)
     shift += 7
@@ -131,7 +131,7 @@ func readSleb128(v: var pointer): int64 =
     res: uint64
     b: uint8
 
-  while true:
+  while shift < 64:
     b = v.readBytes(uint8)
     res = res or (uint64(b and 0x7F) shl shift)
     shift += 7
@@ -206,40 +206,43 @@ proc readEncodedPointer(v: var pointer, ctx: UnwindContext, encoding: uint8): po
 func getThrownObjectPtr(e: ptr UnwindException): pointer =
   cast[pointer](e).offset(sizeof(UnwindException))
 
-proc toUnwindException(e: ptr NlvmException): ptr UnwindException =
+func toUnwindException(e: ptr NlvmException): ptr UnwindException =
   addr e.unwindException
 
 func toNlvmException(e: ptr UnwindException): ptr NlvmException =
-  cast[ptr NlvmException](cast[uint](e) + sizeof(UnwindException).uint -
-    sizeof(NlvmException).uint)
+  cast[ptr NlvmException](cast[uint](e) - NlvmException.offsetOf(unwindException).uint)
 
-func toNimException(e: ptr NlvmException): ref Exception =
-  e[].nimException
+proc destroy(e: ptr NlvmException) =
+  # We must manually clear any managed memory from `NlvmExceptiuon` before
+  # freeing the C memory
+  when declared(GC_unref):
+    GC_unref(e[].nimException)
 
-func toNimException(e: ptr UnwindException): ref Exception =
-  e.toNlvmException().toNimException()
+  e[].nimException = nil
+  c_free(e)
 
 proc nlvmExceptionCleanup(
     unwindCode: UnwindReasonCode, exception: ptr UnwindException
 ) {.cdecl.} =
   dprintf("Cleanup %p\n", exception)
-  let nlvme = toNlvmException(exception)
-  when declared(GC_unref):
-    GC_unref(nlvme.nimException)
-  c_free(cast[pointer](nlvme))
+  destroy(toNlvmException(exception))
 
 var ehGlobals {.threadvar.}: NlvmEhGlobals
 
-include system/rawquits
-proc unhandledException() {.noreturn.} =
-  c_fprintf(cstderr, "Error: unhandled exception: [foreign]\n")
+proc unhandledException(e: ptr UnwindException) {.noreturn.} =
+  discard c_fflush(cstdout)
+  if e[].isNative():
+    let e = e.toNlvmException()
+    c_fprintf(
+      cstderr,
+      "Error: unhandled exception: %s [%s]\n",
+      cstring(e[].nimException.msg),
+      e[].nimException.name,
+    )
+  else:
+    c_fprintf(cstderr, "Error: unhandled exception: [foreign]\n")
 
-  rawQuit(1) # TODO alternatively, quitOrDebug
-
-proc unhandledException(e: ref Exception) {.noreturn.} =
-  c_fprintf(cstderr, "Error: unhandled exception: %s [%s]\n", cstring(e.msg), e.name)
-
-  rawQuit(1) # TODO alternatively, quitOrDebug
+  c_abort()
 
 func getNimTypePtr(
     ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8, ctx: UnwindContext
@@ -268,7 +271,7 @@ when defined(nimV2):
       align: int16
       depth: int16
       display: ptr UncheckedArray[uint32] # classToken
-      when defined(nimTypeNames) or defined(nimArcIds):
+      when defined(nimTypeNames) or defined(nimArcIds) or defined(nimOrcLeakDetector):
         name: cstring
       traceImpl: pointer
       typeInfoV1: pointer # for backwards compat, usually nil
@@ -284,7 +287,7 @@ when defined(nimV2):
   func exceptionType(e: ref Exception): PNimTypeV2 =
     # return the dynamic type of an exception, which nlvm stores at the beginning
     # of the object
-    cast[ptr PNimTypeV2](unsafeAddr e[])[]
+    cast[ptr PNimTypeV2](addr e[])[]
 
   func getNimType(
       ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8, ctx: UnwindContext
@@ -302,43 +305,43 @@ else:
   func exceptionType(e: ref Exception): PNimType =
     # return the dynamic type of an exception, which nlvm stores at the beginning
     # of the object
-    cast[ptr PNimType](unsafeAddr e[])[]
+    cast[ptr PNimType](addr e[])[]
 
   func getNimType(
       ttypeIndex: int, classInfo: pointer, ttypeEncoding: uint8, ctx: UnwindContext
   ): PNimType =
     cast[PNimType](getNimTypePtr(ttypeIndex, classInfo, ttypeEncoding, ctx))
 
-import system/memory
+proc raiseOrAbort(unwindException: ptr UnwindException) {.noreturn.} =
+  let reason = raiseException(unwindException)
 
-proc nlvmRaise(e: ref Exception) {.compilerproc, noreturn.} =
+  if reason != URC_END_OF_STACK:
+    # "shouldn't happen"
+    c_fprintf(cstderr, "Error: cannot raise exception: %d\n", reason)
+    c_abort()
+
+  unhandledException(unwindException) # noreturn
+
+proc nlvmRaise(e: sink ref Exception) {.compilerproc, noreturn.} =
   const esize = csize_t(sizeof NlvmException)
-  let excMem = c_malloc(esize)
-  nimZeroMem(excMem, esize)
-  let exc = cast[ptr NlvmException](excMem)
+  let exc = cast[ptr NlvmException](c_calloc(1, esize))
 
-  exc.unwindException.exceptionClass = nlvmExceptionClass
-  exc.unwindException.exceptionCleanup = nlvmExceptionCleanup
-  exc.nimException = e
+  exc[].unwindException.exceptionClass = nlvmExceptionClass
+  exc[].unwindException.exceptionCleanup = nlvmExceptionCleanup
 
   # Help keep Nim exception around
-  when declared(GC_ref): # But only when using gc!
+  when declared(GC_ref):
     dprintf("gcref %p\n", addr e[])
     GC_ref(e)
 
   let unwindException = exc.toUnwindException()
   dprintf("Raising %s %p %p\n", cstring(e.name), unwindException, e.exceptionType())
 
-  let reason = raiseException(unwindException)
-
-  case reason
-  of URC_END_OF_STACK:
-    unhandledException(e)
-  else:
-    # "shouldn't happen"
-    c_fprintf(cstderr, "Error: cannot raise exception: %d\n", reason)
-
-  c_abort()
+  # Make sure that we've done all the ORC/ARC refcounting before `raiseException`
+  # since `raiseOrAbort` will not return and the nim-injected destructor only
+  # runs at the end of the scope
+  exc[].nimException = ensureMove(e)
+  raiseOrAbort(exc.toUnwindException())
 
 proc nlvmReraise() {.compilerproc, noreturn.} =
   if not ehGlobals.closureException.isNil:
@@ -353,23 +356,12 @@ proc nlvmReraise() {.compilerproc, noreturn.} =
 
   if unwindException[].isNative():
     let exceptionHeader = unwindException.toNlvmException()
+    dprintf("Reraise native %p %d\n", unwindException, cint(exceptionHeader.handlerCount))
     exceptionHeader.handlerCount = -exceptionHeader.handlerCount
   else:
+    dprintf("Reraise foreign %p", unwindException)
     ehGlobals.caughtExceptions = nil
-
-  let reason = raiseException(unwindException)
-
-  case reason
-  of URC_END_OF_STACK:
-    if unwindException[].isNative():
-      unhandledException(unwindException.toNimException())
-    else:
-      unhandledException()
-  else:
-    # "shouldn't happen"
-    c_fprintf(cstderr, "Error: cannot reraise exception: %d\n", reason)
-
-  c_abort()
+  raiseOrAbort(unwindException)
 
 proc nlvmSetClosureException(e: ref Exception) {.compilerproc.} =
   dprintf "set clo: %p\n", addr e[]
@@ -385,7 +377,7 @@ proc nlvmGetCurrentException(): ref Exception {.compilerproc.} =
     if unwindException.isNil():
       nil
     else:
-      unwindException.toNimException()
+      unwindException.toNlvmException()[].nimException
 
 proc nlvmGetCurrentExceptionMsg(): string {.compilerproc.} =
   let e = nlvmGetCurrentException()
@@ -406,7 +398,7 @@ proc nlvmBeginCatch(unwindArg: pointer) {.compilerproc.} =
 
   if unwindException[].isNative():
     let exceptionHeader = unwindException.toNlvmException()
-    dprintf("begin native %d\n", exceptionHeader.handlerCount)
+    dprintf("begin native %d\n", cint(exceptionHeader.handlerCount))
     exceptionHeader.handlerCount =
       if exceptionHeader.handlerCount < 0:
         -exceptionHeader.handlerCount +% 1
@@ -435,7 +427,7 @@ proc nlvmEndCatch() {.compilerproc.} =
 
   if unwindException[].isNative():
     let exceptionHeader = unwindException.toNlvmException()
-    dprintf("end native %d\n", exceptionHeader.handlerCount)
+    dprintf("end native %d\n", cint(exceptionHeader.handlerCount))
     if exceptionHeader.handlerCount < 0:
       # Rethrowing
       exceptionHeader.handlerCount = exceptionHeader.handlerCount +% 1
@@ -448,12 +440,7 @@ proc nlvmEndCatch() {.compilerproc.} =
       if exceptionHeader.handlerCount == 0:
         ehGlobals.caughtExceptions = exceptionHeader.nextException
 
-        when declared(GC_unref):
-          let e = exceptionHeader.toNimException()
-          dprintf("gcunref %p\n", addr e[])
-          GC_unref(e)
-
-        c_free(toNlvmException(unwindException))
+        destroy(exceptionHeader)
   else:
     deleteException(ehGlobals.caughtExceptions)
     ehGlobals.caughtExceptions = nil
@@ -735,4 +722,5 @@ proc nlvmEHPersonality(
   else:
     URC_FATAL_PHASE1_ERROR
 
+{.pop.}
 {.pop.}

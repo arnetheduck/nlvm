@@ -6,8 +6,8 @@ import
   std/[browsers, sequtils, parseopt, strutils, times, os],
   llvm/llvm,
   compiler/[
-    ast, cmdlinehelper, commands, condsyms, extccomp, idents, lexer, lineinfos,
-    llstream, modulegraphs, modules, msgs, options, passes, passaux, pathutils, platform,
+    ast, cmdlinehelper, commands, condsyms, extccomp, idents, lineinfos, llstream,
+    modulegraphs, modules, msgs, options, passes, passaux, pathutils, platform,
   ],
   ./[llgen, lllink, llplatform]
 
@@ -186,23 +186,6 @@ proc commandCompile(graph: ModuleGraph) =
 
   passes.compileProject(graph)
 
-proc commandScan(conf: ConfigRef) =
-  var f = addFileExt(mainCommandArg(conf), NimExt)
-  var stream = llStreamOpen(f.AbsoluteFile, fmRead)
-  if stream != nil:
-    var
-      L: Lexer = default(Lexer)
-      tok: Token = default(Token)
-    openLexer(L, f.AbsoluteFile, stream, newIdentCache(), conf)
-    while true:
-      rawGetTok(L, tok)
-      conf.printTok(tok)
-      if tok.tokType == tkEof:
-        break
-    closeLexer(L)
-  else:
-    conf.rawMessage(errCannotOpenFile, f)
-
 proc commandCheck(graph: ModuleGraph) =
   graph.config.errorMax = high(int) # do not stop after first error
   defineSymbol(graph.config.symbols, "nimcheck")
@@ -354,9 +337,6 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   # C++-specific quirks
   conf.exc = excSetjmp
 
-  if conf.selectedGC == gcUnselected:
-    initOrcDefines(conf)
-
   if conf.cmd == cmdCrun:
     conf.verbosity = 0
     conf.notes = NotesVerbosity[0]
@@ -367,6 +347,10 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   var graph = newModuleGraph(cache, conf)
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
+
+  if conf.selectedGC == gcUnselected:
+    initOrcDefines(conf)
+
   mainCommand(graph)
 
   if conf.hasHint(hintGCStats):
@@ -392,7 +376,8 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
         cmdPrefix.add " "
         # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:
         # `The parameter is incorrect`
-      execExternalProgram(conf, cmdPrefix & output.quoteShell & ' ' & conf.arguments)
+      let cmd = cmdPrefix & output.quoteShell & ' ' & conf.arguments
+      execExternalProgram(conf, cmd.strip(leading = false, trailing = true))
     of cmdDocLike, cmdRst2html, cmdRst2tex: # bugfix(cmdRst2tex was missing)
       if conf.arguments.len > 0:
         # reserved for future use

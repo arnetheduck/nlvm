@@ -305,9 +305,6 @@ template int1Ty(g: LLGen): llvm.TypeRef =
 template int8Ty(g: LLGen): llvm.TypeRef =
   g.lc.int8TypeInContext()
 
-template int16Ty(g: LLGen): llvm.TypeRef =
-  g.lc.int16TypeInContext()
-
 template int32Ty(g: LLGen): llvm.TypeRef =
   g.lc.int32TypeInContext()
 
@@ -1888,7 +1885,7 @@ proc llType(g: LLGen, typ: PType, deep = true): llvm.TypeRef =
     g.primitives[typ.kind]
   of tyGenericBody, tyGenericInst, tyGenericInvocation, tyGenericParam, tyDistinct,
       tyOrdinal, tyTypeDesc, tyAlias, tySink, tyUserTypeClass, tyUserTypeClassInst,
-      tyInferred, tyStatic, tyOwned:
+      tyInferred, tyStatic, tyOwned, tyOr:
     g.llType(typ.last, deep)
   of tyEnum:
     llvm.intTypeInContext(g.lc, g.config.getSize(typ).cuint * 8)
@@ -3108,6 +3105,24 @@ proc genTypeInfoV1Base(g: LLGen, typ: PType): llvm.ValueRef =
   else:
     g.nullPtr # g.llMagicType("TNimType").pointerType().constNull()
 
+proc genDeepCopyHook(g: LLGen, typ: PType): llvm.ValueRef =
+  ## Generate the =deepCopy proc for the given type and return its address
+  ## wrapped in the TNimType.deepcopy signature: proc (p: pointer): pointer
+  var op = getAttachedOp(g.graph, typ, attachedDeepCopy)
+  if op == nil:
+    op = getAttachedOp(g.graph, typ.skipTypes(skipPtrs), attachedDeepCopy)
+  if op != nil and getBody(g.graph, op).len > 0:
+    if op.typ == nil or op.typ.callConv != ccNimCall:
+      g.config.internalError(
+        op.name.s & " needs to have the 'nimcall' calling convention"
+      )
+    # Generate the =deepCopy proc body and get its LLVM value
+    let actualFn = g.genFunctionWithBody(op).v
+    # Cast to the deepcopy signature: proc (p: pointer): pointer {.nimcall.}
+    g.b.buildPointerCast(actualFn, g.ptrTy, g.nn("deepcopy_cast"))
+  else:
+    g.nullPtr
+
 proc genTypeInfoV1(
     g: LLGen, typ: PType, typeInfoV2: llvm.ValueRef = nil
 ): llvm.ValueRef =
@@ -3197,7 +3212,7 @@ proc genTypeInfoV1(
           tmp
       else:
         llvm.constNull(els[7])
-    deepcopyVar = llvm.constNull(els[8])
+    deepcopyVar = g.genDeepCopyHook(typ)
 
   result.setInitializer(
     g.genTypeInfoInit(
@@ -3292,6 +3307,9 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
   if not g.graph.canFormAcycle(typ):
     flags = flags or 1
   let
+    hasNames =
+      g.config.isDefined("nimTypeNames") or g.config.isDefined("nimArcIds") or
+      g.config.isDefined("nimOrcLeakDetector")
     dl = g.m.getModuleDataLayout()
     lt = g.llType(typ)
     destroyImpl = g.genHook(typ, attachedDestructor)
@@ -3317,7 +3335,7 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
       else:
         g.nullPtr
     nameVar =
-      if isDefined(g.config, "nimTypeNames") and typ.kind in {tyObject, tyDistinct}:
+      if hasNames and typ.kind in {tyObject, tyDistinct}:
         if incompleteType(typ):
           g.config.internalError(
             "request for RTTI generation for incomplete object: " & typeToString(typ)
@@ -3333,18 +3351,13 @@ proc genTypeInfoV2(g: LLGen, typ: PType): llvm.ValueRef =
       else:
         g.nullPtr
     flagsVar = g.constNimInt(flags)
-    vtableVar = constArray(g.ptrTy, [])
-    values =
-      if isDefined(g.config, "nimTypeNames"):
-        @[
-          destroyImpl, sizeVar, alignVar, depthVar, displayVar, nameVar, traceImpl,
-          v1Var, flagsVar, vtableVar,
-        ]
-      else:
-        @[
-          destroyImpl, sizeVar, alignVar, depthVar, displayVar, traceImpl, v1Var,
-          flagsVar, vtableVar,
-        ]
+
+  var values = @[destroyImpl, sizeVar, alignVar, depthVar, displayVar]
+  if hasNames:
+    values.add nameVar
+  values.add [traceImpl, v1Var, flagsVar]
+  if isDefined(g.config, "gcDestructors"):
+    values.add constArray(g.ptrTy, [])
 
   let
     nimTypeTy = g.llMagicType("TNimTypeV2")
@@ -4383,7 +4396,7 @@ proc callReset(g: LLGen, typ: PType, v: LLValue) =
     typ = skipTypes(typ, abstractInst)
     ty = g.llType(typ)
 
-  if supportsMemset(typ): # Fast path
+  if optSeqDestructors in g.config.globalOptions or supportsMemset(typ): # Fast path
     g.buildStoreNull(ty, v.v)
   elif typ.kind in {tyString, tyRef, tySequence}:
     g.genRefAssign(v, constNull(ty))
@@ -5447,6 +5460,8 @@ proc buildLoadVar(g: LLGen, typ: PType, v: llvm.ValueRef): llvm.ValueRef =
   else:
     v
 
+proc genMagicSlice(g: LLGen, n: PNode, load: bool, formalTyp: PType): LLValue
+
 proc genOpenArrayConv(
     g: LLGen, symTyp: PType, n: PNode
 ): (llvm.ValueRef, llvm.ValueRef) =
@@ -5484,7 +5499,24 @@ proc genOpenArrayConv(
         v = g.buildLoadVar(n.typ, ax)
       (g.getNimSeqDataPtr(seqTy, v), g.loadNimSeqLen(v))
     of tyOpenArray, tyVarargs:
-      let ax = g.buildLoadVar(n.typ, g.genNode(n, true).v)
+      let a = block:
+        var q = skipConv(n)
+        var skipped = false
+        while q.kind == nkStmtListExpr and q.len > 0:
+          skipped = true
+          q = q.lastSon
+        if getMagic(q) == mSlice:
+          # magic: pass slice to openArray:
+          if skipped:
+            q = skipConv(n)
+            while q.kind == nkStmtListExpr and q.len > 0:
+              for i in 0 ..< q.len - 1:
+                g.genNode(q[i])
+              q = q.lastSon
+          g.genMagicSlice(q, true, symTyp)
+        else:
+          g.genNode(n, true)
+      let ax = g.buildLoadVar(n.typ, a.v)
       (
         g.b.buildExtractValue(ax, 0, g.nn("p", ax)),
         g.b.buildExtractValue(ax, 1, g.nn("l", ax)),
@@ -5506,6 +5538,17 @@ proc genOpenArrayConv(
         (g.getNimSeqDataPtr(seqTy, v), g.loadNimSeqLen(v))
       of tyArray:
         (g.genNode(n, true).v, g.constNimInt(g.config.lengthOrd(typ.last)))
+      of tyOpenArray, tyVarargs:
+        # ptr/ref openArray: load the struct and extract len
+        var
+          v = g.genNode(n, true).v
+          len = g.buildOpenArrayLenGEP(v)
+          data = g.buildOpenArrayDataGEP(v)
+
+        (
+          g.b.buildLoad2(g.ptrTy, data, "bbbbbbbb"),
+          g.b.buildLoad2(g.primitives[tyInt], len, "aaaaaaaa"),
+        )
       else:
         g.config.internalError(n.info, "Unhandled ref length: " & $typ.last())
         raiseAssert "unreachable"
@@ -5616,7 +5659,7 @@ proc genCallArgs(
     if symTyp.isCompileTimeOnly():
       continue
 
-    if skipTypes(symTyp, abstractVar + {tyStatic}).kind in {tyOpenArray, tyVarargs}:
+    if skipTypes(symTyp, abstractVar).kind in {tyOpenArray, tyVarargs}:
       let (data, len) = g.genOpenArrayConv(symTyp, pr)
       args.add([data, len])
     else:
@@ -5969,7 +6012,7 @@ proc genAsgnNode(g: LLGen, n: PNode, typ: PType, dest: LLValue): LLValue =
   # genNode, but for use as RHS in a call to genAssignment - requires special
   # care to convert things to openArray since this is not handled by the AST
   # typ is the destination type
-  if skipTypes(typ, abstractVar + {tyStatic}).kind in {tyOpenArray, tyVarargs}:
+  if skipTypes(typ, abstractInst).kind in {tyOpenArray, tyVarargs}:
     let (data, len) = g.genOpenArrayConv(typ, n)
     LLValue(v: g.buildOpenArray(data, len), lode: n)
   else:
@@ -6535,12 +6578,11 @@ proc genCallMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
 
   g.genCall(nil, n, load, dest)
 
-proc genMagicSlice(g: LLGen, n: PNode, load: bool): LLValue =
+proc genMagicSlice(g: LLGen, n: PNode, load: bool, formalTyp: PType): LLValue =
   let
     bx = g.genNode(n[2], true).v
     cx = g.genNode(n[3], true).v
     typ = n[1].typ.skipTypes(abstractVar + {tyPtr})
-
   var v, len: llvm.ValueRef
   case typ.kind
   of tyArray:
@@ -6577,7 +6619,8 @@ proc genMagicSlice(g: LLGen, n: PNode, load: bool): LLValue =
     let
       prepareForMutation =
         optSeqDestructors in g.config.globalOptions and typ.kind == tyString and
-        (n[1].kind == nkHiddenDeref or n.typ.skipTypes(abstractInst).kind == tyVar)
+        (n[1].kind == nkHiddenDeref or formalTyp.skipTypes(abstractInst).kind == tyVar)
+
       axp = g.genNode(n[1], not prepareForMutation)
       ax =
         if prepareForMutation:
@@ -6622,9 +6665,7 @@ proc genMagicSizeOf(g: LLGen, n: PNode): LLValue =
   LLValue(v: g.constNimInt(dl.aBISizeOfType(g.llType(t)).int))
 
 proc genMagicAlignOf(g: LLGen, n: PNode): LLValue =
-  let
-    t = n[1].typ.skipTypes({tyTypeDesc})
-    dl = g.m.getModuleDataLayout()
+  let t = n[1].typ.skipTypes({tyTypeDesc})
 
   LLValue(v: g.constNimInt(g.getBestAlign(t, g.llType(t))))
 
@@ -7947,24 +7988,22 @@ proc genMagicMove(g: LLGen, n: PNode, load: bool): LLValue =
       if op == nil:
         g.callReset(n[1].skipAddr.typ, ax)
       else:
+        let
+          f = g.genFunctionWithBody(op).v
+          fty = f.globalGetValueType()
         case skipTypes(n[1].skipAddr.typ, abstractVar + {tyStatic}).kind
         of tyOpenArray, tyVarargs:
-          # todo fixme generated `wasMoved` hooks for
-          # openarrays, but it probably shouldn't?
-          raiseAssert "TODO"
-          # var s: string
-          # if reifiedOpenArray(a.lode):
-          #   if a.t.kind in {tyVar, tyLent}:
-          #     s = "$1->Field0, $1->Field1" % [rdLoc(a)]
-          #   else:
-          #     s = "$1.Field0, $1.Field1" % [rdLoc(a)]
-          # else:
-          #   s = "$1, $1Len_0" % [rdLoc(a)]
-          # linefmt(p, cpsStmts, "$1($2);$n", [rdLoc(b), s])
+          let oa = g.b.buildLoad2(g.llOpenArrayType(), ax.v)
+          discard g.b.buildCall2(
+            fty,
+            f,
+            [
+              g.b.buildExtractValue(oa, 0, g.nn("p", ax.v)),
+              g.b.buildExtractValue(oa, 1, g.nn("l", ax.v)),
+            ],
+            "",
+          )
         else:
-          let
-            f = g.genFunctionWithBody(op).v
-            fty = f.globalGetValueType()
           discard g.b.buildCall2(fty, f, [ax.v], "")
     else:
       if n[1].kind == nkSym and isSinkParam(n[1].sym):
@@ -8441,7 +8480,7 @@ proc genMagic(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
     # TODO these are magics, but for some reason they don't have the loc.snippet set
     result = g.genCall(nil, n, load, dest)
   of mSlice:
-    result = g.genMagicSlice(n, load)
+    result = g.genMagicSlice(n, load, n.typ)
   of mEnsureMove:
     result = g.genNode(n[1], load)
   else:
@@ -8543,7 +8582,6 @@ proc genNodeStrLit(g: LLGen, n: PNode, load: bool): LLValue =
   let
     tt =
       if n.typ == nil:
-        # debugEcho "TODO nil-typ strlit", n
         getSysType(g.graph, n.info, tyString)
       else:
         n.typ
@@ -8735,6 +8773,8 @@ proc genNodeObjConstr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
       dest
   for i in 1 ..< n.len:
     let s = n[i]
+    if nfPreventCg in s.flags:
+      continue # inactive case branch
 
     if s.len == 3 and optFieldCheck in g.f.options:
       g.genFieldCheck(s[2], v, s[0].sym)
