@@ -3,7 +3,7 @@
 # See the LICENSE file for license info (doh!)
 
 import
-  std/[algorithm, os, strutils, sequtils, sets, tables],
+  std/[algorithm, dynlib, os, strutils, sequtils, sets, tables],
   compiler/[
     aliases, ast, astalgo, astmsgs, bitsets, cgmeth, extccomp, idents,
     injectdestructors, lineinfos, lowerings, magicsys, mangleutils, modulegraphs, msgs,
@@ -128,6 +128,9 @@ type
     modules: seq[LLModule] # modules in position order
     inits: seq[llvm.ValueRef] # init functions that main should call
 
+    dynlibLibs: Table[string, seq[tuple[name: string, global: llvm.ValueRef]]]
+      # lib path -> sym/global
+
     markerBody: seq[tuple[v: llvm.ValueRef, typ: PType]] # Markers looking for a body
     forwardedProcs: seq[PSym] # Proc's looking for a body
     gcRoots: seq[tuple[sym: PSym, v: llvm.ValueRef]] # gcRoots looking for registration
@@ -157,6 +160,10 @@ type
     round: int
 
     mangledPrcs*: HashSet[string]
+
+    systemDone: bool
+
+    ctors: seq[llvm.ValueRef]
 
   LLValue = object
     v: llvm.ValueRef
@@ -2747,15 +2754,7 @@ proc genGcRegistrar(g: LLGen, sym: PSym, v: llvm.ValueRef) =
 
     registrar.setLinkage(g.defaultFunctionLinkage())
 
-    let
-      ctorsInit =
-        llvm.constStructInContext(g.lc, [g.constInt32(65535), registrar, g.nullPtr])
-      ctorsType = ctorsInit.typeOfX()
-      ctorsArrayType = llvm.arrayType(ctorsType, 1)
-      ctors = g.m.addGlobal(ctorsArrayType, "llvm.global_ctors")
-
-    ctors.setLinkage(llvm.AppendingLinkage)
-    ctors.setInitializer(llvm.constArray(ctorsType, [ctorsInit]))
+    g.ctors.add registrar
 
     let f = g.newLLFunc(registrar, nil)
     if g.d != nil:
@@ -3663,9 +3662,14 @@ proc callCompilerProc(
   if sym == nil:
     g.config.internalError("compiler proc not found: " & name)
 
-  let
-    f = g.genFunctionWithBody(sym).v
-    fty = f.globalGetValueType()
+  let f0 = g.genFunctionWithBody(sym).v
+  let (f, fty) =
+    if lfDynamicLib in sym.loc.flags:
+      # dynlib proc: `f0` is a function-pointer global; load the bound pointer
+      # and use the proc's real function type
+      (g.b.buildLoad2(g.ptrTy, f0, g.nn("dynlib.cp.load")), g.llProcType(sym.typ))
+    else:
+      (f0, f0.globalGetValueType())
 
   if noInvoke or g.f.nestedTryStmts.len == 0:
     let
@@ -3864,11 +3868,13 @@ proc callBinOpWithOver(
           g.buildTruncOrExt(b, g.primitives[tyInt64], u)
         else:
           g.buildNimIntExt(b, u)
-      divzero = g.b.buildICmp(
+
+    if bx.isConstant() == llvm.False or constIntGetZExtValue(bx) == 0:
+      let divzero = g.b.buildICmp(
         llvm.IntEQ, bx, constInt(ax.typeOfX(), 0, llvm.False), "rc.divzero"
       )
 
-    g.callRaise(divzero, "raiseDivByZero")
+      g.callRaise(divzero, "raiseDivByZero")
 
     let bo =
       if op == llvm.SDiv:
@@ -3902,7 +3908,7 @@ proc callExpect(g: LLGen, v: llvm.ValueRef, expected: bool): llvm.ValueRef =
 proc callEhTypeIdFor(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
   let
     fty = llvm.functionType(g.int32Ty, [g.ptrTy])
-    f = g.m.getOrInsertFunction("llvm.eh.typeid.for", fty)
+    f = g.m.getOrInsertFunction("llvm.eh.typeid.for.p0", fty)
 
   g.b.buildCall2(fty, f, [v], g.nn("eh.typeid", v))
 
@@ -4815,6 +4821,7 @@ proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
         "rawNewObj": (AllocFnKindUninitialized, allocsize(1)),
         "alloc": (AllocFnKindUninitialized, allocsize(1)),
         "rawAlloc": (AllocFnKindUninitialized, allocsize(1)),
+        "alloc0": (AllocFnKindZeroed, allocsize(1)),
       }
     )
 
@@ -4892,6 +4899,16 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
   fillLoc(s.loc, locProc, s.ast[namePos], OnStack)
   let name = g.llName(s)
 
+  if lfDynamicLib in s.loc.flags:
+    let gptr = g.m.addGlobal(g.ptrTy, name)
+    gptr.setLinkage(llvm.PrivateLinkage)
+    gptr.setInitializer(g.nullPtr)
+    let libPath = if s.annex != nil: s.annex.path.strVal else: ""
+    g.dynlibLibs.mgetOrPut(libPath, default(g.dynlibLibs.B)).add (name, gptr)
+    result = LLValue(v: gptr, storage: s.loc.storage)
+    g.symbols[s.id] = result
+    return result
+
   # Some compiler proc's have two syms essentially, because of an importc trick
   # in system.nim...
   if sfImportc in s.flags:
@@ -4901,7 +4918,6 @@ proc genFunction(g: LLGen, s: PSym): LLValue =
       return
 
   let f = g.addNimFunction(s)
-
   if g.genFakeImpl(s, f):
     f.setLinkage(g.defaultFunctionLinkage())
 
@@ -4934,12 +4950,7 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
     return
   g.done.incl s.id
 
-  if result.v.getEnumAttributeAtIndex(
-    cast[AttributeIndex](AttributeFunctionIndex), attrAllocsize
-  ) != nil:
-    # TODO work around https://github.com/llvm/llvm-project/issues/66103
-    result.v.setLinkage(llvm.LinkOnceODRLinkage)
-  elif sfExportc notin s.flags or sfCompilerProc in s.flags:
+  if sfExportc notin s.flags:
     # Because we generate only one module, we can tag all functions internal,
     # except those that should be importable from c
     # compilerproc are marker exportc to get a stable name, but it doesn't seem
@@ -8538,7 +8549,10 @@ proc genNodeSym(g: LLGen, n: PNode, load: bool): LLValue =
         n.info, "request to generate code for .compileTime proc: " & sym.name.s
       )
 
-    g.genFunctionWithBody(sym)
+    var v = g.genFunctionWithBody(sym)
+    if lfDynamicLib in sym.loc.flags:
+      v = g.buildLoadValue(g.ptrTy, v, g.nn("dynlib.load", v))
+    v
   of skConst:
     let
       v = g.genConst(n)
@@ -9443,7 +9457,7 @@ proc genNodeProcDef(g: LLGen, n: PNode) =
 
   if ({sfExportc, sfCompilerProc} * s.flags == {sfExportc}) or
       (sfExportc in s.flags and lfExportLib in s.loc.flags) or (s.kind == skMethod):
-    discard g.genFunctionWithBody(s)
+    g.forwardedProcs.add s #  g.genFunctionWithBody(s)
 
 proc genNodeIfStmt(g: LLGen, n: PNode): LLValue =
   # TODO Single scope enough?
@@ -10438,6 +10452,52 @@ proc newLLGen(
       valueAsMetadata(g.constInt32(llvm.debugMetadataVersion().int32)),
     )
 
+proc genLoadLibrary(
+    g: LLGen, libPath: string, syms: seq[tuple[name: string, global: llvm.ValueRef]]
+) =
+  var candidates: seq[string]
+  libPath.libCandidates(candidates)
+
+  var
+    values: seq[llvm.ValueRef]
+    blocks: seq[llvm.BasicBlockRef]
+
+  let
+    ldone = g.b.appendBasicBlockInContext(g.lc, g.nn("dynlib.loaded"))
+    lmissing = g.b.appendBasicBlockInContext(g.lc, g.nn("dynlib.missing"))
+
+  for i, c in candidates.pairs():
+    let h = g.callCompilerProc("nimLoadLibrary", [g.genStrLit(c)])
+    values.add h
+    blocks.add g.b.getInsertBlock()
+
+    let cmp = g.b.buildICmp(llvm.IntNE, h, g.nullPtr, "dynlib.isnil")
+
+    if i == candidates.high():
+      discard g.b.buildCondBr(cmp, ldone, lmissing)
+    else:
+      let next = g.b.appendBasicBlockInContext(g.lc, g.nn("dynlib.next"))
+      discard g.b.buildCondBr(cmp, ldone, next)
+      g.b.positionBuilderAtEnd(next)
+
+  g.b.positionAndMoveToEnd(lmissing)
+  discard g.callCompilerProc("nimLoadLibraryError", [g.genStrLit(libPath)])
+  discard g.b.buildUnreachable()
+
+  g.b.positionAndMoveToEnd(ldone)
+  let h =
+    if values.len > 1:
+      let phi = g.b.buildPHI(g.ptrTy, g.nn("dynlib.h"))
+      phi.addIncoming(values, blocks)
+      phi
+    else:
+      values[0]
+
+  for dlsym in syms:
+    let symAddr =
+      g.callCompilerProc("nimGetProcAddr", [h, g.constCStringPtr(dlsym.name)])
+    discard g.b.buildStore(symAddr, dlsym.global)
+
 proc genMain(g: LLGen) =
   let
     llMainType = llvm.functionType(g.cintTy, [g.cintTy, g.ptrTy])
@@ -10453,6 +10513,9 @@ proc genMain(g: LLGen) =
 
   if optNoMain in g.graph.config.globalOptions:
     main.setLinkage(llvm.InternalLinkage) # TODO export it?
+
+  if optGenDynLib in g.graph.config.globalOptions:
+    g.ctors.add main
 
   discard f.startBlock(nil, g.section(f, secReturn))
 
@@ -10508,9 +10571,33 @@ proc genMain(g: LLGen) =
           argv, vd1, g.d.dIBuilderCreateExpression(nil, 0), dl, g.b.getInsertBlock()
         )
 
-      if g.config.target.targetOS != osStandAlone and g.config.selectedGC != gcNone:
+      if g.config.target.targetOS != osStandAlone and
+          g.config.selectedGC notin {gcNone, gcArc, gcAtomicArc, gcOrc}:
+        let sym = g.graph.getCompilerProc("initStackBottomWith")
+        if sym == nil:
+          g.config.internalError("compiler proc not found: initStackBottomWith")
+        # generate function to capture its deps
+        discard g.genFunctionWithBody(sym).v
+
+      # Load dynamic libraries and bind their symbols - this must be done in
+      # a specific order:
+      # * load RTL symbols
+      # * set stack bottom (which needs RTL symbols)
+      # * load other symbols
+      # * run init code (which may require any/all symbols)
+      for libPath, syms in g.dynlibLibs.mpairs:
+        if libPath in ["nimrtl.dll", "libnimrtl.dylib", "libnimrtl.so"]:
+          g.genLoadLibrary(libPath, syms)
+
+      if g.config.target.targetOS != osStandAlone and
+          g.config.selectedGC notin {gcNone, gcArc, gcAtomicArc, gcOrc}:
         let bottom = g.localAlloca(g.primitives[tyInt], g.nn("bottom"))
+        # bottom.setVolatile(llvm.True)
         discard g.callCompilerProc("initStackBottomWith", [bottom])
+
+      for libPath, syms in g.dynlibLibs.mpairs:
+        if libPath notin ["nimrtl.dll", "libnimrtl.dylib", "libnimrtl.so"]:
+          g.genLoadLibrary(libPath, syms)
 
       let cmdLine = g.m.getNamedGlobal("cmdLine")
       if cmdLine != nil:
@@ -10530,6 +10617,8 @@ proc genMain(g: LLGen) =
         discard g.b.buildCall2(init.globalGetValueType(), init, [], "")
 
       g.inits.reset()
+
+      discard g.b.buildBr(g.section(f, secReturn))
 
     g.withBlock(g.section(f, secReturn)):
       if g.d != nil:
@@ -10796,7 +10885,11 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
 
   result = myProcess(b, n)
 
-  g.genForwardedProcs()
+  if sfSystemModule in s.flags or g.systemDone:
+    # When compiling nimrtl we end up with circular references within the system
+    # module - to work around this, exported symbols are generated only once
+    # all of system has been processed! See also lfExportLib handling.
+    g.genForwardedProcs()
 
   if g.init != nil:
     g.withModule(m):
@@ -10807,6 +10900,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
 
     if sfSystemModule in s.flags:
       g.inits.insert(g.init.f, 0)
+      g.systemDone = true
     else:
       g.inits.add(g.init.f)
     g.init = nil
@@ -10819,14 +10913,14 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     for x in getDispatchers(graph):
       discard g.genFunctionWithBody(x)
 
-  g.genMain()
-
   for m in g.markerBody:
     g.genMarkerProcBody(m[0], m[1])
   g.markerBody.setLen(0)
 
   for m in g.gcRoots:
     g.genGcRegistrar(m.sym, m.v)
+
+  g.genMain()
 
   if not g.registrar.isNil:
     g.withFunc(g.registrar):
@@ -10835,6 +10929,17 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
         g.b.setCurrentDebugLocation2(dl)
 
       g.finalize()
+
+  if g.ctors.len > 0:
+    let
+      ctorsInit =
+        g.ctors.mapIt(g.lc.constStructInContext([g.constInt32(65535), it, g.nullPtr]))
+      ctorsType = ctorsInit[0].typeOfX()
+      ctorsArrayType = llvm.arrayType(ctorsType, ctorsInit.len.uint32)
+      ctors = g.m.addGlobal(ctorsArrayType, "llvm.global_ctors")
+
+    ctors.setLinkage(llvm.AppendingLinkage)
+    ctors.setInitializer(llvm.constArray(ctorsType, ctorsInit))
 
   g.loadBase()
 
@@ -10855,16 +10960,6 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
   # layer of globals and conditionals.
   # Rather than deciphering all that, we simply generate a single module
   # with all the code in it, like the JS generator does.
-
-  # TODO: A total hack that needs to go away:
-  case s.name.s
-  of "pcre":
-    graph.config.cLinkedLibs.add("pcre")
-  of "sqlite3":
-    graph.config.cLinkedLibs.add("sqlite3")
-  of "openssl":
-    graph.config.cLinkedLibs.add("ssl")
-    graph.config.cLinkedLibs.add("crypto")
 
   if graph.backend == nil:
     var lto =
