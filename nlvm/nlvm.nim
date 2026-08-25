@@ -232,8 +232,6 @@ proc mainCommand*(graph: ModuleGraph) =
   # No support! but it might work anyway :)
   conf.globalOptions.excl optTlsEmulation
 
-  # TODO setId(100)
-
   # lib/pure/bitops.num
   defineSymbol(conf.symbols, "noIntrinsicsBitOpts")
 
@@ -251,7 +249,11 @@ proc mainCommand*(graph: ModuleGraph) =
       conf.cmd = cmdNop
       return
     let
-      triple = conf.toTriple()
+      triple =
+        if conf.commandArgs.anyIt(it.startsWith("--target=")):
+          ""
+        else:
+          conf.toTriple()
       rc = conf.callBuiltinClang(conf.commandArgs, triple)
     conf.cmd = cmdNop # prevent falling through to default
     if rc != 0:
@@ -350,6 +352,15 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
 
   if conf.selectedGC == gcUnselected:
     initOrcDefines(conf)
+
+  if conf.useBuiltinCC():
+    conf.cCompiler = ccClang
+
+  if conf.existsConfigVar("nlvm.target"):
+    let
+      tmp = graph.config.getConfigVar("nlvm.target")
+      (cpu, os) = parseTarget(tmp)
+    conf.target.setTarget(os, cpu)
 
   mainCommand(graph)
 

@@ -45,14 +45,24 @@ proc findLastArg(args: openArray[string], opts: openArray[string]): string =
       return args[^i]
   return ""
 
+proc useBuiltinLinker*(conf: ConfigRef): bool =
+  optGenStaticLib notin conf.globalOptions and
+    conf.getConfigVar("nlvm.linker", "builtin") == "builtin"
+
+proc useBuiltinCC*(conf: ConfigRef): bool =
+  conf.getConfigVar("nlvm.cc", "builtin") == "builtin"
+
 proc getLinker(conf: ConfigRef, target: string): string =
-  var linkerExe = getConfigVar(conf, conf.cCompiler, ".linkerexe")
-  if linkerExe.len == 0:
-    linkerExe = getLinkerExe(conf, conf.cCompiler)
-  linkerExe = quoteShell(linkerExe)
-  if conf.cCompiler == ccClang and target.len > 0:
-    linkerExe = linkerExe & " --target=" & target
-  linkerExe
+  if conf.useBuiltinCC():
+    &"{getAppFilename()} --hints:off cc --target={target}"
+  else:
+    var linkerExe = getConfigVar(conf, conf.cCompiler, ".linkerexe")
+    if linkerExe.len == 0:
+      linkerExe = getLinkerExe(conf, conf.cCompiler)
+    linkerExe = quoteShell(linkerExe)
+    if conf.cCompiler == ccClang and target.len > 0:
+      linkerExe = linkerExe & " --target=" & target
+    linkerExe
 
 proc printSearchDirs(conf: ConfigRef, target: string): seq[string] =
   try:
@@ -605,18 +615,14 @@ proc linkMSVC(conf: ConfigRef) =
     rawMessage(conf, errGenerated, "linking failed")
     quit(1)
 
-proc useBuiltinLinker*(conf: ConfigRef): bool =
-  optGenStaticLib notin conf.globalOptions and
-    conf.getConfigVar("nlvm.linker", "builtin") == "builtin"
-
-proc useBuiltinCC*(conf: ConfigRef): bool =
-  conf.getConfigVar("nlvm.cc", "builtin") == "builtin"
-
 proc callBuiltinClang*(
     conf: ConfigRef, params: openArray[string], triple: string
 ): cint =
   # TODO C++ via "clang++"?
-  var cmd = @["clang", "--target=" & triple]
+  var cmd = @["clang"]
+
+  if triple.len > 0:
+    cmd.add ["--target=" & triple]
 
   # On windows, we'll follow llvm-mingw defaults:
   # https://github.com/mstorsjo/llvm-mingw/blob/master/wrappers/mingw32-common.cfg
