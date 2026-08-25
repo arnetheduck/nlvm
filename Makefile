@@ -51,9 +51,10 @@ lib/nim/koch$(EXE): $(LLVM_DEP)
 $(NIMC): lib/nim/koch$(EXE) lib/nim/compiler/*.nim
 	cd lib/nim && ./koch boot $(NIMFLAGS) -d:release --passC:-fPIC --passl:-fPIC
 
-lib/clang/$(LLVM_MAJ)/include/stdint.h: $(LLVM_DEP)
-	rm -rf lib/clang
-	cp -ar $(LLVM_OUT)/lib/clang lib/
+lib/clang/$(LLVM_MAJ)/include/stdint.h: $(LLVM_OUT)/lib/clang/$(LLVM_MAJ)/include/stdint.h
+	rm -rf lib/clang/$(LLVM_MAJ)/include
+	mkdir -p lib/clang/$(LLVM_MAJ)/
+	cp -ar $(LLVM_OUT)/lib/clang/$(LLVM_MAJ)/include lib/clang/$(LLVM_MAJ)/
 
 $(NLVMC): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/* lib/clang/$(LLVM_MAJ)/include/stdint.h
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) $(NLVMCFLAGS) c nlvm
