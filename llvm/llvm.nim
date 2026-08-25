@@ -83,13 +83,13 @@ when defined(staticLLVM):
 else:
   const LLVMOut = currentSourceDir / "sha"
 
+  {.passL: "-lclang-cpp".} # Full clang C++ library (needed for most libclang features)
+  {.passL: "-lclang".}
+
   when defined(windows):
     import strformat
     {.passL: &"-lLLVM-{LLVMMaj}".}
   else:
-    {.passL: "-Wl,--as-needed".}
-    {.passL: "-lclang-cpp".} # Full clang C++ library (needed for most libclang features)
-    {.passL: "-lclang".}
     {.passL: "-lLLVM".}
     {.passL: "-Wl,'-rpath=$ORIGIN/../llvm/sha/lib/'".}
 
