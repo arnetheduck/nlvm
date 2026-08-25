@@ -334,8 +334,9 @@ proc nlvmRaise(e: sink ref Exception) {.compilerproc, noreturn.} =
     dprintf("gcref %p\n", addr e[])
     GC_ref(e)
 
-  let unwindException = exc.toUnwindException()
-  dprintf("Raising %s %p %p\n", cstring(e.name), unwindException, e.exceptionType())
+  dprintf(
+    "Raising %s %p %p\n", cstring(e.name), exc.toUnwindException(), e.exceptionType()
+  )
 
   # Make sure that we've done all the ORC/ARC refcounting before `raiseException`
   # since `raiseOrAbort` will not return and the nim-injected destructor only
@@ -356,7 +357,9 @@ proc nlvmReraise() {.compilerproc, noreturn.} =
 
   if unwindException[].isNative():
     let exceptionHeader = unwindException.toNlvmException()
-    dprintf("Reraise native %p %d\n", unwindException, cint(exceptionHeader.handlerCount))
+    dprintf(
+      "Reraise native %p %d\n", unwindException, cint(exceptionHeader.handlerCount)
+    )
     exceptionHeader.handlerCount = -exceptionHeader.handlerCount
   else:
     dprintf("Reraise foreign %p", unwindException)

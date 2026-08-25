@@ -1,10 +1,5 @@
-lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --mm:refc --outdir:tests/dll # Compiler/internal / reNimcCrash
-lib/nimrtl.nim c  -d:nimDebugDlOpen -d:release --outdir:tests/dll # Compiler/internal / reNimcCrash
-lib/nimrtl.nim c  -d:nimDebugDlOpen --mm:refc --outdir:tests/dll # Compiler/internal / reNimcCrash
-lib/nimrtl.nim c  -d:nimDebugDlOpen --outdir:tests/dll # Compiler/internal / reNimcCrash
 tests/align/talign.nim c --mm:orc # Unclassified / reCodeNotFound
 tests/align/talign.nim c --mm:refc -d:useGcAssert -d:useSysAssert # Unclassified / reCodeNotFound
-tests/arc/t16458.nim c --gc:orc --d:useNimRtl # Linker/nimrtl / reNimcCrash
 tests/arc/tasyncleak.nim c # Memory/count / reOutputsDiffer
 tests/arc/thard_alignment.nim c # Linker / reNimcCrash
 tests/assert/t21195.nim c --verbosity:0 --os:standalone --mm:none # Compiler/error / reNimcCrash
@@ -50,7 +45,7 @@ tests/coroutines/tgc.nim c --gc:refc # Runtime Crash / reExitcodesDiffer
 tests/coroutines/twait.nim c --gc:arc # Runtime Crash / reExitcodesDiffer
 tests/coroutines/twait.nim c --gc:orc # Runtime Crash / reExitcodesDiffer
 tests/coroutines/twait.nim c --gc:refc # Runtime Crash / reExitcodesDiffer
-tests/cpp/t10148.nim c # Linker / reNimcCrash
+tests/cpp/t10148.nim c # Compiler/error / reNimcCrash
 tests/cpp/t22679.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/cpp/t22680.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/cpp/t23962.nim c # Linker / reNimcCrash
@@ -62,21 +57,6 @@ tests/destructor/t23837.nim c --cursorinference:off # Pragmas/{.emit.} / reNimcC
 tests/destructor/t23837.nim c --cursorinference:on # Pragmas/{.emit.} / reNimcCrash
 tests/destructor/tcycle3.nim c # Runtime Crash / reExitcodesDiffer
 tests/destructor/tv2_raise.nim c # Memory/leak / reExitcodesDiffer
-tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:on # Linker/nimrtl / reNimcCrash
-tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:on # Linker/nimrtl / reNimcCrash
-tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --threads:on # Linker/nimrtl / reNimcCrash
-tests/dll/client.nim c  -d:nimDebugDlOpen --gc:boehm --threads:on # Linker/nimrtl / reNimcCrash
-tests/dll/client.nim c  -d:nimDebugDlOpen --mm:refc --threads:on # Linker/nimrtl / reNimcCrash
-tests/dll/client.nim c  -d:nimDebugDlOpen --threads:on # Linker/nimrtl / reNimcCrash
-tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off --forceBuild --hotCodeReloading:on # Linker/nimrtl / reNimcCrash
-tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen --mm:refc --threads:off --forceBuild --hotCodeReloading:on # Linker/nimrtl / reNimcCrash
-tests/dll/nimhcr_basic.nim c  -d:nimDebugDlOpen --threads:off --forceBuild --hotCodeReloading:on # Linker/nimrtl / reNimcCrash
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:off # Linker/nimrtl / reNimcCrash
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off # Linker/nimrtl / reNimcCrash
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen -d:release --threads:off # Linker/nimrtl / reNimcCrash
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --gc:boehm --threads:off # Linker/nimrtl / reNimcCrash
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --mm:refc --threads:off # Linker/nimrtl / reNimcCrash
-tests/dll/nimhcr_unit.nim c  -d:nimDebugDlOpen --threads:off # Linker/nimrtl / reNimcCrash
 tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --gc:boehm --threads:off # Unclassified / reOutputsDiffer
 tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off # Unclassified / reOutputsDiffer
 tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --threads:off # Unclassified / reOutputsDiffer
@@ -99,6 +79,7 @@ tests/exception/t22469.nim c # Compiler/error / reOutputsDiffer
 tests/exception/tunhandledexc.nim c # Compiler/error / reOutputsDiffer
 tests/float/tfloat3.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/float/tfloats.nim c # Assertion / reExitcodesDiffer
+tests/gc/closureleak c  -d:release -d:useRealtimeGC --mm:refc # Unclassified / reOutputsDiffer
 tests/gc/thavlak c  -d:release --gc:markAndSweep # Compiler/error / reExitcodesDiffer
 tests/generics/tforwardgeneric.nim c # Unclassified / reCodeNotFound
 tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
@@ -128,6 +109,7 @@ tests/misc/t19046.nim c --threads:on # Linker / reNimcCrash
 tests/misc/t23240.nim c # Unclassified / reMsgsDiffer
 tests/misc/t9710.nim c --debugger:native # Compiler/internal / reNimcCrash
 tests/misc/tapp_lib_staticlib.nim c # Runtime Crash / reExitcodesDiffer
+tests/misc/tcast.nim c # Linker / reNimcCrash
 tests/misc/tjoinable.nim c # Assertion / reExitcodesDiffer
 tests/misc/tnoforward.nim c # Compiler/error / reNimcCrash
 tests/misc/trunner.nim c # Assertion / reExitcodesDiffer
@@ -143,7 +125,6 @@ tests/newconfig/tfoo.nim c # Unclassified / reExeNotFound
 tests/nimdoc/t15916.nim c # Compiler/error / reNimcCrash
 tests/nimdoc/t17615.nim c # Unclassified / reMsgsDiffer
 tests/nimdoc/trunnableexamples.nim c # Compiler/error / reNimcCrash
-tests/niminaction/Chapter8/sdl/sdl_test.nim c # Linker / reNimcCrash
 tests/osproc/treadlines.nim c # LLVM IR / reOutputsDiffer
 tests/overflow/toverflow.nim c --overflowChecks:off # Assertion / reExitcodesDiffer
 tests/overflow/toverflow_reorder.nim c # Assertion / reExitcodesDiffer
@@ -153,7 +134,6 @@ tests/pragmas/tbitsize.nim c # Assertion / reExitcodesDiffer
 tests/pragmas/tnoreturn.nim c --mm:refc # Unclassified / reCodeNotFound
 tests/pragmas/tpush.nim c # Compiler/error / reExitcodesDiffer
 tests/pragmas/treorder.nim c # Compiler/error / reNimcCrash
-tests/realtimeGC/tmain.nim c # Linker / reNimcCrash
 tests/stdlib/tmath.nim c # Assertion / reExitcodesDiffer
 tests/stdlib/tmath.nim c -d:danger # Assertion / reExitcodesDiffer
 tests/stdlib/tmath.nim c --mm:refc # Assertion / reExitcodesDiffer

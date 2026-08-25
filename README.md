@@ -26,7 +26,6 @@ Jacek Sieka (arnetheduck on gmail point com)
   - [Pipeline](#pipeline)
   - [Compiling C/C++ code with `nlvm cc`](#compiling-cc-code)
   - [Porting guide](#porting-guide)
-    - [dynlib](#dynlib)
     - [{.header.}](#header)
     - [{.emit.}](#emit)
     - [{.asm.}](#asm)
@@ -114,8 +113,7 @@ Start with a clone:
     git clone https://github.com/arnetheduck/nlvm.git --recurse-submodules
     cd nlvm
 
-We will need a few development libraries installed, mainly due to how `nlvm`
-processes library dependencies (see dynlib section below):
+We will need a few development libraries installed:
 
     # Fedora
     sudo dnf install pcre-devel openssl-devel sqlite-devel ninja-build cmake clang libzstd-devel
@@ -232,24 +230,6 @@ but results in slightly smaller and faster binaries. Notably, the
 each recompile.
 
 ## Porting guide
-
-### dynlib
-
-`nim` uses a runtime dynamic library loading scheme to gain access to shared
-libraries. When compiling, no linking is done - instead, when running your
-application, `nim` will try to open anything the user has installed.
-
-`nlvm` does not support the `{.dynlib.}` pragma - instead you can use
-`{.passL.}` using normal system linking.
-
-```nim
-# works with `nim` but not with `nlvm`
-proc f() {. importc, dynlib: "mylib" .}
-
-# works with both `nim` and `nlvm`
-{.passL: "-lmylib".}
-proc f() {. importc .}
-```
 
 ### {.header.}
 

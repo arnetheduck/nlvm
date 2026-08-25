@@ -362,6 +362,11 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
       (cpu, os) = parseTarget(tmp)
     conf.target.setTarget(os, cpu)
 
+  if conf.target.targetOS == osWindows:
+    # `mingw` links these "automatically" - no need for `dynlib`
+    for lib in ["gdi32", "comdlg32", "advapi32", "shell32", "user32", "kernel32"]:
+      conf.inclDynlibOverride(lib)
+
   mainCommand(graph)
 
   if conf.hasHint(hintGCStats):
