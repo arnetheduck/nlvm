@@ -103,6 +103,15 @@ proc processSwitch(
     return
 
   case switch.normalize
+  of "opt":
+    # Preserve an explicit optimization request for the eBPF pass pipeline;
+    # BPF otherwise defaults to O2 so unused Nim runtime code is removed.
+    case arg.normalize
+    of "none", "0": conf.setConfigVar("nlvm.ebpf.optimize", "0")
+    of "size": conf.setConfigVar("nlvm.ebpf.optimize", "size")
+    of "speed", "3": conf.setConfigVar("nlvm.ebpf.optimize", "speed")
+    else: discard
+    commands.processSwitch(switch, arg, pass, info, conf)
   of "version", "v":
     expectNoArg(conf, switch, arg, pass, info)
     writeVersionInfo(conf, pass)
@@ -350,17 +359,64 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
 
+  let configuredTarget = conf.configuredTriple()
+  if configuredTarget.isEbpfTriple():
+    # Nim does not have a BPF CPU entry. Use a matching 64-bit CPU only as a
+    # surrogate for pointer sizing and endianness while retaining the exact
+    # LLVM triple for code generation.
+    let sizingCpu =
+      if configuredTarget.toLowerAscii().split('-')[0] == "bpfeb":
+        cpuMips64
+      else:
+        cpuAmd64
+    # BPF programs run in the kernel, not in a hosted process. Use the neutral
+    # Nim OS profile to avoid selecting POSIX/runtime startup code.
+    conf.target.setTarget(osAny, sizingCpu)
+    # Nim's platform model has no 32-bit-int/64-bit-pointer BPF CPU. Keep the
+    # surrogate's internally consistent layout until a dedicated CPU is added.
+    unregisterArcOrc(conf)
+    for gcSymbol in [
+      "boehmgc", "gcrefc", "gcmarkandsweep", "gchooks", "gogc", "gcregions"
+    ]:
+      undefSymbol(conf.symbols, gcSymbol)
+    conf.selectedGC = gcNone
+    conf.exc = excNone
+    # The kernel has no Nim thread runtime or TLS support.
+    conf.globalOptions.excl {optThreads, optThreadAnalysis, optTlsEmulation}
+    # BPF cannot call into the Nim runtime — disable all checks that
+    # generate calls to raise / sysFatal / copyString / etc.
+    conf.options.excl {optOverflowCheck, optObjCheck, optFieldCheck,
+      optRangeCheck, optBoundsCheck, optAssert}
+    # Emit BTF by default; it carries the type information used by modern
+    # loaders for maps and global data.
+    incl conf.globalOptions, optCDebug
+    defineSymbol(conf.symbols, "ebpf")
+    defineSymbol(conf.symbols, "nogc")
+    defineSymbol(conf.symbols, "useMalloc")
+    incl conf.globalOptions, optNoLinking
+    incl conf.globalOptions, optNoMain
+    if conf.cmd in cmdBackends:
+      let
+        entry = conf.getConfigVar("nlvm.ebpf.entry", "")
+        section = conf.getConfigVar("nlvm.ebpf.section", "")
+      if entry.len == 0 or section.len == 0:
+        conf.internalError(
+          "eBPF compilation requires --nlvm.ebpf.entry and --nlvm.ebpf.section"
+        )
+      elif entry == section:
+        conf.internalError("eBPF entry name must differ from its ELF section name")
+  elif conf.existsConfigVar("nlvm.triple") or conf.existsConfigVar("nlvm.target"):
+    let (cpu, os) = parseTarget(configuredTarget)
+    # LLVM supports more architectures than Nim's platform table. Keep Nim's
+    # host sizing target for those triples and let LLVM validate/codegen them.
+    if cpu != cpuNone and os != osNone:
+      conf.target.setTarget(os, cpu)
+
   if conf.selectedGC == gcUnselected:
     initOrcDefines(conf)
 
   if conf.useBuiltinCC():
     conf.cCompiler = ccClang
-
-  if conf.existsConfigVar("nlvm.target"):
-    let
-      tmp = graph.config.getConfigVar("nlvm.target")
-      (cpu, os) = parseTarget(tmp)
-    conf.target.setTarget(os, cpu)
 
   if conf.target.targetOS == osWindows:
     # `mingw` links these "automatically" - no need for `dynlib`

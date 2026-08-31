@@ -131,6 +131,24 @@ proc toTriple*(conf: ConfigRef): string =
       conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccClang},
   )
 
+proc configuredTriple*(conf: ConfigRef): string =
+  ## Return an explicitly configured LLVM triple, or derive one from Nim's
+  ## CPU/OS settings. `nlvm.target` is retained as a backwards-compatible
+  ## spelling of `nlvm.triple`.
+  if conf.existsConfigVar("nlvm.triple"):
+    conf.getConfigVar("nlvm.triple")
+  elif conf.existsConfigVar("nlvm.target"):
+    conf.getConfigVar("nlvm.target")
+  else:
+    conf.toTriple()
+
+proc isEbpfTriple*(triple: string): bool =
+  let arch = triple.toLowerAscii().split('-')[0]
+  arch in ["bpf", "bpfel", "bpfeb"]
+
+proc isEbpfTarget*(conf: ConfigRef): bool =
+  conf.configuredTriple().isEbpfTriple()
+
 proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   ## Parse a target triple (or short triple) and return the corresponding
   ## `TSystemCPU` and `TSystemOS`. This attempts to recognize the same
@@ -155,6 +173,9 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   of "aarch64", "arm64":
     cpu = cpuArm64
   of "arm":
+    cpu = cpuArm
+  of "thumb", "thumbv6m", "thumbv7", "thumbv7m", "thumbv7em", "thumbv7e-m",
+      "thumbv8m.base", "thumbv8m.main":
     cpu = cpuArm
   of "powerpc64le", "ppc64le":
     cpu = cpuPowerpc64el
