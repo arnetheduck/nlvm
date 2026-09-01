@@ -13,13 +13,10 @@ nlvm specific options:
   --nlvm.target:triple      use a specific target triple, for example
                             arm-linux-gnueabihf or wasm32-unknown-unknown -
                             this will override --os: and --cpu:!
-  --nlvm.triple:triple      preferred spelling of --nlvm.target
-  --nlvm.ebpf.entry:name    exported Nim procedure to place in the eBPF program section
-  --nlvm.ebpf.section:name  ELF section for the eBPF program (for example xdp)
-  --nlvm.ebpf.license:text  optional license string; omitted means proprietary
-  --nlvm.ebpf.optimize:mode BPF optimization: 0, 2, size, or speed (default: 2)
-                            dynamic allocation and Nim exceptions are unsupported
-                            exported globals named ebpf_map_* are emitted in .maps
+  --nlvm.bpf.entry:name    exported Nim procedure to place in the eBPF program section
+  --nlvm.bpf.section:name  ELF section for the eBPF program (for example xdp)
+  --nlvm.bpf.license:text  optional license string; omitted means proprietary
+                            BPF defaults to --opt:size when no --opt flag is supplied
                             use fixed-width integer types for BPF ABI interfaces
                             global initializers must be compile-time constants
   --llvm-<opt>              pass opt to the llvm command line parser - see

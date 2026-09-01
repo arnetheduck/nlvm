@@ -4138,21 +4138,21 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   let
     t = g.llType(s.typ.skipTypes(abstractInst))
     v = g.m.addGlobal(t, name)
-    isEbpfMap =
-      g.config.isEbpfTarget() and sfExportc in s.flags and name.startsWith("ebpf_map_")
+    isBpfMap =
+      g.config.isBpfTarget() and sfExportc in s.flags and name.startsWith("bpf_map_")
 
   if sfImportc in s.flags:
     v.setLinkage(llvm.ExternalLinkage)
   elif sfExportc in s.flags:
     # Common linkage is not a valid definition for initialized BPF globals.
     # Keep exported BPF globals externally visible for loader/user access.
-    v.setLinkage(if g.config.isEbpfTarget(): llvm.ExternalLinkage else: g.tgtExportLinkage)
+    v.setLinkage(if g.config.isBpfTarget(): llvm.ExternalLinkage else: g.tgtExportLinkage)
     v.setInitializer(llvm.constNull(t))
   else:
     v.setLinkage(g.defaultGlobalLinkage())
     v.setInitializer(llvm.constNull(t))
 
-  if isEbpfMap:
+  if isBpfMap:
     # BPF map definitions are materialized in `.maps`. Keep them externally
     # visible so the optimizer cannot discard an otherwise unreferenced map.
     v.setLinkage(llvm.ExternalLinkage)
@@ -4165,7 +4165,7 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   if isConst:
     # A const map is still metadata consumed by the loader, not a discardable
     # constant. Keep it as a definition so it survives global DCE.
-    v.setGlobalConstant(if isEbpfMap: llvm.False else: llvm.True)
+    v.setGlobalConstant(if isBpfMap: llvm.False else: llvm.True)
 
   if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
     v.setAlignment(cuint s.alignment)
@@ -4963,17 +4963,17 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
   g.done.incl s.id
 
   let
-    entryName = g.config.getConfigVar("nlvm.ebpf.entry", "")
-    isEbpfEntry =
-      g.config.isEbpfTarget() and
+    entryName = g.config.getConfigVar("nlvm.bpf.entry", "")
+    isBpfEntry =
+      g.config.isBpfTarget() and
       {sfExportc, sfCompilerProc} * s.flags == {sfExportc} and
       sfMainModule in getModule(s).flags and
       entryName.len > 0 and g.llName(s) == entryName
 
-  if isEbpfEntry:
-    result.v.setSection(g.config.getConfigVar("nlvm.ebpf.section", ""))
+  if isBpfEntry:
+    result.v.setSection(g.config.getConfigVar("nlvm.bpf.section", ""))
 
-  if sfExportc notin s.flags or (g.config.isEbpfTarget() and not isEbpfEntry):
+  if sfExportc notin s.flags or (g.config.isBpfTarget() and not isBpfEntry):
     # Because we generate only one module, we can tag all functions internal,
     # except those that should be importable from c
     # compilerproc are marker exportc to get a stable name, but it doesn't seem
@@ -6450,7 +6450,7 @@ proc genSingleVar(g: LLGen, v: PSym, vn, value: PNode) =
       let
         isConstInit = g.f.withinLoop == 0 and value.isDeepConstExprLL()
         isConst = isConstInit and v.kind == skLet
-      if g.config.isEbpfTarget() and value.kind != nkEmpty and not isConstInit:
+      if g.config.isBpfTarget() and value.kind != nkEmpty and not isConstInit:
         g.config.internalError(
           vn.info, "eBPF global initializers must be compile-time constants"
         )
@@ -10691,20 +10691,22 @@ proc runOptimizers(g: LLGen) =
       of LtoKind.Full:
         "lto-pre-link"
     level =
-      if g.config.isEbpfTarget():
+      if g.config.isBpfTarget():
         # The Nim system module is present while lowering, but must be dead
-        # stripped before BPF instruction selection. Allow an explicit override
-        # through --nlvm.ebpf.optimize (0, 2, size, or speed).
-        case g.config.getConfigVar("nlvm.ebpf.optimize", "2").normalize:
-        of "0", "none": "<O0>"
-        of "size": "<Os>"
-        of "speed", "3": "<O3>"
-        of "2": "<O2>"
+        # stripped before BPF instruction selection. BPF defaults to size
+        # optimization unless the user supplies the normal --opt option.
+        if g.config.existsConfigVar("nlvm.bpf.opt"):
+          case g.config.getConfigVar("nlvm.bpf.opt").normalize:
+          of "none": "<O0>"
+          of "size": "<Os>"
+          of "speed": "<O3>"
+          else:
+            g.config.internalError(
+              "invalid --opt value (expected none, size, or speed)"
+            )
+            "<Os>"
         else:
-          g.config.internalError(
-            "invalid --nlvm.ebpf.optimize value (expected 0, 2, size, or speed)"
-          )
-          "<O2>"
+          "<Os>"
       elif optOptimizeSize in g.config.options:
         "<Os>"
       elif optOptimizeSpeed in g.config.options:
@@ -10721,8 +10723,8 @@ proc runOptimizers(g: LLGen) =
 
   disposePassBuilderOptions(options)
 
-proc checkEbpfRuntimeImports(g: LLGen) =
-  if not g.config.isEbpfTarget():
+proc checkBpfRuntimeImports(g: LLGen) =
+  if not g.config.isBpfTarget():
     return
 
   var f = g.m.getFirstFunction()
@@ -10747,11 +10749,11 @@ proc writeOutput(g: LLGen, project: string) =
   let outFile = g.config.getOutFile(g.config.outFile, ext)
 
   g.runOptimizers()
-  g.checkEbpfRuntimeImports()
+  g.checkBpfRuntimeImports()
 
   var err: cstring
-  if g.config.isEbpfTarget() and g.m.getNamedGlobal("LICENSE") == nil:
-    let license = g.config.getConfigVar("nlvm.ebpf.license", "")
+  if g.config.isBpfTarget() and g.m.getNamedGlobal("LICENSE") == nil:
+    let license = g.config.getConfigVar("nlvm.bpf.license", "")
     if license.len > 0:
       let
         init = g.lc.constStringInContext(license)
@@ -10964,7 +10966,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
           discard g.b.buildRetVoid()
         g.finalize()
 
-    if g.config.isEbpfTarget():
+    if g.config.isBpfTarget():
       # eBPF has no process startup hook. Keeping module init functions would
       # retain Nim runtime/TLS code that the BPF backend cannot select.
       g.init.f.deleteFunction()
@@ -10992,7 +10994,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   for m in g.gcRoots:
     g.genGcRegistrar(m.sym, m.v)
 
-  if not g.config.isEbpfTarget():
+  if not g.config.isBpfTarget():
     g.genMain()
 
   if not g.registrar.isNil:
@@ -11003,7 +11005,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
 
       g.finalize()
 
-  if g.ctors.len > 0 and not g.config.isEbpfTarget():
+  if g.ctors.len > 0 and not g.config.isBpfTarget():
     let
       ctorsInit =
         g.ctors.mapIt(g.lc.constStructInContext([g.constInt32(65535), it, g.nullPtr]))
@@ -11014,12 +11016,12 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     ctors.setLinkage(llvm.AppendingLinkage)
     ctors.setInitializer(llvm.constArray(ctorsType, ctorsInit))
 
-  if not g.config.isEbpfTarget():
+  if not g.config.isBpfTarget():
     g.loadBase()
   else:
     let
-      entryName = g.config.getConfigVar("nlvm.ebpf.entry", "")
-      sectionName = g.config.getConfigVar("nlvm.ebpf.section", "")
+      entryName = g.config.getConfigVar("nlvm.bpf.entry", "")
+      sectionName = g.config.getConfigVar("nlvm.bpf.section", "")
       entry = g.m.getNamedFunction(entryName)
     if entry == nil or entry.countBasicBlocks() == 0 or $entry.getSection() != sectionName:
       g.config.internalError(
@@ -11095,15 +11097,15 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
 
         parseCommandLineOptions(llvmArgs.len.cint, arr, "")
 
-    if graph.config.isEbpfTarget():
+    if graph.config.isBpfTarget():
       # Kernel loaders consume ELF objects rather than LLVM LTO bitcode.
       lto = LtoKind.None
 
-    # If `--nlvm.triple` is set, use that - otherwise, try to construct a triple
+    # If `--nlvm.target` is set, use that - otherwise, try to construct a triple
     # from cpu/os options.
     #
     # `--nlvm.abi` allows adding an ABI tag, like `musl`, in that case.
-    let target = normalizeTargetTriple(graph.config.configuredTriple())
+    let target = normalizeTargetTriple(graph.config.targetTriple())
 
     if graph.config.target.hostOS != graph.config.target.targetOS or
         graph.config.target.hostCPU != graph.config.target.targetCPU:
@@ -11134,7 +11136,7 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
     # https://stackoverflow.com/q/43367427
     let
       reloc =
-        if target.isEbpfTriple():
+        if target.isBpfTriple():
           llvm.RelocDefault
         else:
           llvm.RelocPIC

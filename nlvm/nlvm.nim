@@ -104,13 +104,9 @@ proc processSwitch(
 
   case switch.normalize
   of "opt":
-    # Preserve an explicit optimization request for the eBPF pass pipeline;
-    # BPF otherwise defaults to O2 so unused Nim runtime code is removed.
-    case arg.normalize
-    of "none", "0": conf.setConfigVar("nlvm.ebpf.optimize", "0")
-    of "size": conf.setConfigVar("nlvm.ebpf.optimize", "size")
-    of "speed", "3": conf.setConfigVar("nlvm.ebpf.optimize", "speed")
-    else: discard
+    # Remember whether the user explicitly selected an optimization mode. BPF
+    # defaults to size optimization only when no --opt flag was supplied.
+    conf.setConfigVar("nlvm.bpf.opt", arg.normalize)
     commands.processSwitch(switch, arg, pass, info, conf)
   of "version", "v":
     expectNoArg(conf, switch, arg, pass, info)
@@ -359,8 +355,8 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
 
-  let configuredTarget = conf.configuredTriple()
-  if configuredTarget.isEbpfTriple():
+  let configuredTarget = conf.targetTriple()
+  if configuredTarget.isBpfTriple():
     # Nim does not have a BPF CPU entry. Use a matching 64-bit CPU only as a
     # surrogate for pointer sizing and endianness while retaining the exact
     # LLVM triple for code generation.
@@ -394,15 +390,15 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
     incl conf.globalOptions, optNoMain
     if conf.cmd in cmdBackends:
       let
-        entry = conf.getConfigVar("nlvm.ebpf.entry", "")
-        section = conf.getConfigVar("nlvm.ebpf.section", "")
+        entry = conf.getConfigVar("nlvm.bpf.entry", "")
+        section = conf.getConfigVar("nlvm.bpf.section", "")
       if entry.len == 0 or section.len == 0:
         conf.internalError(
-          "eBPF compilation requires --nlvm.ebpf.entry and --nlvm.ebpf.section"
+          "eBPF compilation requires --nlvm.bpf.entry and --nlvm.bpf.section"
         )
       elif entry == section:
         conf.internalError("eBPF entry name must differ from its ELF section name")
-  elif conf.existsConfigVar("nlvm.triple") or conf.existsConfigVar("nlvm.target"):
+  elif conf.existsConfigVar("nlvm.target"):
     let (cpu, os) = parseTarget(configuredTarget)
     # LLVM supports more architectures than Nim's platform table. Keep Nim's
     # host sizing target for those triples and let LLVM validate/codegen them.

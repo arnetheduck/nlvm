@@ -131,23 +131,20 @@ proc toTriple*(conf: ConfigRef): string =
       conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccClang},
   )
 
-proc configuredTriple*(conf: ConfigRef): string =
-  ## Return an explicitly configured LLVM triple, or derive one from Nim's
-  ## CPU/OS settings. `nlvm.target` is retained as a backwards-compatible
-  ## spelling of `nlvm.triple`.
-  if conf.existsConfigVar("nlvm.triple"):
-    conf.getConfigVar("nlvm.triple")
-  elif conf.existsConfigVar("nlvm.target"):
+proc targetTriple*(conf: ConfigRef): string =
+  ## Return the explicitly configured `nlvm.target` triple, or derive one from
+  ## Nim's CPU/OS settings.
+  if conf.existsConfigVar("nlvm.target"):
     conf.getConfigVar("nlvm.target")
   else:
     conf.toTriple()
 
-proc isEbpfTriple*(triple: string): bool =
+proc isBpfTriple*(triple: string): bool =
   let arch = triple.toLowerAscii().split('-')[0]
   arch in ["bpf", "bpfel", "bpfeb"]
 
-proc isEbpfTarget*(conf: ConfigRef): bool =
-  conf.configuredTriple().isEbpfTriple()
+proc isBpfTarget*(conf: ConfigRef): bool =
+  conf.targetTriple().isBpfTriple()
 
 proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   ## Parse a target triple (or short triple) and return the corresponding
