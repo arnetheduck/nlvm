@@ -4163,8 +4163,8 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   g.debugGlobal(s, v)
 
   if isConst:
-    # A const map is still metadata consumed by the loader, not a discardable
-    # constant. Keep it as a definition so it survives global DCE.
+    # Map definitions are loader metadata. Keep a BPF map section writable even
+    # when the source uses a global `let`; LLVM otherwise emits it read-only.
     v.setGlobalConstant(if isBpfMap: llvm.False else: llvm.True)
 
   if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
