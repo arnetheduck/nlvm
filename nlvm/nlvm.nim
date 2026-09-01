@@ -387,9 +387,6 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
     # generate calls to raise / sysFatal / copyString / etc.
     conf.options.excl {optOverflowCheck, optObjCheck, optFieldCheck,
       optRangeCheck, optBoundsCheck, optAssert}
-    # Emit BTF by default; it carries the type information used by modern
-    # loaders for maps and global data.
-    incl conf.globalOptions, optCDebug
     defineSymbol(conf.symbols, "bpf")
     defineSymbol(conf.symbols, "nogc")
     defineSymbol(conf.symbols, "useMalloc")
