@@ -134,12 +134,13 @@ proc toTriple*(conf: ConfigRef): string =
       conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccClang},
   )
 
-proc isBpfTriple*(triple: string): bool =
-  let arch = triple.toLowerAscii().split('-')[0]
-  arch in ["bpf", "bpfel", "bpfeb"]
+proc isBpfCpu*(cpu: TSystemCPU): bool =
+  cpu in {cpuBpf, cpuBpfel, cpuBpfeb}
 
 proc isBpfTarget*(conf: ConfigRef): bool =
-  conf.toTriple().isBpfTriple()
+  ## BPF is selected either with `--cpu:bpf|bpfel|bpfeb` or with a BPF
+  ## `--nlvm.target` triple.
+  conf.target.targetCPU.isBpfCpu()
 
 proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   ## Parse a target triple (or short triple) and return the corresponding
@@ -312,6 +313,9 @@ when isMainModule:
     (cpuRiscV64, osLinux, ""),
     (cpuPowerpc64el, osLinux, ""),
     (cpuMips64el, osLinux, ""),
+    (cpuBpf, osAny, ""),
+    (cpuBpfel, osAny, ""),
+    (cpuBpfeb, osAny, ""),
   ]
 
   for c in cases:

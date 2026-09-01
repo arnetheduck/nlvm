@@ -355,15 +355,18 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
 
-  let configuredTarget =
-    if conf.existsConfigVar("nlvm.target"): conf.getConfigVar("nlvm.target") else: conf.toTriple()
-  if configuredTarget.isBpfTriple():
-    let (bpfCpu, _) = parseTarget(configuredTarget)
-    if bpfCpu == cpuNone:
-      conf.internalError("Unsupported BPF CPU in target " & configuredTarget)
-    # BPF programs run in the kernel, not in a hosted process. Use Nim's
-    # standalone OS profile while the BPF CPU supplies the correct layout.
-    conf.target.setTarget(osStandalone, bpfCpu)
+  if conf.existsConfigVar("nlvm.target"):
+    let (cpu, os) = parseTarget(conf.getConfigVar("nlvm.target"))
+    # LLVM supports more architectures than Nim's platform table - for those,
+    # keep whatever target was selected on the command line and let LLVM
+    # validate the triple during code generation.
+    if cpu != cpuNone and os != osNone:
+      conf.target.setTarget(os, cpu)
+
+  if conf.target.targetCPU.isBpfCpu():
+    # BPF programs run in the kernel, not in a hosted process: they get no
+    # process startup, no libc and no libc-provided runtime.
+    conf.target.setTarget(osStandalone, conf.target.targetCPU)
     unregisterArcOrc(conf)
     for gcSymbol in [
       "boehmgc", "gcrefc", "gcmarkandsweep", "gchooks", "gogc", "gcregions"
@@ -388,16 +391,10 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
         section = conf.getConfigVar("nlvm.bpf.section", "")
       if entry.len == 0 or section.len == 0:
         conf.internalError(
-          "eBPF compilation requires --nlvm.bpf.entry and --nlvm.bpf.section"
+          "BPF compilation requires --nlvm.bpf.entry and --nlvm.bpf.section"
         )
       elif entry == section:
-        conf.internalError("eBPF entry name must differ from its ELF section name")
-  elif conf.existsConfigVar("nlvm.target"):
-    let (cpu, os) = parseTarget(configuredTarget)
-    # LLVM supports more architectures than Nim's platform table. Keep Nim's
-    # host sizing target for those triples and let LLVM validate/codegen them.
-    if cpu != cpuNone and os != osNone:
-      conf.target.setTarget(os, cpu)
+        conf.internalError("The BPF entry name must differ from its ELF section name")
 
   if conf.selectedGC == gcUnselected:
     initOrcDefines(conf)

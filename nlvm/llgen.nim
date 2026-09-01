@@ -6452,7 +6452,7 @@ proc genSingleVar(g: LLGen, v: PSym, vn, value: PNode) =
         isConst = isConstInit and v.kind == skLet
       if g.config.isBpfTarget() and value.kind != nkEmpty and not isConstInit:
         g.config.internalError(
-          vn.info, "eBPF global initializers must be compile-time constants"
+          vn.info, "BPF global initializers must be compile-time constants"
         )
       let tmp = g.genGlobal(vn, isConst)
 
@@ -10733,7 +10733,7 @@ proc checkBpfRuntimeImports(g: LLGen) =
         "malloc", "calloc", "realloc", "free", "memalign", "posix_memalign",
         "memcpy", "memmove", "memset"]:
       g.config.internalError(
-        "eBPF programs cannot use Nim runtime function '" & $f.getValueName & "'"
+        "BPF programs cannot use Nim runtime function '" & $f.getValueName & "'"
       )
     f = f.getNextFunction()
 
@@ -10967,7 +10967,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
         g.finalize()
 
     if g.config.isBpfTarget():
-      # eBPF has no process startup hook. Keeping module init functions would
+      # BPF has no process startup hook. Keeping module init functions would
       # retain Nim runtime/TLS code that the BPF backend cannot select.
       g.init.f.deleteFunction()
       if sfSystemModule in s.flags:
@@ -11025,7 +11025,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
       entry = g.m.getNamedFunction(entryName)
     if entry == nil or entry.countBasicBlocks() == 0 or $entry.getSection() != sectionName:
       g.config.internalError(
-        "eBPF entry '" & entryName & "' was not found as an exported main-module procedure"
+        "BPF entry '" & entryName & "' was not found as an exported main-module procedure"
       )
 
   if g.d != nil:
@@ -11136,7 +11136,7 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
     # https://stackoverflow.com/q/43367427
     let
       reloc =
-        if target.isBpfTriple():
+        if graph.config.isBpfTarget():
           llvm.RelocDefault
         else:
           llvm.RelocPIC

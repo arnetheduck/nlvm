@@ -13,14 +13,20 @@ nlvm specific options:
   --nlvm.target:triple      use a specific target triple, for example
                             arm-linux-gnueabihf or wasm32-unknown-unknown -
                             this will override --os: and --cpu:!
-  --nlvm.bpf.entry:name    exported Nim procedure to place in the eBPF program section
-  --nlvm.bpf.section:name  ELF section for the eBPF program (for example xdp)
-  --nlvm.bpf.license:text  optional license string; omitted means proprietary
-                            BPF defaults to --opt:size when no --opt flag is supplied
-                            use fixed-width integer types for BPF ABI interfaces
-                            global initializers must be compile-time constants
+  --nlvm.bpf.entry:name     exported Nim procedure to place in the BPF
+                            program section (required to build BPF programs)
+  --nlvm.bpf.section:name   ELF section the BPF program is placed in, for
+                            example xdp (must differ from the entry name)
+  --nlvm.bpf.license:text   license string for the `license` ELF section, for
+                            example GPL; omitted means proprietary
   --llvm-<opt>              pass opt to the llvm command line parser - see
                             --llvm-help for available options
+
+  BPF targets are selected with --cpu:bpf|bpfel|bpfeb or with a matching
+  --nlvm.target triple. Compiling one requires --nlvm.bpf.entry and
+  --nlvm.bpf.section, defaults to --opt:size when no --opt flag is given,
+  expects fixed-width integer types for the BPF ABI and requires global
+  initializers to be compile-time constants.
 
 Options:
   -p, --path:PATH           add path to search paths
