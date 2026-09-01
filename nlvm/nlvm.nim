@@ -355,21 +355,15 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
 
-  let configuredTarget = conf.targetTriple()
+  let configuredTarget =
+    if conf.existsConfigVar("nlvm.target"): conf.getConfigVar("nlvm.target") else: conf.toTriple()
   if configuredTarget.isBpfTriple():
-    # Nim does not have a BPF CPU entry. Use a matching 64-bit CPU only as a
-    # surrogate for pointer sizing and endianness while retaining the exact
-    # LLVM triple for code generation.
-    let sizingCpu =
-      if configuredTarget.toLowerAscii().split('-')[0] == "bpfeb":
-        cpuMips64
-      else:
-        cpuAmd64
-    # BPF programs run in the kernel, not in a hosted process. Use the neutral
-    # Nim OS profile to avoid selecting POSIX/runtime startup code.
-    conf.target.setTarget(osAny, sizingCpu)
-    # Nim's platform model has no 32-bit-int/64-bit-pointer BPF CPU. Keep the
-    # surrogate's internally consistent layout until a dedicated CPU is added.
+    let (bpfCpu, _) = parseTarget(configuredTarget)
+    if bpfCpu == cpuNone:
+      conf.internalError("Unsupported BPF CPU in target " & configuredTarget)
+    # BPF programs run in the kernel, not in a hosted process. Use Nim's
+    # standalone OS profile while the BPF CPU supplies the correct layout.
+    conf.target.setTarget(osStandalone, bpfCpu)
     unregisterArcOrc(conf)
     for gcSymbol in [
       "boehmgc", "gcrefc", "gcmarkandsweep", "gchooks", "gogc", "gcregions"

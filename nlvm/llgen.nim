@@ -11105,7 +11105,7 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
     # from cpu/os options.
     #
     # `--nlvm.abi` allows adding an ABI tag, like `musl`, in that case.
-    let target = normalizeTargetTriple(graph.config.targetTriple())
+    let target = normalizeTargetTriple(graph.config.toTriple())
 
     if graph.config.target.hostOS != graph.config.target.targetOS or
         graph.config.target.hostCPU != graph.config.target.targetCPU:

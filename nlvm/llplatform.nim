@@ -39,6 +39,9 @@ proc toLLVMArch*(cpu: TSystemCPU): string =
   of cpuJS: "js"
   of cpuNimVM: "nimvm"
   of cpuMSP430: "msp430"
+  of cpuBpf: "bpf"
+  of cpuBpfel: "bpfel"
+  of cpuBpfeb: "bpfeb"
 
 proc toTriple*(
     t: Target,
@@ -131,20 +134,12 @@ proc toTriple*(conf: ConfigRef): string =
       conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccClang},
   )
 
-proc targetTriple*(conf: ConfigRef): string =
-  ## Return the explicitly configured `nlvm.target` triple, or derive one from
-  ## Nim's CPU/OS settings.
-  if conf.existsConfigVar("nlvm.target"):
-    conf.getConfigVar("nlvm.target")
-  else:
-    conf.toTriple()
-
 proc isBpfTriple*(triple: string): bool =
   let arch = triple.toLowerAscii().split('-')[0]
   arch in ["bpf", "bpfel", "bpfeb"]
 
 proc isBpfTarget*(conf: ConfigRef): bool =
-  conf.targetTriple().isBpfTriple()
+  conf.toTriple().isBpfTriple()
 
 proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   ## Parse a target triple (or short triple) and return the corresponding
@@ -165,6 +160,12 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   case archTok
   of "x86_64", "amd64":
     cpu = cpuAmd64
+  of "bpf":
+    cpu = cpuBpf
+  of "bpfel":
+    cpu = cpuBpfel
+  of "bpfeb":
+    cpu = cpuBpfeb
   of "i386", "i486", "i586", "i686":
     cpu = cpuI386
   of "aarch64", "arm64":
