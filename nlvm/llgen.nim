@@ -4950,7 +4950,8 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
     return
   g.done.incl s.id
 
-  if sfExportc notin s.flags:
+  if {sfExportc, sfCompilerProc} * s.flags != {sfExportc} and
+      lfExportLib notin s.loc.flags:
     # Because we generate only one module, we can tag all functions internal,
     # except those that should be importable from c
     # compilerproc are marker exportc to get a stable name, but it doesn't seem
