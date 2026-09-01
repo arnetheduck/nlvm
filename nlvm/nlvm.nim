@@ -390,7 +390,7 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
     # Emit BTF by default; it carries the type information used by modern
     # loaders for maps and global data.
     incl conf.globalOptions, optCDebug
-    defineSymbol(conf.symbols, "ebpf")
+    defineSymbol(conf.symbols, "bpf")
     defineSymbol(conf.symbols, "nogc")
     defineSymbol(conf.symbols, "useMalloc")
     incl conf.globalOptions, optNoLinking
