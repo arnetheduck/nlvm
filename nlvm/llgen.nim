@@ -4144,9 +4144,9 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   if sfImportc in s.flags:
     v.setLinkage(llvm.ExternalLinkage)
   elif sfExportc in s.flags:
-    # Common linkage is not a valid definition for initialized BPF globals.
-    # Keep exported BPF globals externally visible for loader/user access.
-    v.setLinkage(if g.config.isBpfTarget(): llvm.ExternalLinkage else: g.tgtExportLinkage)
+    v.setLinkage(
+      if lfDynamicLib in s.loc.flags: llvm.ExternalLinkage else: g.tgtExportLinkage
+    )
     v.setInitializer(llvm.constNull(t))
   else:
     v.setLinkage(g.defaultGlobalLinkage())
