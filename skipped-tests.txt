@@ -79,7 +79,6 @@ tests/exception/t22469.nim c # Compiler/error / reOutputsDiffer
 tests/exception/tunhandledexc.nim c # Compiler/error / reOutputsDiffer
 tests/float/tfloat3.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/float/tfloats.nim c # Assertion / reExitcodesDiffer
-tests/gc/closureleak c  -d:release -d:useRealtimeGC --mm:refc # Unclassified / reOutputsDiffer
 tests/gc/thavlak c  -d:release --gc:markAndSweep # Compiler/error / reExitcodesDiffer
 tests/generics/tforwardgeneric.nim c # Unclassified / reCodeNotFound
 tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash

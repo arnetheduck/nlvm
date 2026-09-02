@@ -4973,7 +4973,9 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
   if isBpfEntry:
     result.v.setSection(g.config.getConfigVar("nlvm.bpf.section", ""))
 
-  if sfExportc notin s.flags or (g.config.isBpfTarget() and not isBpfEntry):
+  if ((g.config.isBpfTarget() and not isBpfEntry) or
+      ({sfExportc, sfCompilerProc} * s.flags != {sfExportc} and
+       lfExportLib notin s.loc.flags)):
     # Because we generate only one module, we can tag all functions internal,
     # except those that should be importable from c
     # compilerproc are marker exportc to get a stable name, but it doesn't seem

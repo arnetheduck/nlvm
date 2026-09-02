@@ -78,12 +78,13 @@ jobs:
             make
             diffutils
             tar
+            unzip
             zip
           pacboy: >-
-            toolchain:p
+            clang:p
+            lld:p
             cmake:p
             ninja:p
-            gcc:p
       - uses: actions/checkout@v7
         with:
           submodules: recursive
@@ -96,7 +97,7 @@ jobs:
           echo "LD=clang++" >> $GITHUB_ENV
           echo "LLVM_VERSION=$(cat llvm/llvm.version)" >> $GITHUB_ENV
           echo "LLVM_COMMIT=$(cd llvm/llvm-project && git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "PATH=$PATH:$PWD/llvm-ming-20251216-ucrt-x86_64/bin >> $GITHUB_ENV"
+          echo "PATH=$PATH:$PWD >> $GITHUB_ENV"
 
       - name: Cache Nim DLLs (Windows)
         if: runner.os == 'Windows'
@@ -117,6 +118,7 @@ jobs:
         shell: pwsh
         run: |
           Expand-Archive -Path nim-dlls.zip -DestinationPath nim-dlls -Force
+          Copy-Item -Path nim-dlls\* -Destination "$Env:GITHUB_WORKSPACE\lib\nim" -Recurse -Force
           echo "$Env:GITHUB_WORKSPACE\nim-dlls" >> $Env:GITHUB_PATH
           echo "SSL_CERT_FILE=$Env:GITHUB_WORKSPACE\nim-dlls\cacert.pem" >> $Env:GITHUB_ENV
 
@@ -127,6 +129,9 @@ jobs:
           path: |
             llvm/sta
           key: llvm-${{ runner.os }}-${{ env.LLVM_COMMIT }}
+
+      - name: Set up llvm-mingw
+        run: ./dl-llvm-mingw-windows.sh
 
       - name: Set up llvm
         run: make STATIC_LLVM=1 prepare-llvm

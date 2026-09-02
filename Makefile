@@ -11,10 +11,14 @@ LLVM_PAT:=$(shell cat llvm/llvm.version | cut -f3 -d.)
 # Extension for executables on Windows
 ifeq ($(OS),Windows_NT)
 EXE := .exe
+SKIP := -win
 LLVM_DLL := llvm/sha/bin/libLLVM-$(LLVM_MAJ).dll
 STATIC_OPT := -DLLVM_BUILD_STATIC=1 -DLIBCLANG_BUILD_STATIC=1
+# The shared build seems to have trouble with C++ - skip it for now (TODO)
+STATIC_LLVM := 1
 else
 EXE :=
+SKIP :=
 LLVM_DLL := llvm/sha/lib/libLLVM.so.$(LLVM_MAJ).$(LLVM_MIN)
 
 # Fully static compilation of `nlvm` itself not supported (yet? patches welcome)
@@ -35,7 +39,8 @@ else
 	NLVMCFLAGS?=
 endif
 
-export PATH := $(PWD)/$(LLVM_OUT)/bin:$(PATH)
+# On windows, we expect to find the nim DLL dependencies in lib/nim
+export PATH := $(PWD)/$(LLVM_OUT)/bin:$(PWD)/lib/nim:$(PATH)
 
 .PHONY: all
 all: $(NLVMC)
@@ -79,11 +84,11 @@ compare: nlvm/nlvm.self.ll nlvm/nlvm.ll
 	diff -u nlvm/nlvm.self.ll nlvm/nlvm.ll
 
 lib/nim/testament/testament$(EXE): $(NIMC) lib/nim/testament/*.nim
-	$(NIMC) -d:release c lib/nim/testament/testament
+	$(NIMC) -d:release --cc:clang c lib/nim/testament/testament
 
 .PHONY: run-testament run-testament-noskip
 run-testament: $(NLVMR) lib/nim/testament/testament$(EXE)
-	cd lib/nim; time testament/testament --megatest:off --targets:c "--nim:../../nlvm/nlvmr" --skipFrom:../../skipped-tests.txt all
+	cd lib/nim; time testament/testament --megatest:off --targets:c "--nim:../../nlvm/nlvmr" --skipFrom:../../skipped-tests$(SKIP).txt all
 
 run-testament-noskip: $(NLVMR) lib/nim/testament/testament$(EXE)
 	-cd lib/nim; time testament/testament --megatest:off --targets:c "--nim:../../nlvm/nlvmr" all
@@ -97,7 +102,7 @@ test: run-testament
 update-skipped: run-testament-noskip
 	@-jq -s '[.[][]|select(.result != "reSuccess" and .result != "reDisabled")]' lib/nim/testresults/*.json \
 	  | jq -f classify-errors.jq \
-	  | jq -r '.[] | "\(.name) # \(.classification) / \(.result)"' | sort > skipped-tests.txt
+	  | jq -r '.[] | "\(.name) # \(.classification) / \(.result)"' | sort > skipped-tests$(SKIP).txt
 	@-make stats
 
 .PHONY: badeggs.json
