@@ -325,9 +325,9 @@ proc initializeARMTargetInfo*() {.
   importc: "LLVMInitializeARMTargetInfo", dynlib: LLVMLib
 .}
 
-# proc initializeBPFTargetInfo*() {.
-#   importc: "LLVMInitializeBPFTargetInfo", dynlib: LLVMLib
-# .}
+proc initializeBPFTargetInfo*() {.
+  importc: "LLVMInitializeBPFTargetInfo", dynlib: LLVMLib
+.}
 
 # proc initializeHexagonTargetInfo*() {.
 #   importc: "LLVMInitializeHexagonTargetInfo", dynlib: LLVMLib
@@ -382,7 +382,7 @@ proc initializeAArch64Target*() {.
 # .}
 
 proc initializeARMTarget*() {.importc: "LLVMInitializeARMTarget", dynlib: LLVMLib.}
-# proc initializeBPFTarget*() {.importc: "LLVMInitializeBPFTarget", dynlib: LLVMLib.}
+proc initializeBPFTarget*() {.importc: "LLVMInitializeBPFTarget", dynlib: LLVMLib.}
 # proc initializeHexagonTarget*() {.
 #   importc: "LLVMInitializeHexagonTarget", dynlib: LLVMLib
 # .}
@@ -418,7 +418,7 @@ proc initializeAArch64TargetMC*() {.
 # .}
 
 proc initializeARMTargetMC*() {.importc: "LLVMInitializeARMTargetMC", dynlib: LLVMLib.}
-# proc initializeBPFTargetMC*() {.importc: "LLVMInitializeBPFTargetMC", dynlib: LLVMLib.}
+proc initializeBPFTargetMC*() {.importc: "LLVMInitializeBPFTargetMC", dynlib: LLVMLib.}
 # proc initializeHexagonTargetMC*() {.
 #   importc: "LLVMInitializeHexagonTargetMC", dynlib: LLVMLib
 # .}
@@ -472,9 +472,9 @@ proc initializeARMAsmPrinter*() {.
   importc: "LLVMInitializeARMAsmPrinter", dynlib: LLVMLib
 .}
 
-# proc initializeBPFAsmPrinter*() {.
-#   importc: "LLVMInitializeBPFAsmPrinter", dynlib: LLVMLib
-# .}
+proc initializeBPFAsmPrinter*() {.
+  importc: "LLVMInitializeBPFAsmPrinter", dynlib: LLVMLib
+.}
 
 # proc initializeHexagonAsmPrinter*() {.
 #   importc: "LLVMInitializeHexagonAsmPrinter", dynlib: LLVMLib
@@ -632,7 +632,7 @@ proc initializeAllTargetInfos*() {.inline.} =
   initializeAArch64TargetInfo()
   # initializeAMDGPUTargetInfo()
   initializeARMTargetInfo()
-  # initializeBPFTargetInfo()
+  initializeBPFTargetInfo()
   # initializeHexagonTargetInfo()
   # initializeLanaiTargetInfo()
   # initializeMipsTargetInfo()
@@ -649,7 +649,7 @@ proc initializeAllTargets*() {.inline.} =
   initializeAArch64Target()
   # initializeAMDGPUTarget()
   initializeARMTarget()
-  # initializeBPFTarget()
+  initializeBPFTarget()
   # initializeHexagonTarget()
   # initializeLanaiTarget()
   # initializeMipsTarget()
@@ -666,7 +666,7 @@ proc initializeAllTargetMCs*() {.inline.} =
   initializeAArch64TargetMC()
   # initializeAMDGPUTargetMC()
   initializeARMTargetMC()
-  # initializeBPFTargetMC()
+  initializeBPFTargetMC()
   # initializeHexagonTargetMC()
   # initializeLanaiTargetMC()
   # initializeMipsTargetMC()
@@ -682,7 +682,7 @@ proc initializeAllAsmPrinters*() {.inline.} =
   initializeAArch64AsmPrinter()
   # initializeAMDGPUAsmPrinter()
   initializeARMAsmPrinter()
-  # initializeBPFAsmPrinter()
+  initializeBPFAsmPrinter()
   # initializeHexagonAsmPrinter()
   # initializeLanaiAsmPrinter()
   # initializeMipsAsmPrinter()

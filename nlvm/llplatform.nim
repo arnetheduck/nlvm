@@ -39,6 +39,9 @@ proc toLLVMArch*(cpu: TSystemCPU): string =
   of cpuJS: "js"
   of cpuNimVM: "nimvm"
   of cpuMSP430: "msp430"
+  of cpuBpf: "bpf"
+  of cpuBpfel: "bpfel"
+  of cpuBpfeb: "bpfeb"
 
 proc toTriple*(
     t: Target,
@@ -131,6 +134,14 @@ proc toTriple*(conf: ConfigRef): string =
       conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccClang},
   )
 
+proc isBpfCpu*(cpu: TSystemCPU): bool =
+  cpu in {cpuBpf, cpuBpfel, cpuBpfeb}
+
+proc isBpfTarget*(conf: ConfigRef): bool =
+  ## BPF is selected either with `--cpu:bpf|bpfel|bpfeb` or with a BPF
+  ## `--nlvm.target` triple.
+  conf.target.targetCPU.isBpfCpu()
+
 proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   ## Parse a target triple (or short triple) and return the corresponding
   ## `TSystemCPU` and `TSystemOS`. This attempts to recognize the same
@@ -150,11 +161,20 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   case archTok
   of "x86_64", "amd64":
     cpu = cpuAmd64
+  of "bpf":
+    cpu = cpuBpf
+  of "bpfel":
+    cpu = cpuBpfel
+  of "bpfeb":
+    cpu = cpuBpfeb
   of "i386", "i486", "i586", "i686":
     cpu = cpuI386
   of "aarch64", "arm64":
     cpu = cpuArm64
   of "arm":
+    cpu = cpuArm
+  of "thumb", "thumbv6m", "thumbv7", "thumbv7m", "thumbv7em", "thumbv7e-m",
+      "thumbv8m.base", "thumbv8m.main":
     cpu = cpuArm
   of "powerpc64le", "ppc64le":
     cpu = cpuPowerpc64el
@@ -293,6 +313,9 @@ when isMainModule:
     (cpuRiscV64, osLinux, ""),
     (cpuPowerpc64el, osLinux, ""),
     (cpuMips64el, osLinux, ""),
+    (cpuBpf, osAny, ""),
+    (cpuBpfel, osAny, ""),
+    (cpuBpfeb, osAny, ""),
   ]
 
   for c in cases:

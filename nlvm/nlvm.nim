@@ -103,6 +103,11 @@ proc processSwitch(
     return
 
   case switch.normalize
+  of "opt":
+    # Remember whether the user explicitly selected an optimization mode. BPF
+    # defaults to size optimization only when no --opt flag was supplied.
+    conf.setConfigVar("nlvm.bpf.opt", arg.normalize)
+    commands.processSwitch(switch, arg, pass, info, conf)
   of "version", "v":
     expectNoArg(conf, switch, arg, pass, info)
     writeVersionInfo(conf, pass)
@@ -350,17 +355,54 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
 
+  if conf.existsConfigVar("nlvm.target"):
+    let (cpu, os) = parseTarget(conf.getConfigVar("nlvm.target"))
+    # LLVM supports more architectures than Nim's platform table - for those,
+    # keep whatever target was selected on the command line and let LLVM
+    # validate the triple during code generation.
+    if cpu != cpuNone and os != osNone:
+      conf.target.setTarget(os, cpu)
+
+  if conf.target.targetCPU.isBpfCpu():
+    # BPF programs run in the kernel, not in a hosted process: they get no
+    # process startup, no libc and no libc-provided runtime.
+    conf.target.setTarget(osStandalone, conf.target.targetCPU)
+    unregisterArcOrc(conf)
+    for gcSymbol in [
+      "boehmgc", "gcrefc", "gcmarkandsweep", "gchooks", "gogc", "gcregions"
+    ]:
+      undefSymbol(conf.symbols, gcSymbol)
+    conf.selectedGC = gcNone
+    conf.exc = excNone
+    # The kernel has no Nim thread runtime or TLS support.
+    conf.globalOptions.excl {optThreads, optThreadAnalysis, optTlsEmulation}
+    # BPF cannot call into the Nim runtime — disable all checks that
+    # generate calls to raise / sysFatal / copyString / etc.
+    conf.options.excl {
+      optOverflowCheck, optObjCheck, optFieldCheck, optRangeCheck, optBoundsCheck,
+      optAssert,
+    }
+    defineSymbol(conf.symbols, "bpf")
+    defineSymbol(conf.symbols, "nogc")
+    defineSymbol(conf.symbols, "useMalloc")
+    incl conf.globalOptions, optNoLinking
+    incl conf.globalOptions, optNoMain
+    if conf.cmd in cmdBackends:
+      let
+        entry = conf.getConfigVar("nlvm.bpf.entry", "")
+        section = conf.getConfigVar("nlvm.bpf.section", "")
+      if entry.len == 0 or section.len == 0:
+        conf.internalError(
+          "BPF compilation requires --nlvm.bpf.entry and --nlvm.bpf.section"
+        )
+      elif entry == section:
+        conf.internalError("The BPF entry name must differ from its ELF section name")
+
   if conf.selectedGC == gcUnselected:
     initOrcDefines(conf)
 
   if conf.useBuiltinCC():
     conf.cCompiler = ccClang
-
-  if conf.existsConfigVar("nlvm.target"):
-    let
-      tmp = graph.config.getConfigVar("nlvm.target")
-      (cpu, os) = parseTarget(tmp)
-    conf.target.setTarget(os, cpu)
 
   if conf.target.targetOS == osWindows:
     # `mingw` links these "automatically" - no need for `dynlib`

@@ -4138,22 +4138,34 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   let
     t = g.llType(s.typ.skipTypes(abstractInst))
     v = g.m.addGlobal(t, name)
+    isBpfMap =
+      g.config.isBpfTarget() and sfExportc in s.flags and name.startsWith("bpf_map_")
 
   if sfImportc in s.flags:
     v.setLinkage(llvm.ExternalLinkage)
   elif sfExportc in s.flags:
-    v.setLinkage(g.tgtExportLinkage)
+    v.setLinkage(
+      if lfDynamicLib in s.loc.flags: llvm.ExternalLinkage else: g.tgtExportLinkage
+    )
     v.setInitializer(llvm.constNull(t))
   else:
     v.setLinkage(g.defaultGlobalLinkage())
     v.setInitializer(llvm.constNull(t))
+
+  if isBpfMap:
+    # BPF map definitions are materialized in `.maps`. Keep them externally
+    # visible so the optimizer cannot discard an otherwise unreferenced map.
+    v.setLinkage(llvm.ExternalLinkage)
+    v.setSection(".maps")
 
   if sfThread in s.flags and optThreads in g.config.globalOptions:
     v.setThreadLocal(llvm.True)
   g.debugGlobal(s, v)
 
   if isConst:
-    v.setGlobalConstant(llvm.True)
+    # Map definitions are loader metadata. Keep a BPF map section writable even
+    # when the source uses a global `let`; LLVM otherwise emits it read-only.
+    v.setGlobalConstant(if isBpfMap: llvm.False else: llvm.True)
 
   if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
     v.setAlignment(cuint s.alignment)
@@ -4950,8 +4962,22 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
     return
   g.done.incl s.id
 
-  if {sfExportc, sfCompilerProc} * s.flags != {sfExportc} and
-      lfExportLib notin s.loc.flags:
+  let
+    entryName = g.config.getConfigVar("nlvm.bpf.entry", "")
+    isBpfEntry =
+      g.config.isBpfTarget() and {sfExportc, sfCompilerProc} * s.flags == {sfExportc} and
+      sfMainModule in getModule(s).flags and entryName.len > 0 and
+      g.llName(s) == entryName
+
+  if isBpfEntry:
+    result.v.setSection(g.config.getConfigVar("nlvm.bpf.section", ""))
+
+  if (
+    (g.config.isBpfTarget() and not isBpfEntry) or (
+      {sfExportc, sfCompilerProc} * s.flags != {sfExportc} and
+      lfExportLib notin s.loc.flags
+    )
+  ):
     # Because we generate only one module, we can tag all functions internal,
     # except those that should be importable from c
     # compilerproc are marker exportc to get a stable name, but it doesn't seem
@@ -6428,7 +6454,11 @@ proc genSingleVar(g: LLGen, v: PSym, vn, value: PNode) =
       let
         isConstInit = g.f.withinLoop == 0 and value.isDeepConstExprLL()
         isConst = isConstInit and v.kind == skLet
-        tmp = g.genGlobal(vn, isConst)
+      if g.config.isBpfTarget() and value.kind != nkEmpty and not isConstInit:
+        g.config.internalError(
+          vn.info, "BPF global initializers must be compile-time constants"
+        )
+      let tmp = g.genGlobal(vn, isConst)
 
       if isConstInit and (v.kind == skLet or not containsGarbageCollectedRef(v.typ)):
         let ci = g.genConstInitializer(value, v.typ)
@@ -10665,7 +10695,26 @@ proc runOptimizers(g: LLGen) =
       of LtoKind.Full:
         "lto-pre-link"
     level =
-      if optOptimizeSize in g.config.options:
+      if g.config.isBpfTarget():
+        # The Nim system module is present while lowering, but must be dead
+        # stripped before BPF instruction selection. BPF defaults to size
+        # optimization unless the user supplies the normal --opt option.
+        if g.config.existsConfigVar("nlvm.bpf.opt"):
+          case g.config.getConfigVar("nlvm.bpf.opt").normalize
+          of "none":
+            "<O0>"
+          of "size":
+            "<Os>"
+          of "speed":
+            "<O3>"
+          else:
+            g.config.internalError(
+              "invalid --opt value (expected none, size, or speed)"
+            )
+            "<Os>"
+        else:
+          "<Os>"
+      elif optOptimizeSize in g.config.options:
         "<Os>"
       elif optOptimizeSpeed in g.config.options:
         "<O3>"
@@ -10681,6 +10730,22 @@ proc runOptimizers(g: LLGen) =
 
   disposePassBuilderOptions(options)
 
+proc checkBpfRuntimeImports(g: LLGen) =
+  if not g.config.isBpfTarget():
+    return
+
+  var f = g.m.getFirstFunction()
+  while f != nil:
+    if f.countBasicBlocks() == 0 and
+        $f.getValueName() in [
+          "malloc", "calloc", "realloc", "free", "memalign", "posix_memalign", "memcpy",
+          "memmove", "memset",
+        ]:
+      g.config.internalError(
+        "BPF programs cannot use Nim runtime function '" & $f.getValueName & "'"
+      )
+    f = f.getNextFunction()
+
 proc writeOutput(g: LLGen, project: string) =
   let ext =
     if optCompileOnly in g.config.globalOptions:
@@ -10693,8 +10758,19 @@ proc writeOutput(g: LLGen, project: string) =
   let outFile = g.config.getOutFile(g.config.outFile, ext)
 
   g.runOptimizers()
+  g.checkBpfRuntimeImports()
 
   var err: cstring
+  if g.config.isBpfTarget() and g.m.getNamedGlobal("LICENSE") == nil:
+    let license = g.config.getConfigVar("nlvm.bpf.license", "")
+    if license.len > 0:
+      let
+        init = g.lc.constStringInContext(license)
+        licenseGlobal = g.m.addGlobal(init.typeOfX(), "LICENSE")
+      licenseGlobal.setGlobalConstant(llvm.True)
+      licenseGlobal.setInitializer(init)
+      licenseGlobal.setSection("license")
+
   if optCompileOnly in g.config.globalOptions:
     if g.m.printModuleToFile(outfile.string, cast[cstringArray](addr(err))) != 0:
       g.config.internalError($err)
@@ -10899,7 +10975,13 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
           discard g.b.buildRetVoid()
         g.finalize()
 
-    if sfSystemModule in s.flags:
+    if g.config.isBpfTarget():
+      # BPF has no process startup hook. Keeping module init functions would
+      # retain Nim runtime/TLS code that the BPF backend cannot select.
+      g.init.f.deleteFunction()
+      if sfSystemModule in s.flags:
+        g.systemDone = true
+    elif sfSystemModule in s.flags:
       g.inits.insert(g.init.f, 0)
       g.systemDone = true
     else:
@@ -10921,7 +11003,8 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
   for m in g.gcRoots:
     g.genGcRegistrar(m.sym, m.v)
 
-  g.genMain()
+  if not g.config.isBpfTarget():
+    g.genMain()
 
   if not g.registrar.isNil:
     g.withFunc(g.registrar):
@@ -10931,7 +11014,7 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
 
       g.finalize()
 
-  if g.ctors.len > 0:
+  if g.ctors.len > 0 and not g.config.isBpfTarget():
     let
       ctorsInit =
         g.ctors.mapIt(g.lc.constStructInContext([g.constInt32(65535), it, g.nullPtr]))
@@ -10942,7 +11025,19 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     ctors.setLinkage(llvm.AppendingLinkage)
     ctors.setInitializer(llvm.constArray(ctorsType, ctorsInit))
 
-  g.loadBase()
+  if not g.config.isBpfTarget():
+    g.loadBase()
+  else:
+    let
+      entryName = g.config.getConfigVar("nlvm.bpf.entry", "")
+      sectionName = g.config.getConfigVar("nlvm.bpf.section", "")
+      entry = g.m.getNamedFunction(entryName)
+    if entry == nil or entry.countBasicBlocks() == 0 or
+        $entry.getSection() != sectionName:
+      g.config.internalError(
+        "BPF entry '" & entryName &
+          "' was not found as an exported main-module procedure"
+      )
 
   if g.d != nil:
     g.d.dIBuilderFinalize()
@@ -11013,7 +11108,11 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
 
         parseCommandLineOptions(llvmArgs.len.cint, arr, "")
 
-    # If `--nlvm.triple` is set, use that - otherwise, try to construct a triple
+    if graph.config.isBpfTarget():
+      # Kernel loaders consume ELF objects rather than LLVM LTO bitcode.
+      lto = LtoKind.None
+
+    # If `--nlvm.target` is set, use that - otherwise, try to construct a triple
     # from cpu/os options.
     #
     # `--nlvm.abi` allows adding an ABI tag, like `musl`, in that case.
@@ -11034,13 +11133,21 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
       graph.config.compileOptionsCmd.add " --target=" & target
       graph.config.linkOptionsCmd.add " --target=" & target
 
-    var tr: llvm.TargetRef
-    discard getTargetFromTriple(target, addr(tr), nil)
+    var
+      tr: llvm.TargetRef
+      targetError: cstring
+    if getTargetFromTriple(target, addr(tr), cast[cstringArray](addr(targetError))) !=
+        llvm.False:
+      let errorMessage = $targetError
+      llvm.disposeMessage(targetError)
+      graph.config.internalError(
+        s.info, "Unsupported LLVM target '" & target & "': " & errorMessage
+      )
 
     # PIC/PIE is used by default when linking on certain platforms to enable address space randomization:
     # https://stackoverflow.com/q/43367427
     let
-      reloc = llvm.RelocPIC
+      reloc = if graph.config.isBpfTarget(): llvm.RelocDefault else: llvm.RelocPIC
       cgl =
         if optOptimizeSpeed in graph.config.options:
           llvm.CodeGenLevelAggressive
