@@ -22,12 +22,6 @@ nlvm specific options:
   --llvm-<opt>              pass opt to the llvm command line parser - see
                             --llvm-help for available options
 
-  BPF targets are selected with --cpu:bpf|bpfel|bpfeb or with a matching
-  --nlvm.target triple. Compiling one requires --nlvm.bpf.entry and
-  --nlvm.bpf.section, defaults to --opt:size when no --opt flag is given,
-  expects fixed-width integer types for the BPF ABI and requires global
-  initializers to be compile-time constants.
-
 Options:
   -p, --path:PATH           add path to search paths
   -d, --define:SYMBOL(:VAL)

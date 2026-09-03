@@ -30,6 +30,7 @@ Jacek Sieka (arnetheduck on gmail point com)
     - [{.emit.}](#emit)
     - [{.asm.}](#asm)
 - [wasm32](#wasm32)
+- [bpf](#bpf)
 - [Cross compiler](#cross-compiler)
   - [Prerequisites](#prerequisites)
   - [Compiling](#compiling)
@@ -390,6 +391,62 @@ nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:-Wl,--no-entry --passc:-ma
 Passing `--passc:-mattr=help` will print available features (only works while compiling, for now!)
 
 To use functions from the environment (with `importc`), compile with `--passl:-Wl,--allow-undefined`.
+
+### bpf
+
+BPF targets are selected with `--cpu:bpf|bpfel|bpfeb` or with a matching
+`--nlvm.target` triple. BPF builds use standalone, no-GC, no-startup and
+no-linking settings because programs run in the kernel. They default to
+`--opt:size` when no `--opt` flag is given.
+
+BPF map definitions are exported globals whose names start with `bpf_map_`;
+they are emitted in the `.maps` ELF section. An optional license is emitted
+in the `license` section, and debug information can be used to generate BTF.
+For the BPF ABI, use fixed-width integer types and keep global initializers as
+compile-time constants.
+
+Here is a minimal XDP program with an array map:
+
+```nim
+# program.nim
+type
+  BpfMapDef = object
+    mapType: uint32
+    keySize: uint32
+    valueSize: uint32
+    maxEntries: uint32
+
+# BPF_MAP_TYPE_ARRAY = 2
+var bpf_map_packets {.exportc: "bpf_map_packets".}: BpfMapDef =
+  BpfMapDef(
+    mapType: 2,
+    keySize: 4,
+    valueSize: 8,
+    maxEntries: 16
+  )
+
+# XDP_PASS = 2
+proc xdpPass(ctx: pointer): uint32 {.exportc: "xdp_pass".} =
+  discard ctx
+  2'u32
+```
+
+Compile it to a BPF ELF object with:
+
+```sh
+nlvm c \
+    --nlvm.target:bpfel-unknown-none \
+    --nlvm.bpf.entry:xdp_pass \
+    --nlvm.bpf.section:xdp \
+    --nlvm.bpf.license:GPL \
+    program.nim
+```
+
+The entrypoint and section options are required. The entrypoint must match the
+exported name (`xdp_pass` above), and the section name must differ from it.
+Pass `--debuginfo` to include debug information for BTF-enabled tooling.
+Dynamic allocation, exception handling, and runtime-dependent global
+initialization are not currently supported by eBPF programs.
 
 # REPL / running your code
 
