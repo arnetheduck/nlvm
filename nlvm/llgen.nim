@@ -4965,17 +4965,19 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
   let
     entryName = g.config.getConfigVar("nlvm.bpf.entry", "")
     isBpfEntry =
-      g.config.isBpfTarget() and
-      {sfExportc, sfCompilerProc} * s.flags == {sfExportc} and
-      sfMainModule in getModule(s).flags and
-      entryName.len > 0 and g.llName(s) == entryName
+      g.config.isBpfTarget() and {sfExportc, sfCompilerProc} * s.flags == {sfExportc} and
+      sfMainModule in getModule(s).flags and entryName.len > 0 and
+      g.llName(s) == entryName
 
   if isBpfEntry:
     result.v.setSection(g.config.getConfigVar("nlvm.bpf.section", ""))
 
-  if ((g.config.isBpfTarget() and not isBpfEntry) or
-      ({sfExportc, sfCompilerProc} * s.flags != {sfExportc} and
-       lfExportLib notin s.loc.flags)):
+  if (
+    (g.config.isBpfTarget() and not isBpfEntry) or (
+      {sfExportc, sfCompilerProc} * s.flags != {sfExportc} and
+      lfExportLib notin s.loc.flags
+    )
+  ):
     # Because we generate only one module, we can tag all functions internal,
     # except those that should be importable from c
     # compilerproc are marker exportc to get a stable name, but it doesn't seem
@@ -10698,10 +10700,13 @@ proc runOptimizers(g: LLGen) =
         # stripped before BPF instruction selection. BPF defaults to size
         # optimization unless the user supplies the normal --opt option.
         if g.config.existsConfigVar("nlvm.bpf.opt"):
-          case g.config.getConfigVar("nlvm.bpf.opt").normalize:
-          of "none": "<O0>"
-          of "size": "<Os>"
-          of "speed": "<O3>"
+          case g.config.getConfigVar("nlvm.bpf.opt").normalize
+          of "none":
+            "<O0>"
+          of "size":
+            "<Os>"
+          of "speed":
+            "<O3>"
           else:
             g.config.internalError(
               "invalid --opt value (expected none, size, or speed)"
@@ -10731,9 +10736,11 @@ proc checkBpfRuntimeImports(g: LLGen) =
 
   var f = g.m.getFirstFunction()
   while f != nil:
-    if f.countBasicBlocks() == 0 and $f.getValueName() in [
-        "malloc", "calloc", "realloc", "free", "memalign", "posix_memalign",
-        "memcpy", "memmove", "memset"]:
+    if f.countBasicBlocks() == 0 and
+        $f.getValueName() in [
+          "malloc", "calloc", "realloc", "free", "memalign", "posix_memalign", "memcpy",
+          "memmove", "memset",
+        ]:
       g.config.internalError(
         "BPF programs cannot use Nim runtime function '" & $f.getValueName & "'"
       )
@@ -11025,9 +11032,11 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
       entryName = g.config.getConfigVar("nlvm.bpf.entry", "")
       sectionName = g.config.getConfigVar("nlvm.bpf.section", "")
       entry = g.m.getNamedFunction(entryName)
-    if entry == nil or entry.countBasicBlocks() == 0 or $entry.getSection() != sectionName:
+    if entry == nil or entry.countBasicBlocks() == 0 or
+        $entry.getSection() != sectionName:
       g.config.internalError(
-        "BPF entry '" & entryName & "' was not found as an exported main-module procedure"
+        "BPF entry '" & entryName &
+          "' was not found as an exported main-module procedure"
       )
 
   if g.d != nil:
@@ -11127,7 +11136,8 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
     var
       tr: llvm.TargetRef
       targetError: cstring
-    if getTargetFromTriple(target, addr(tr), cast[cstringArray](addr(targetError))) != llvm.False:
+    if getTargetFromTriple(target, addr(tr), cast[cstringArray](addr(targetError))) !=
+        llvm.False:
       let errorMessage = $targetError
       llvm.disposeMessage(targetError)
       graph.config.internalError(
@@ -11137,11 +11147,7 @@ proc myOpen(graph: ModuleGraph, s: PSym, idgen: IdGenerator): PPassContext =
     # PIC/PIE is used by default when linking on certain platforms to enable address space randomization:
     # https://stackoverflow.com/q/43367427
     let
-      reloc =
-        if graph.config.isBpfTarget():
-          llvm.RelocDefault
-        else:
-          llvm.RelocPIC
+      reloc = if graph.config.isBpfTarget(): llvm.RelocDefault else: llvm.RelocPIC
       cgl =
         if optOptimizeSpeed in graph.config.options:
           llvm.CodeGenLevelAggressive

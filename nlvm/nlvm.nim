@@ -378,8 +378,10 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
     conf.globalOptions.excl {optThreads, optThreadAnalysis, optTlsEmulation}
     # BPF cannot call into the Nim runtime — disable all checks that
     # generate calls to raise / sysFatal / copyString / etc.
-    conf.options.excl {optOverflowCheck, optObjCheck, optFieldCheck,
-      optRangeCheck, optBoundsCheck, optAssert}
+    conf.options.excl {
+      optOverflowCheck, optObjCheck, optFieldCheck, optRangeCheck, optBoundsCheck,
+      optAssert,
+    }
     defineSymbol(conf.symbols, "bpf")
     defineSymbol(conf.symbols, "nogc")
     defineSymbol(conf.symbols, "useMalloc")
