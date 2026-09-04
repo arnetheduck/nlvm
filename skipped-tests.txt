@@ -6,7 +6,7 @@ tests/assert/t21195.nim c --verbosity:0 --os:standalone --mm:none # Compiler/err
 tests/assert/tassert_c.nim c -d:nimPreviewSlimSystem --stackTrace:on --excessiveStackTrace:off # Unclassified / reOutputsDiffer
 tests/async/tasync_traceback2.nim c # Assertion / reExitcodesDiffer
 tests/async/tasync_traceback.nim c # Unclassified / reExitcodesDiffer
-tests/avr/thello.nim c # Runtime Crash / reNimcCrash
+tests/avr/thello.nim c # Compiler/internal / reNimcCrash
 tests/casestmt/t7699.nim c # Unclassified / reMsgsDiffer | reExitcodesDiffer
 tests/ccgbugs2/t25459b.nim c -d:checkAbi # Linker / reNimcCrash
 tests/ccgbugs2/tcodegen.nim c # Pragmas/{.emit.} / reNimcCrash
@@ -97,11 +97,11 @@ tests/let/timportc.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/macros/tmemit.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/manyloc/keineschweine/keineschweine.nim c # Compiler/error / reNimcCrash
 tests/manyloc/nake/nakefile.nim c # Compiler/error / reNimcCrash
-tests/manyloc/standalone2/tavr.nim c # Runtime Crash / reNimcCrash
+tests/manyloc/standalone2/tavr.nim c # Compiler/internal / reNimcCrash
 tests/manyloc/standalone/barebone.nim c # Compiler/error / reNimcCrash
 tests/method/tmethod_issues.nim c --mm:arc # LLVM IR / reNimcCrash
 tests/method/tmethod_issues.nim c --mm:refc # LLVM IR / reNimcCrash
-tests/misc/t15955.nim c # Runtime Crash / reExitcodesDiffer
+tests/misc/t15955.nim c # Assertion / reExitcodesDiffer
 tests/misc/t17286.nim c # Assertion / reNimcCrash
 tests/misc/t18077.nim c # Compiler/error / reNimcCrash
 tests/misc/t19046.nim c --threads:on # Linker / reNimcCrash

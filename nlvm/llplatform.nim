@@ -44,11 +44,7 @@ proc toLLVMArch*(cpu: TSystemCPU): string =
   of cpuBpfeb: "bpfeb"
 
 proc toTriple*(
-    t: Target,
-    abi: string = "",
-    useWasi: bool = false,
-    isMingw: bool = false,
-    libc: string = "",
+    t: Target, abi: string = "", isMingw: bool = false, libc: string = ""
 ): string =
   ## Return a reasonable LLVM target triple for `t`.
   ##
@@ -59,9 +55,8 @@ proc toTriple*(
   let arch = toLLVMArch(t.targetCPU)
 
   var vendor = "unknown"
-  var osPart = "unknown-unknown"
+  var osPart = "unknown"
   let a = (if abi.len > 0: abi else: libc).toLowerAscii()
-  let wantWasi = useWasi or a == "wasi"
   let wantMingw = isMingw or a == "mingw" or a == "gnu"
   case t.targetOS
   of osLinux:
@@ -102,25 +97,17 @@ proc toTriple*(
   of osGenode:
     osPart = "unknown-elf"
   of osJS:
-    # JS hosting: prefer WASM/WASI if requested
-    if wantWasi:
-      return "wasm32-unknown-wasi"
-    osPart = "unknown-unknown"
+    osPart = "unknown"
   of osNintendoSwitch:
     osPart = "unknown-elf"
   of osFreeRTOS, osZephyr, osNuttX:
     osPart = "unknown-elf"
   of osAny:
-    osPart = "unknown-unknown"
+    osPart = "unknown"
+  of osWasiP1:
+    osPart = "wasip1"
   else:
-    osPart = "unknown-unknown"
-
-  # Special-case wasm: support wasi if requested.
-  if arch == "wasm32":
-    if wantWasi:
-      return "wasm32-unknown-wasi"
-    # Default wasm target
-    return "wasm32-unknown-unknown"
+    osPart = "unknown"
 
   arch & "-" & vendor & "-" & osPart
 
@@ -128,7 +115,6 @@ proc toTriple*(conf: ConfigRef): string =
   toTriple(
     conf.target,
     abi = conf.getConfigVar("nlvm.abi", ""),
-    useWasi = conf.isDefined("wasi"),
     isMingw =
       conf.target.targetOS == osWindows and
       conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccClang},
@@ -194,8 +180,10 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
     cpu = cpuRiscV64
   of "riscv32":
     cpu = cpuRiscV32
-  of "wasm", "wasm32", "wasm64":
+  of "wasm", "wasm32":
     cpu = cpuWasm32
+    # By default, use a bare-bones wasm32-unknown-unknown env
+    os = osStandalone
   of "loongarch64":
     cpu = cpuLoongArch64
   of "sparc64":
@@ -252,7 +240,7 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
       cpu = cpuRiscV64
     elif s.contains("riscv32"):
       cpu = cpuRiscV32
-    elif s.contains("wasm"):
+    elif s.contains("wasm32"):
       cpu = cpuWasm32
     elif s.contains("loongarch"):
       cpu = cpuLoongArch64
@@ -287,17 +275,13 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
       os = osVxWorks
     of "haiku":
       os = osHaiku
-    of "wasi":
-      # wasm+wasi maps to wasm CPU and JS-like OS
+    of "wasip1":
+      # WASI is only available for wasm
       cpu = cpuWasm32
-      os = osJS
+      os = osWasiP1
     else:
       # no direct match in this part; continue to next part
       continue
-
-  # If arch token indicates wasm, ensure CPU is set.
-  if (archTok == "wasm" or archTok == "wasm32" or archTok == "wasm64") and cpu == cpuNone:
-    cpu = cpuWasm32
 
   (cpu, os)
 
@@ -306,7 +290,7 @@ when isMainModule:
     (cpuAmd64, osLinux, ""),
     (cpuArm, osLinux, ""),
     (cpuAmd64, osWindows, "mingw"),
-    (cpuWasm32, osJS, "wasi"),
+    (cpuWasm32, osJS, "wasip1"),
     (cpuArm64, osMacosx, ""),
     (cpuI386, osNetbsd, ""),
     (cpuLoongArch64, osLinux, ""),

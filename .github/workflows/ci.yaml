@@ -48,12 +48,17 @@ jobs:
 
       - name: Cross-compile
         run: |
-          ./dl-llvm-mingw.sh
           ./env.sh nlvm/nlvmr c --os:windows lib/nim/compiler/nim
           [ -f lib/nim/compiler/nim.exe ] || { echo "nim.exe missing" ; exit 1 ; }
 
+      - name: Examples
+        run: |
+          make examples
+
       - name: Create distribution
-        run: bash make-dist-linux.sh
+        run: |
+          bash make-dist-linux.sh
+          bash make-dist-appimage.sh
 
       - name: Update release
         if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/release'
@@ -130,9 +135,6 @@ jobs:
             llvm/sta
           key: llvm-${{ runner.os }}-${{ env.LLVM_COMMIT }}
 
-      - name: Set up llvm-mingw
-        run: ./dl-llvm-mingw-windows.sh
-
       - name: Set up llvm
         run: make STATIC_LLVM=1 prepare-llvm
 
@@ -141,7 +143,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cat ci-skipped-tests.txt >>skipped-tests.txt
+          cat ci-skipped-tests.txt >>skipped-tests-win.txt
           make STATIC_LLVM=1 test || true # TODO enable hard fail on tests
 
       - name: Run self-compare
