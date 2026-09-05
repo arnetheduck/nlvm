@@ -300,7 +300,7 @@ included in the compilation with `{.compile.}` - this works both with `.S` and
 # Cross compiler
 
 `nlvm` can be used to cross-compile code for a different platform, for example to
-create `Windows` executables on a `Linux` machine.
+create Windows executables on a Linux machine.
 
 ## Prerequisites
 
@@ -309,13 +309,13 @@ For cross-compilation, an environment for that platform must first be
 consists of:
 
 * a `sysroot` - the basic libraries needed to create executables for the platform
-  * for `Windows`, this is [llvm-mingw](https://github.com/mstorsjo/llvm-mingw/releases)
+  * for Windows, this is [llvm-mingw](https://github.com/mstorsjo/llvm-mingw/releases)
   * It can be [obtained](https://mcilloni.ovh/2021/02/09/cxx-cross-clang/)
     from the environment you're targeting.
   * Place the env in `../<triple>` relative to the `nlvm` binary - the `mingw`
     environment for example should be copied to `<nlvm-path>/../x86_64-w64-mingw32`.
 * The compiler runtime for that target (`compiler-rt` or `libgcc`)
-  * provided by `llvm-mingw`
+  * Resides in `clang/<ver>/lib`
 
 The integrated `clang` compiler supports cross-compiling out of the box - an
 external compiler can also be used provided it has been set up.
@@ -332,7 +332,7 @@ A helper script exists to set up `llvm-mingw`:
 ```sh
 ./dl-llvm-mingw.sh
 
-# Set up $PATH to include the `clang` compiler that comes with llvm-mingw
+# Set up $PATH use the locally compiler `clang` compiler
 . env.sh
 ```
 
@@ -342,22 +342,57 @@ A helper script exists to set up `llvm-mingw`:
 nlvm c --os:windows --passl:-static test.nim
 
 # You can also use a target triple
-nlvm c --nlvm.triple=x86_64-w64-mingw32 --passl:-static lib/nim/examples/fizzbuzz.nim
+nlvm c --nlvm.target=x86_64-w64-mingw32 --passl:-static lib/nim/examples/fizzbuzz.nim
 
 # Run the compiled program via wine
 wine test.exe
 ```
 
-### wasm32
+### WASM
 
-Use `--cpu:wasm32 --os:standalone --gc:none` to compile Nim to (barebones) WASM.
+WASM programs run in a runtime provided either standalone or inside a browser.
 
-You will need to provide a runtime (ie WASI) and use manual memory allocation as
-the garbage collector hasn't yet been ported to WASM and the Nim standard
-library lacks WASM / WASI support.
+Standalone runtimes typically ship with a [WASI](https://wasi.dev/) runtime while
+browsers do not.
 
-Apart from WASI, an implementation of `panicoverride.nim` also needs to be
-provided - here's one that discards all panics:
+#### Limitations
+
+* Exceptions are not supported - consequently, `--panics:on` is used by default
+* In WASI mode, what works is limited by what is provided by `wasi-libc` / WASI Preview 1
+* Threads are currently not implemented - `--threads:off` is used by default
+* Flags and linking options are in still in flux and might change between releases
+
+#### Execution modes
+
+The [execution mode](https://github.com/WebAssembly/WASI/blob/wasi-0.1/application-abi.md)
+is derived from the application type:
+
+```sh
+# By default, command modules are created
+nlvm command.nim
+
+# Use --app:lib to create a reactor module instead
+nlvm --app:lib ...
+```
+
+#### Bare environments
+
+By default, if you select `--cpu:wasm32`, a standalone WASM module will be
+created - such modules are suitable for use in runtimes that do not provide
+WASI - commonly browsers and JavaScript engines.
+
+The standalone WASM mode corresponds to `wasm32-unknown-unknown`.
+
+```sh
+# Using Nim flags
+nlvm c --cpu:wasm32
+
+# Using a target
+nlvm c --nlvm.target=wasm32-unknown-unknown
+```
+
+You will need to provide a `panicoverride.nim` - here's a starting point to
+customize using functions imported from the environment:
 
 ```nim
 # panicoverride.nim
@@ -365,32 +400,55 @@ proc rawoutput(s: string) = discard
 proc panic(s: string) {.noreturn.} = discard
 ```
 
-After placing the above code in your project folder, you can compile `.nim`
-code to `wasm32`:
+In standalone mode, `nlvm` will pass `--no-entry --allow-undefined` to the
+linker.
+
+#### WASI
+
+With WASI, `nlvm` can compile many Nim applications out of the box using
+[wasi-libc](https://github.com/WebAssembly/wasi-libc) which is included in the
+distribution.
+
+```sh
+# Using Nim flags
+nlvm c --cpu:wasm32 --os:wasip1
+
+# Using a target
+nlvm c --nlvm.target=wasm32-wasip1
+```
+
+#### Imports
+
+Imports allow your code to call functions from the runtime environment, using
+`importc`:
 
 ```nim
 # myfile.nim
-proc adder*(v: int): int {.exportc.} =
-  v + 4
+proc message*(v: cstring) {.importc.}
 ```
+
+#### Exports
+
+Exports are used to call Nim code from the environment - for example to call WASM functions
+from JavaScript in the browser:
 
 ```sh
-nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:-Wl,--no-entry myfile.nim
-wasm2wat -l myfile.wasm
+proc add(a, b: int): int {.exportc, dynlib.} =
+  a + b
 ```
 
-Most WASM-compile code ends up needing WASM [extensions](https://webassembly.org/roadmap/) -
-in particular, the bulk memory extension is needed to process data.
+This is the equivalent of `__attribute__((export_name("add")))` in `clang`.
 
-Extensions are enabled by passing `--passc:-mattr=+feature,+feature2`, for example:
+#### WASM features
+
+WASM features can be enabled or disabled by with regular `--passc` flags:
 
 ```sh
-nlvm c --cpu:wasm32 --os:standalone --gc:none --passl:-Wl,--no-entry --passc:-mattr=+bulk-memory
+nlvm c ... --passc:-mcompact-imports
 ```
 
-Passing `--passc:-mattr=help` will print available features (only works while compiling, for now!)
-
-To use functions from the environment (with `importc`), compile with `--passl:-Wl,--allow-undefined`.
+See the [clang reference](https://clang.llvm.org/docs/ClangCommandLineReference.html#webassembly)
+for details.
 
 ### bpf
 
@@ -478,9 +536,9 @@ candidates (edit distance, scope distance); see '--spellSuggest':
 * Upstream is pinned using a submodule - nlvm relies heavily on internals
   that keep changing - it's unlikely that it works with any other versions,
   patches welcome to update it
-* The nim standard library likes to import C headers directly which works
-  because the upstream nim compiler uses a C compiler underneath - ergo,
-  large parts of the standard library don't work with nlvm.
+* Some parts of the Nim standard library are unavailable due to the reliance on
+  C headers to provide accurate ABI descriptions - `nlvm` will provide a hint
+  for the API that need further investigation.
 * Happy to take patches for anything, including better platform support!
 * For development, it's convenient to build LLVM with assertions turned on -
   the API is pretty unforgiving

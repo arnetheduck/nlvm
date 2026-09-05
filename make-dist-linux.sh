@@ -4,6 +4,8 @@
 
 set -e
 
+LLVM_MAJ="$(cat llvm/llvm.version | cut -f1 -d.)"
+
 ROOT=nlvm-linux-$(git rev-parse --short HEAD)
 
 rm -rf $ROOT
@@ -13,12 +15,15 @@ rm -f nlvm/nlvmr
 make STATIC_LLVM=1 nlvm/nlvmr
 
 # Copy nlvm and library files
-mkdir -p $ROOT $ROOT/lib
-cp nlvm/nlvmr $ROOT/nlvm
-strip $ROOT/nlvm
+mkdir -p $ROOT/bin $ROOT/lib
+cp nlvm/nlvmr $ROOT/bin/nlvm
+strip $ROOT/bin/nlvm
 
-cp -ar lib/nlvm $ROOT/lib/
-cp -ar lib/clang $ROOT/lib/
+cp -a lib/nlvm $ROOT/lib/
+
+# clang headers copied from sta/ that need to be placed relative to `nlvm`
+mkdir -p $ROOT/lib/clang/$LLVM_MAJ/
+cp -a lib/clang/$LLVM_MAJ/include $ROOT/lib/clang/$LLVM_MAJ/
 
 mkdir -p $ROOT/lib/nim
 cd lib/nim
@@ -26,34 +31,18 @@ cd lib/nim
 git archive --format=tar HEAD lib config | (cd ../../$ROOT/lib/nim && tar xf -)
 cd ../..
 
+# Include examples for good measure
+git archive --format=tar HEAD examples | (cd $ROOT && tar xf -)
+
+# Native release without cross compiler runtime
 rm -rf dist
 mkdir -p dist
+tar cvfJ dist/$ROOT-native.tar.xz $ROOT/
+
+# Cross compiler
+cp -a lib/clang/$LLVM_MAJ/lib $ROOT/lib/clang/$LLVM_MAJ/
+cp -a x86_64-w64-mingw32 $ROOT
+cp -a include $ROOT
+cp -a lib/wasm32-wasip1 $ROOT/lib
+
 tar cvfJ dist/$ROOT.tar.xz $ROOT/
-
-# AppImages have some more requirements - set these up now
-cd $ROOT
-mv nlvm AppRun
-echo "[Desktop Entry]
-Name=nlvm
-Exec=AppRun
-Icon=nlvm
-Type=Application
-Categories=Development;
-" > nlvm.desktop
-
-# TODO
-touch nlvm.png
-
-cd ..
-
-mkdir -p ext
-
-[ -f ext/appimagetool-x86_64.AppImage ] || {
-  wget -P ext/ https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-  chmod +x ext/appimagetool-x86_64.AppImage
-}
-
-ext/appimagetool-x86_64.AppImage $ROOT
-mv nlvm*.AppImage dist/
-
-rm -rf $ROOT

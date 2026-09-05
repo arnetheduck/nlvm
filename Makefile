@@ -39,11 +39,28 @@ else
 	NLVMCFLAGS?=
 endif
 
+LIBCLANG := lib/clang/$(LLVM_MAJ)
+
 # On windows, we expect to find the nim DLL dependencies in lib/nim
 export PATH := $(PWD)/$(LLVM_OUT)/bin:$(PWD)/lib/nim:$(PATH)
 
 .PHONY: all
 all: $(NLVMC)
+
+$(NLVMC): $(LIBCLANG)/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a
+$(LIBCLANG)/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a:
+	./dl-wasi-sysroot.sh
+
+$(NLVMC): $(LIBCLANG)/lib/windows/libclang_rt.builtins-x86_64.a
+$(LIBCLANG)/lib/windows/libclang_rt.builtins-x86_64.a:
+	./dl-llvm-mingw.sh
+
+$(NLVMC) $(NLVMR): $(LIBCLANG)/include/stdint.h
+$(LIBCLANG)/include/stdint.h: $(LLVM_OUT)/$(LIBCLANG)/include/stdint.h
+	mkdir -p $(LIBCLANG)/
+	cp -a $(LLVM_OUT)/$(LIBCLANG)/include $(LIBCLANG)/
+
+$(LLVM_OUT)/$(LIBCLANG)/include/stdint.h: $(LLVM_DEP)
 
 lib/nim/koch$(EXE): $(LLVM_DEP)
 	cd lib/nim ;\
@@ -54,17 +71,12 @@ lib/nim/koch$(EXE): $(LLVM_DEP)
 	cd lib/nim ; bin/nim $(NIMFLAGS) c koch
 
 $(NIMC): lib/nim/koch$(EXE) lib/nim/compiler/*.nim
-	cd lib/nim && ./koch boot $(NIMFLAGS) -d:release --passC:-fPIC --passl:-fPIC
+	cd lib/nim && ./koch boot $(NIMFLAGS) -d:release --passc:-fPIC --passl:-fPIC
 
-lib/clang/$(LLVM_MAJ)/include/stdint.h: $(LLVM_OUT)/lib/clang/$(LLVM_MAJ)/include/stdint.h
-	rm -rf lib/clang/$(LLVM_MAJ)/include
-	mkdir -p lib/clang/$(LLVM_MAJ)/
-	cp -ar $(LLVM_OUT)/lib/clang/$(LLVM_MAJ)/include lib/clang/$(LLVM_MAJ)/
-
-$(NLVMC): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/* lib/clang/$(LLVM_MAJ)/include/stdint.h
+$(NLVMC): $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/*
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) $(NLVMCFLAGS) c nlvm
 
-$(NLVMR): $(LLVM_DEP) $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/* lib/clang/$(LLVM_MAJ)/include/stdint.h
+$(NLVMR): $(NIMC) lib/nim/compiler/*.nim  nlvm/*.nim llvm/*.nim lib/nlvm/*
 	cd nlvm && time ../$(NIMC) $(NIMFLAGS) -d:release $(NLVMCFLAGS) -o:nlvmr$(EXE) c nlvm
 
 nlvm/nlvm.ll: $(NLVMC) nlvm/*.nim llvm/*.nim lib/nlvm/*
@@ -153,3 +165,14 @@ prepare-nim: $(NIMC)
 .PHONY: docker
 docker:
 	docker build . -t nlvm --no-cache
+
+.PHONY: examples
+
+examples: $(NLVMR) examples/wasm-fib-rt/fib.wasm
+examples/wasm-fib-rt/fib.wasm: $(NLVMC) examples/wasm-fib-rt/fib.nim
+	$(NLVMR) c examples/wasm-fib-rt/fib.nim
+
+examples: $(NLVMR) examples/wasm-fib-web/fib.wasm
+examples/wasm-fib-web/fib.wasm: $(NLVMC) examples/wasm-fib-web/fib.nim
+	$(NLVMR) c examples/wasm-fib-web/fib.nim
+
