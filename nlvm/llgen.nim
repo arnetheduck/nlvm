@@ -163,7 +163,8 @@ type
 
     systemDone: bool
 
-    ctors: seq[llvm.ValueRef]
+    ctors: seq[llvm.ValueRef] # llvm.global_ctors
+    used: seq[llvm.ValueRef] # llvm.used
 
   LLValue = object
     v: llvm.ValueRef
@@ -904,14 +905,6 @@ proc isUnsigned(g: LLGen, typ: PType): bool =
   typ.kind in {tyUInt .. tyUInt64, tyBool, tyChar, tySet} or
     (typ.kind == tyEnum and g.config.firstOrd(typ) >= 0)
 
-proc buildNimIntExt(g: LLGen, v: llvm.ValueRef, unsigned: bool): llvm.ValueRef =
-  let nt = g.primitives[tyInt]
-
-  if unsigned:
-    g.b.buildZExt(v, nt, g.nn("nie.z", v))
-  else:
-    g.b.buildSExt(v, nt, g.nn("nie.s", v))
-
 proc buildTruncOrExt(
     g: LLGen, v: llvm.ValueRef, nt: llvm.TypeRef, unsigned: bool
 ): llvm.ValueRef =
@@ -935,6 +928,9 @@ proc buildTruncOrExt(
       g.b.buildZExt(v, nt, g.nn("toe.z", v))
     else:
       g.b.buildSExt(v, nt, g.nn("toe.s", v))
+
+proc buildNimIntCast(g: LLGen, v: llvm.ValueRef, unsigned: bool): llvm.ValueRef =
+  g.buildTruncOrExt(v, g.intTy, unsigned)
 
 proc buildTruncOrExt(
     g: LLGen, v: llvm.ValueRef, nt: llvm.TypeRef, typ: PType
@@ -3862,12 +3858,12 @@ proc callBinOpWithOver(
         if i64:
           g.buildTruncOrExt(a, g.primitives[tyInt64], u)
         else:
-          g.buildNimIntExt(a, u)
+          g.buildNimIntCast(a, u)
       bx =
         if i64:
           g.buildTruncOrExt(b, g.primitives[tyInt64], u)
         else:
-          g.buildNimIntExt(b, u)
+          g.buildNimIntCast(b, u)
 
     if bx.isConstant() == llvm.False or constIntGetZExtValue(bx) == 0:
       let divzero = g.b.buildICmp(
@@ -4141,12 +4137,11 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
     isBpfMap =
       g.config.isBpfTarget() and sfExportc in s.flags and name.startsWith("bpf_map_")
 
-  if sfImportc in s.flags:
+  if sfImportc in s.flags or lfExportLib in s.loc.flags:
     v.setLinkage(llvm.ExternalLinkage)
-  elif sfExportc in s.flags:
-    v.setLinkage(
-      if lfDynamicLib in s.loc.flags: llvm.ExternalLinkage else: g.tgtExportLinkage
-    )
+  elif {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
+    v.setVisibility(llvm.HiddenVisibility)
+    v.setLinkage(g.tgtExportLinkage)
     v.setInitializer(llvm.constNull(t))
   else:
     v.setLinkage(g.defaultGlobalLinkage())
@@ -4678,7 +4673,7 @@ proc genAssignFunc(g: LLGen, typ: PType): llvm.ValueRef =
     ft = llvm.functionType(g.voidTy, [g.ptrTy, g.ptrTy, g.int1Ty], false)
       # g.llTyp(typ).pointerType
 
-  let f = g.m.addFunction(name, ft)
+  let f = g.addNimFunction(name, ft)
   g.assigns[sig] = f
 
   f.getParam(0).setValueName("dest")
@@ -4686,7 +4681,6 @@ proc genAssignFunc(g: LLGen, typ: PType): llvm.ValueRef =
   f.getParam(2).setValueName("shallow")
 
   f.setLinkage(g.defaultFunctionLinkage())
-  nimSetFunctionAttributes(f)
 
   let llf = g.newLLFunc(f, nil)
 
@@ -4962,22 +4956,25 @@ proc genFunctionWithBody(g: LLGen, s: PSym): LLValue =
     return
   g.done.incl s.id
 
-  let
-    entryName = g.config.getConfigVar("nlvm.bpf.entry", "")
-    isBpfEntry =
-      g.config.isBpfTarget() and {sfExportc, sfCompilerProc} * s.flags == {sfExportc} and
-      sfMainModule in getModule(s).flags and entryName.len > 0 and
-      g.llName(s) == entryName
+  let isBpfEntry =
+    g.config.isBpfTarget() and {sfExportc, sfCompilerProc} * s.flags == {sfExportc} and
+    sfMainModule in getModule(s).flags and (
+      let entryName = g.config.getConfigVar("nlvm.bpf.entry", "")
+      entryName.len > 0 and g.llName(s) == entryName
+    )
 
   if isBpfEntry:
     result.v.setSection(g.config.getConfigVar("nlvm.bpf.section", ""))
-
-  if (
-    (g.config.isBpfTarget() and not isBpfEntry) or (
-      {sfExportc, sfCompilerProc} * s.flags != {sfExportc} and
-      lfExportLib notin s.loc.flags
-    )
-  ):
+  elif lfExportLib in s.loc.flags:
+    result.v.setLinkage(llvm.ExternalLinkage)
+    if g.config.target.targetCPU == cpuWasm32:
+      result.v.addFuncAttribute(
+        g.lc.createStringAttribute("wasm-export-name", g.llName(s))
+      )
+      g.used.add result.v
+  elif {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
+    result.v.setVisibility(llvm.HiddenVisibility)
+  else:
     # Because we generate only one module, we can tag all functions internal,
     # except those that should be importable from c
     # compilerproc are marker exportc to get a stable name, but it doesn't seem
@@ -7206,14 +7203,16 @@ proc genMagicCmpI(g: LLGen, n: PNode, op: IntPredicate): LLValue =
   var
     ax = g.genNode(n[1], true).v
     bx = g.genNode(n[2], true).v
+    aTy = ax.typeOfX()
+    bTy = bx.typeOfX()
 
-  if ax.typeOfX().getTypeKind() == llvm.IntegerTypeKind and
-      bx.typeOfX().getTypeKind() == llvm.IntegerTypeKind and
-      ax.typeOfX().getIntTypeWidth() != bx.typeOfX().getIntTypeWidth():
-    # TODO should probably extend to the biggest of the two, rather than
-    # full int
-    ax = g.buildNimIntExt(ax, g.isUnsigned(n[1].typ))
-    bx = g.buildNimIntExt(bx, g.isUnsigned(n[2].typ))
+  if aTy.getTypeKind() == llvm.IntegerTypeKind and
+      bTy.getTypeKind() == llvm.IntegerTypeKind:
+    let iTy = if aTy.getIntTypeWidth() > bTy.getIntTypeWidth(): aTy else: bTy
+
+    ax = g.buildTruncOrExt(ax, iTy, g.isUnsigned(n[1].typ))
+    bx = g.buildTruncOrExt(bx, iTy, g.isUnsigned(n[2].typ))
+
   # unsigned doesn't matter here - we've already normalized ints
   LLValue(
     v: g.buildI8(
@@ -8965,7 +8964,7 @@ proc genNodeBracketExprArray(g: LLGen, n: PNode, load: bool): LLValue =
   # GEP indices are signed, so if a char appears here we want to make sure
   # it's zero-extended
   let
-    bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
+    bi = g.buildNimIntCast(bx, g.isUnsigned(n[1].typ))
     fi = g.constNimInt(first)
     b =
       if first != 0:
@@ -9002,7 +9001,7 @@ proc genNodeBracketExprUncheckedArray(g: LLGen, n: PNode, load: bool): LLValue =
     first = g.config.firstOrd(typ)
     # GEP indices are signed, so if a char appears here we want to make sure
     # it's zero-extended
-    bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
+    bi = g.buildNimIntCast(bx, g.isUnsigned(n[1].typ))
     b =
       if first != 0:
         g.b.buildSub(bi, g.constNimInt(first), g.nn("bra.arr.first", n))
@@ -9021,7 +9020,7 @@ proc genNodeBracketExprOpenArray(g: LLGen, n: PNode, load: bool): LLValue =
     elemTy = g.llType(n[0].typ.elemType)
     px = LLValue(v: g.b.buildLoad2(g.ptrTy, g.buildOpenArrayDataGEP(ax)))
     bx = g.genNode(n[1], true).v
-    bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
+    bi = g.buildNimIntCast(bx, g.isUnsigned(n[1].typ))
 
   if optBoundsCheck in g.f.options:
     let
@@ -9050,7 +9049,7 @@ proc genNodeBracketExprSeq(
       else:
         axp
     bx = g.genNode(n[1], true).v
-    bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
+    bi = g.buildNimIntCast(bx, g.isUnsigned(n[1].typ))
     seqTy = g.llSeqPayloadType(n[0].typ)
   if optBoundsCheck in g.f.options:
     let
@@ -9065,7 +9064,7 @@ proc genNodeBracketExprCString(g: LLGen, n: PNode, load: bool): LLValue =
   let
     ax = g.genNode(n[0], true)
     bx = g.genNode(n[1], true).v
-    bi = g.buildNimIntExt(bx, g.isUnsigned(n[1].typ))
+    bi = g.buildNimIntCast(bx, g.isUnsigned(n[1].typ))
     ty = g.llType(n.typ) # n.typ can be var (!)
 
   g.maybeLoadValue(
@@ -10354,8 +10353,8 @@ proc newLLGen(
     tm: tm,
     b: llvm.createBuilderInContext(lc),
     idgen: idgen,
-    cintTy: llvm.int32TypeInContext(lc), # c int on linux
-    csizetTy: llvm.int64TypeInContext(lc), # c size_t on linux
+    cintTy: llvm.int32TypeInContext(lc), # TODO load from stdlib
+    csizetTy: intType, # TODO load from stdlib
     jmpBufTy: llvm.structCreateNamed(lc, "jmp_buf"),
     strLitFlag: int64(1'i64 shl (graph.config.target.intSize * 8 - 2)),
     attrNoInline: lc.createEnumAttribute(llvm.attrNoInline, 0),
@@ -10531,76 +10530,97 @@ proc genLoadLibrary(
 
 proc genMain(g: LLGen) =
   let
-    llMainType = llvm.functionType(g.cintTy, [g.cintTy, g.ptrTy])
-      # g.primitives[tyCString].pointerType()
-    mainName =
-      # TODO hackish way to not steal the `main` symbol!
-      if optNoMain in g.graph.config.globalOptions:
-        ".nlvm.main." & g.module.sym.name.s
+    # `main` is the regular C library entry point
+    isEntryPoint =
+      {optNoMain, optGenDynLib, optGenStaticLib} * g.config.globalOptions == {}
+    isCMain = isEntryPoint and g.config.target.targetOS != osStandAlone
+    llMainType =
+      if isCMain:
+        llvm.functionType(g.cintTy, [g.cintTy, g.ptrTy])
       else:
-        "main"
-    main = g.m.addFunction(mainName, llMainType)
+        llvm.functionType(g.voidTy, [])
+        # g.primitives[tyCString].pointerType()
+    mainName =
+      if isCMain:
+        if g.config.target.targetOS == osWasiP1: "__main_argc_argv" else: "main"
+      elif g.config.target.targetOS == osWasiP1 and
+        optGenDynLib in g.config.globalOptions:
+        # TODO look for -mexec-model in linker options
+        "_initialize"
+      elif isEntryPoint:
+        "_start"
+      else:
+        ".nlvm.main"
+    main = g.addNimFunction(mainName, llMainType)
     f = g.newLLFunc(main, nil)
 
-  if optNoMain in g.graph.config.globalOptions:
-    main.setLinkage(llvm.InternalLinkage) # TODO export it?
-
-  if optGenDynLib in g.graph.config.globalOptions:
+  if not isEntryPoint:
+    main.setLinkage(llvm.InternalLinkage)
     g.ctors.add main
+  else:
+    main.setVisibility(llvm.HiddenVisibility)
 
   discard f.startBlock(nil, g.section(f, secReturn))
 
   g.withFunc(f):
     g.withBlock(g.section(f, secArgs)):
       if g.d != nil:
-        let types = [
-          g.dtypes[tyInt32],
-          g.dtypes[tyInt32],
-          g.d.dIBuilderCreatePointerType(
-            g.d.dIBuilderCreatePointerType(g.dtypes[tyChar], g.ptrBits, g.ptrBits, ""),
-            g.ptrBits,
-            g.ptrBits,
-            "",
-          ),
-        ]
-        f.ds = g.debugFunction(nil, types, main)
-        let dl = g.lc.dIBuilderCreateDebugLocation(1, 1, f.ds, nil)
-        g.b.setCurrentDebugLocation2(dl)
+        if isCMain:
+          let types = [
+            g.dtypes[tyInt32],
+            g.dtypes[tyInt32],
+            g.d.dIBuilderCreatePointerType(
+              g.d.dIBuilderCreatePointerType(g.dtypes[tyChar], g.ptrBits, g.ptrBits, ""),
+              g.ptrBits,
+              g.ptrBits,
+              "",
+            ),
+          ]
+          f.ds = g.debugFunction(nil, types, main)
+          let dl = g.lc.dIBuilderCreateDebugLocation(1, 1, f.ds, nil)
+          g.b.setCurrentDebugLocation2(dl)
 
-        let f0 = main.getFirstParam()
-        let f1 = f0.getNextParam()
-        let argc = g.localAlloca(f0.typeOfX(), g.nn("argc"))
-        let argv = g.localAlloca(f1.typeOfX(), g.nn("argv"))
-        discard g.b.buildStore(f0, argc)
-        discard g.b.buildStore(f1, argv)
+          let f0 = main.getFirstParam()
+          let f1 = f0.getNextParam()
+          let argc = g.localAlloca(f0.typeOfX(), g.nn("argc"))
+          let argv = g.localAlloca(f1.typeOfX(), g.nn("argv"))
+          discard g.b.buildStore(f0, argc)
+          discard g.b.buildStore(f1, argv)
 
-        let vd0 = g.d.dIBuilderCreateParameterVariable(
-          f.ds,
-          "argc",
-          1,
-          g.debugGetFile(g.config.projectMainIdx),
-          0,
-          g.dtypes[tyInt],
-          false,
-          0,
-        )
-        discard g.d.dIBuilderInsertDeclareRecordAtEnd(
-          argc, vd0, g.d.dIBuilderCreateExpression(nil, 0), dl, g.b.getInsertBlock()
-        )
+          let vd0 = g.d.dIBuilderCreateParameterVariable(
+            f.ds,
+            "argc",
+            1,
+            g.debugGetFile(g.config.projectMainIdx),
+            0,
+            g.dtypes[tyInt],
+            false,
+            0,
+          )
+          discard g.d.dIBuilderInsertDeclareRecordAtEnd(
+            argc, vd0, g.d.dIBuilderCreateExpression(nil, 0), dl, g.b.getInsertBlock()
+          )
 
-        let vd1 = g.d.dIBuilderCreateParameterVariable(
-          g.f.ds,
-          "argv",
-          2,
-          g.debugGetFile(g.config.projectMainIdx),
-          0,
-          g.d.dIBuilderCreatePointerType(g.dtypes[tyCString], g.ptrBits, g.ptrBits, ""),
-          false,
-          0,
-        )
-        discard g.d.dIBuilderInsertDeclareRecordAtEnd(
-          argv, vd1, g.d.dIBuilderCreateExpression(nil, 0), dl, g.b.getInsertBlock()
-        )
+          let vd1 = g.d.dIBuilderCreateParameterVariable(
+            g.f.ds,
+            "argv",
+            2,
+            g.debugGetFile(g.config.projectMainIdx),
+            0,
+            g.d.dIBuilderCreatePointerType(
+              g.dtypes[tyCString], g.ptrBits, g.ptrBits, ""
+            ),
+            false,
+            0,
+          )
+          discard g.d.dIBuilderInsertDeclareRecordAtEnd(
+            argv, vd1, g.d.dIBuilderCreateExpression(nil, 0), dl, g.b.getInsertBlock()
+          )
+        else:
+          let types = [g.dtypes[tyVoid]]
+          f.ds = g.debugFunction(nil, types, main)
+          let dl = g.lc.dIBuilderCreateDebugLocation(1, 1, f.ds, nil)
+          g.b.setCurrentDebugLocation2(dl)
 
       if g.config.target.targetOS != osStandAlone and
           g.config.selectedGC notin {gcNone, gcArc, gcAtomicArc, gcOrc}:
@@ -10630,19 +10650,21 @@ proc genMain(g: LLGen) =
         if libPath notin ["nimrtl.dll", "libnimrtl.dylib", "libnimrtl.so"]:
           g.genLoadLibrary(libPath, syms)
 
-      let cmdLine = g.m.getNamedGlobal("cmdLine")
-      if cmdLine != nil:
-        cmdLine.setLinkage(g.tgtExportLinkage)
-        cmdLine.setInitializer(llvm.constNull(cmdLine.globalGetValueType()))
-        discard g.b.buildStore(
-          g.b.buildBitCast(main.getParam(1), cmdLine.globalGetValueType(), ""), cmdLine
-        )
+      if isCMain:
+        let cmdCount = g.m.getNamedGlobal("cmdCount")
+        if cmdCount != nil:
+          cmdCount.setLinkage(llvm.PrivateLinkage)
+          cmdCount.setInitializer(llvm.constNull(cmdCount.globalGetValueType()))
+          discard g.b.buildStore(main.getParam(0), cmdCount)
 
-      let cmdCount = g.m.getNamedGlobal("cmdCount")
-      if cmdCount != nil:
-        cmdCount.setLinkage(g.tgtExportLinkage)
-        cmdCount.setInitializer(llvm.constNull(cmdCount.globalGetValueType()))
-        discard g.b.buildStore(main.getParam(0), cmdCount)
+        let cmdLine = g.m.getNamedGlobal("cmdLine")
+        if cmdLine != nil:
+          cmdLine.setLinkage(llvm.PrivateLinkage)
+          cmdLine.setInitializer(llvm.constNull(cmdLine.globalGetValueType()))
+          discard g.b.buildStore(
+            g.b.buildBitCast(main.getParam(1), cmdLine.globalGetValueType(), ""),
+            cmdLine,
+          )
 
       for init in g.inits:
         discard g.b.buildCall2(init.globalGetValueType(), init, [], "")
@@ -10656,15 +10678,18 @@ proc genMain(g: LLGen) =
         let dl = g.lc.dIBuilderCreateDebugLocation(1, 1, f.ds, nil)
         g.b.setCurrentDebugLocation2(dl)
 
-      let pr = g.m.getNamedGlobal("nim_program_result")
-      let ret =
-        if pr != nil:
-          # Unfortunately, the program result is wrongly declared as an int
-          let prl = g.b.buildLoad2(pr.globalGetValueType(), pr)
-          g.buildTruncOrExt(prl, g.cintTy, true)
-        else:
-          g.constCInt(0)
-      discard g.b.buildRet(ret)
+      if isCMain:
+        let pr = g.m.getNamedGlobal("nim_program_result")
+        let ret =
+          if pr != nil:
+            # Unfortunately, the program result is wrongly declared as an int
+            let prl = g.b.buildLoad2(pr.globalGetValueType(), pr)
+            g.buildTruncOrExt(prl, g.cintTy, true)
+          else:
+            g.constCInt(0)
+        discard g.b.buildRet(ret)
+      else:
+        discard g.b.buildRetVoid()
 
     if g.d != nil:
       let dl = g.lc.dIBuilderCreateDebugLocation(1, 1, f.ds, nil)
@@ -10967,25 +10992,30 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
     # module - to work around this, exported symbols are generated only once
     # all of system has been processed! See also lfExportLib handling.
     g.genForwardedProcs()
+    g.systemDone = true
 
   if g.init != nil:
-    g.withModule(m):
-      g.withFunc(g.init):
-        g.withBlock(g.section(g.init, secReturn)):
-          discard g.b.buildRetVoid()
-        g.finalize()
+    let hasBody = g.init.sections.anyIt(it != nil and it.getFirstInstruction() != nil)
+    if hasBody:
+      if g.config.isBpfTarget():
+        # BPF has no process startup hook. Keeping module init functions would
+        # retain Nim runtime/TLS code that the BPF backend cannot select.
+        # TODO call on first access?
+        g.init.f.deleteFunction()
+      else:
+        g.withModule(m):
+          g.withFunc(g.init):
+            g.withBlock(g.section(g.init, secReturn)):
+              discard g.b.buildRetVoid()
+            g.finalize()
 
-    if g.config.isBpfTarget():
-      # BPF has no process startup hook. Keeping module init functions would
-      # retain Nim runtime/TLS code that the BPF backend cannot select.
-      g.init.f.deleteFunction()
-      if sfSystemModule in s.flags:
-        g.systemDone = true
-    elif sfSystemModule in s.flags:
-      g.inits.insert(g.init.f, 0)
-      g.systemDone = true
+        if sfSystemModule in s.flags:
+          g.inits.insert(g.init.f, 0)
+        else:
+          g.inits.add(g.init.f)
     else:
-      g.inits.add(g.init.f)
+      deleteFunction(g.init.f)
+
     g.init = nil
 
   if sfMainModule notin s.flags:
@@ -11024,6 +11054,16 @@ proc myClose(graph: ModuleGraph, b: PPassContext, n: PNode): PNode =
 
     ctors.setLinkage(llvm.AppendingLinkage)
     ctors.setInitializer(llvm.constArray(ctorsType, ctorsInit))
+
+  if g.used.len > 0:
+    let
+      usedType = g.ptrTy
+      usedArrayType = llvm.arrayType(usedType, g.used.len.uint32)
+      used = g.m.addGlobal(usedArrayType, "llvm.used")
+
+    used.setLinkage(llvm.AppendingLinkage)
+    used.setInitializer(llvm.constArray(usedType, g.used))
+    used.setSection("llvm.metadata")
 
   if not g.config.isBpfTarget():
     g.loadBase()

@@ -214,7 +214,7 @@ proc linkGNU(conf: ConfigRef, target: string) =
 
   if "-nostdlib" notin linkOpts and "-nostartfiles" notin linkOpts and
       "-r" notin linkOpts:
-    if not isAndroid:
+    if not isShared and not isAndroid:
       let crt1 =
         if isPIE:
           "Scrt1.o"
@@ -313,7 +313,7 @@ proc linkGNU(conf: ConfigRef, target: string) =
     if not isAndroid:
       args.add conf.printFileName("crtn.o", target)
 
-  rawMessage(conf, hintLinking, $args)
+  rawMessage(conf, hintLinking, args.mapIt(it.quoteShell).join(" "))
 
   if not nimLLDLinkElf(args):
     rawMessage(conf, errGenerated, "linking failed")
@@ -476,12 +476,13 @@ proc linkMingw(conf: ConfigRef, target: string) =
   if "-nostdlib" notin linkOpts and "-nostartfiles" notin linkOpts:
     args.add conf.printFileName("crtend.o", target)
 
-  rawMessage(conf, hintLinking, $args)
+  rawMessage(conf, hintLinking, args.mapIt(it.quoteShell).join(" "))
   if not nimLLDLinkMingw(args):
     rawMessage(conf, errGenerated, "linking failed")
     quit(1)
 
 proc linkWasm(conf: ConfigRef) =
+  # https://github.com/llvm/llvm-project/blob/llvmorg-22.1.8/clang/lib/Driver/ToolChains/WebAssembly.cpp#L82
   var args: seq[string]
 
   args.add "wasm-ld"
@@ -490,19 +491,46 @@ proc linkWasm(conf: ConfigRef) =
     exeFile = conf.getOutFile(conf.outFile, "wasm")
     linkOpts = parseCmdLine(conf.linkOptions) & parseCmdLine(conf.linkOptionsCmd)
     isShared = optGenDynLib in conf.globalOptions or "-shared" in linkOpts
+    isCpp = optMixedMode in conf.globalOptions
 
   args.add ["-m", "wasm32"]
 
   if "-s" in linkOpts:
     args.add ["--strip-all"]
 
-  if isShared:
-    args.add ["-shared"]
-
-  args.add ["-o", exefile.string]
-
   for opt in passLinkOptions(linkOpts):
     args.add opt
+
+  # TODO investigate mingw vs wasm lookup paths - it seems that clang does not
+  #      autodetect sysroot from clang binary location on wasm
+  let
+    sysroot = getAppDir().parentDir
+    syslib = sysroot / "lib" / "wasm32-wasip1"
+  args.add [
+    "-L" & sysroot / "lib/clang" / $LLVMMaj / "lib/wasm32-unknown-wasip1", "-L" & syslib
+  ]
+
+  let isCommand =
+    if "-mexec-model=command" in linkOpts:
+      true
+    elif "-mexec-model=reactor" in linkOpts:
+      false
+    else:
+      not isShared
+
+  let (crt1, entry) =
+    if isCommand:
+      ("crt1-command.o", "")
+    else:
+      ("crt1-reactor.o", "_initialize")
+
+  if "-nostdlib" notin linkOpts and "-nostartfiles" notin linkOpts:
+    args.add syslib / crt1
+    if entry.len > 0:
+      args.add ["-e", entry]
+
+  if isShared:
+    args.add ["-shared"]
 
   for it in conf.externalToLink:
     args.add addFileExt(it, CC[conf.cCompiler].objExt)
@@ -510,11 +538,15 @@ proc linkWasm(conf: ConfigRef) =
   for x in conf.toCompile:
     args.add x.obj.string
 
-  # TODO this causes stuff to be included in the wasm file, but there's probably
-  #      a better way
-  args.add("--export-dynamic")
+  if "-nostdlib" notin linkOpts and "-nodefaultlibs" notin linkOpts:
+    if isCpp:
+      if "-nostdlibxx" notin linkOpts and "-nodefaultlibs" notin linkOpts:
+        args.add "-lc++"
+    args.add ["-lc", "-lclang_rt.builtins", "-lunwind"]
 
-  rawMessage(conf, hintLinking, $args)
+  args.add ["-o", exefile.string]
+
+  rawMessage(conf, hintLinking, args.mapIt(it.quoteShell).join(" "))
   if not nimLLDLinkWasm(args):
     rawMessage(conf, errGenerated, "linking failed")
     quit(1)
@@ -624,13 +656,18 @@ proc callBuiltinClang*(
   if triple.len > 0:
     cmd.add ["--target=" & triple]
 
+  if triple.startsWith("wasm32"):
+    let sysroot = getAppDir().parentDir
+    if dirExists(sysroot / "include/wasm32-wasip1"):
+      cmd.add ["--sysroot=" & sysroot]
+
   # On windows, we'll follow llvm-mingw defaults:
   # https://github.com/mstorsjo/llvm-mingw/blob/master/wrappers/mingw32-common.cfg
   if conf.target.targetOS == osWindows:
     cmd.add ["-rtlib=compiler-rt", "-unwindlib=libunwind", "-fuse-ld=lld"]
 
   cmd.add params
-  rawMessage(conf, hintCC, $cmd)
+  rawMessage(conf, hintCC, cmd.mapIt(it.quoteShell).join(" "))
 
   clangMain(cmd)
 

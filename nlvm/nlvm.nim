@@ -363,6 +363,33 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
     if cpu != cpuNone and os != osNone:
       conf.target.setTarget(os, cpu)
 
+  if conf.target.targetCPU == cpuWasm32:
+    # Exceptions don't work well, prefer panics for now
+    conf.globalOptions.incl optPanics
+
+    # Threads are not yet supported
+    conf.globalOptions.excl optThreads
+
+    defineSymbol(conf.symbols, "nimPanics")
+    defineSymbol(conf.symbols, "noSignalHandler")
+
+    # wasi-libc exports only malloc - for standalone, user would have to provide
+    # allocator anyway and malloc feels like an easier starting point
+    defineSymbol(conf.symbols, "useMalloc")
+
+    if conf.target.targetOS != osWasiP1:
+      conf.target.targetOS = osStandalone
+      # TODO do these make sense for wasm? generally for osStandalone?
+      conf.addLinkOption("-Wl,--no-entry")
+      conf.addLinkOption("-Wl,--allow-undefined")
+      conf.addLinkOption("-nostdlib")
+
+    if conf.selectedGc notin {gcArc, gcNone}:
+      conf.message(
+        gCmdLineInfo, warnUser,
+        "wasm32: --mm:arc and --mm:none are likely to work best at present",
+      )
+
   if conf.target.targetCPU.isBpfCpu():
     # BPF programs run in the kernel, not in a hosted process: they get no
     # process startup, no libc and no libc-provided runtime.
