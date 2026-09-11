@@ -36,7 +36,6 @@ tests/codegen/titaniummangle.nim c --debugger:native # Unclassified / reCodeNotF
 tests/compiler/tasm2.nim c # Compiler/internal / reNimcCrash
 tests/compiler/tasm.nim c # Compiler/internal / reNimcCrash
 tests/compiler/tcmdlineclib.nim c # Compiler/error / reNimcCrash
-tests/compiles/tstaticlib.nim c # Assertion / reExitcodesDiffer
 tests/consts/taddressable_consts2.nim c # Linker / reNimcCrash
 tests/consts/taddressable_consts.nim c # Linker / reNimcCrash
 tests/coroutines/tgc.nim c --gc:arc # Runtime Crash / reExitcodesDiffer
@@ -107,7 +106,6 @@ tests/misc/t18077.nim c # Compiler/error / reNimcCrash
 tests/misc/t19046.nim c --threads:on # Linker / reNimcCrash
 tests/misc/t23240.nim c # Unclassified / reMsgsDiffer
 tests/misc/t9710.nim c --debugger:native # Compiler/internal / reNimcCrash
-tests/misc/tapp_lib_staticlib.nim c # Runtime Crash / reExitcodesDiffer
 tests/misc/tcast.nim c # Linker / reNimcCrash
 tests/misc/tjoinable.nim c # Assertion / reExitcodesDiffer
 tests/misc/tnoforward.nim c # Compiler/error / reNimcCrash

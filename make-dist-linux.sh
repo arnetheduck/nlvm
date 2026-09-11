@@ -46,3 +46,5 @@ cp -a include $ROOT
 cp -a lib/wasm32-wasip1 $ROOT/lib
 
 tar cvfJ dist/$ROOT.tar.xz $ROOT/
+
+rm -rf $ROOT

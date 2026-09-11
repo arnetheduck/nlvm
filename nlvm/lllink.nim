@@ -683,6 +683,13 @@ proc callBuiltinClang*(conf: ConfigRef) =
       cfile.flags.incl CfileFlag.Cached
 
 proc lllink*(conf: ConfigRef, target: string) =
+  # When we're linking binaries on windows / mingw, it's pretty annoying to have
+  # dependency on the C compiler runtime - we'll link it statically for now -
+  # perhaps there's a more elegant way to do this in the future
+  if conf.cCompiler in {ccGcc, ccLLVM_Gcc, ccCLang} and conf.target.targetOS == osWindows and
+      optMixedMode notin conf.globalOptions and optGenDynLib notin conf.globalOptions:
+    conf.addLinkOption("-static-libgcc")
+
   if conf.useBuiltinLinker():
     conf.globalOptions.incl optNoLinking
 

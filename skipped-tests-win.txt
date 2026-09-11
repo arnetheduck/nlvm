@@ -40,7 +40,7 @@ tests/async/tawaitsemantics.nim c # Unclassified / reExitcodesDiffer
 tests/async/tfuturevar.nim c # Unclassified / reExitcodesDiffer
 tests/async/tioselectors.nim c # Compiler/error / reNimcCrash
 tests/async/tnestedpfuturetypeparam.nim c # Unclassified / reExitcodesDiffer
-tests/avr/thello.nim c # Runtime Crash / reNimcCrash
+tests/avr/thello.nim c # Compiler/internal / reNimcCrash
 tests/c/temit.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/c/timportedsize.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/casestmt/t7699.nim c # Unclassified / reMsgsDiffer | reExitcodesDiffer
@@ -83,7 +83,6 @@ tests/compiler/tasm2.nim c # Compiler/internal / reNimcCrash
 tests/compiler/tcmdlineclib.nim c # Compiler/error / reNimcCrash
 tests/compiler/tunittest_light.nim c # Unclassified / reExitcodesDiffer
 tests/compilerapi/tcompilerapi.nim c # Unclassified / reExitcodesDiffer
-tests/compiles/tstaticlib.nim c # Unclassified / reExitcodesDiffer
 tests/consts/taddressable_consts.nim c # Linker / reNimcCrash
 tests/consts/taddressable_consts2.nim c # Linker / reNimcCrash
 tests/coroutines/tgc.nim c --gc:refc # Runtime Crash / reExitcodesDiffer
@@ -239,7 +238,7 @@ tests/macros/t18203.nim c --hint:SuccessX:off --hint:Link:off --hint:Conf:off --
 tests/macros/tmemit.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/manyloc/keineschweine/keineschweine.nim c # Compiler/error / reNimcCrash
 tests/manyloc/standalone/barebone.nim c # Compiler/error / reNimcCrash
-tests/manyloc/standalone2/tavr.nim c # Runtime Crash / reNimcCrash
+tests/manyloc/standalone2/tavr.nim c # Compiler/internal / reNimcCrash
 tests/method/tmethod_issues.nim c --mm:arc # Runtime Crash / reNimcCrash
 tests/method/tmethod_issues.nim c --mm:refc # Runtime Crash / reNimcCrash
 tests/misc/t15955.nim c # Unclassified / reExitcodesDiffer
@@ -247,7 +246,6 @@ tests/misc/t17286.nim c # Assertion / reNimcCrash
 tests/misc/t18077.nim c # Compiler/error / reNimcCrash
 tests/misc/t23240.nim c # Unclassified / reMsgsDiffer
 tests/misc/t9710.nim c --debugger:native # Compiler/internal / reNimcCrash
-tests/misc/tapp_lib_staticlib.nim c # Runtime Crash / reExitcodesDiffer
 tests/misc/tcast.nim c # Linker / reNimcCrash
 tests/misc/tjoinable.nim c # Assertion / reExitcodesDiffer
 tests/misc/tnoforward.nim c # Compiler/error / reNimcCrash

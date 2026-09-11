@@ -47,11 +47,11 @@ export PATH := $(PWD)/$(LLVM_OUT)/bin:$(PWD)/lib/nim:$(PATH)
 .PHONY: all
 all: $(NLVMC)
 
-$(NLVMC): $(LIBCLANG)/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a
+$(NLVMC) $(NLVMR): $(LIBCLANG)/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a
 $(LIBCLANG)/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a:
 	./dl-wasi-sysroot.sh
 
-$(NLVMC): $(LIBCLANG)/lib/windows/libclang_rt.builtins-x86_64.a
+$(NLVMC) $(NLVMR): $(LIBCLANG)/lib/windows/libclang_rt.builtins-x86_64.a
 $(LIBCLANG)/lib/windows/libclang_rt.builtins-x86_64.a:
 	./dl-llvm-mingw.sh
 
@@ -148,7 +148,7 @@ $(LLVM_DLL):
 
 # We only need a subset of the build in CI / statically linked release builds
 llvm/sta/bin/llvm-config$(EXE):
-	sh ./make-llvm.sh sta "clang-libraries lld-libraries llvm-libraries llvm-config" \
+	sh ./make-llvm.sh sta "clang-libraries lld-libraries llvm-libraries llvm-config tools/llvm-ar/all" \
 		-DLLVM_BUILD_LLVM_DYLIB=0 \
 		-DLLVM_LINK_LLVM_DYLIB=0 \
 		-DLIBCLANG_BUILD_STATIC=On \
