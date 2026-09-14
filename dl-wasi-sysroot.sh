@@ -5,7 +5,7 @@ set -e
 MAJ="33"
 MIN="0"
 SYSROOT=wasi-sysroot-$MAJ.$MIN+m
-SDK=wasi-sdk-$MAJ.$MIN-x86_64-linux
+SDK=wasi-sdk-$MAJ.$MIN-x86_64-windows # tar without symlinks!
 
 # binaries must match at least the major llvm.version
 LLVM_MAJ="$(cat llvm/llvm.version | cut -f1 -d.)"

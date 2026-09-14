@@ -1,6 +1,6 @@
 lib/pure/selectors.nim c # Compiler/error / reNimcCrash
 tests/align/talign.nim c --mm:orc # Unclassified / reCodeNotFound
-tests/align/talign.nim c --mm:refc -d:useGcAssert -d:useSysAssert # Runtime Crash / reExitcodesDiffer
+tests/align/talign.nim c --mm:refc -d:useGcAssert -d:useSysAssert # Unclassified / reCodeNotFound
 tests/arc/t15909.nim c # Unclassified / reExitcodesDiffer
 tests/arc/t18977.nim c --mm:arc # Unclassified / reExitcodesDiffer
 tests/arc/tarcmisc.nim c # Unclassified / reExitcodesDiffer
@@ -24,6 +24,7 @@ tests/assert/tassert.nim c # Unclassified / reOutputsDiffer
 tests/assert/tassert2.nim c # Unclassified / reExitcodesDiffer
 tests/assert/tassert_c.nim c -d:nimPreviewSlimSystem --stackTrace:on --excessiveStackTrace:off # Unclassified / reExitcodesDiffer
 tests/async/t23602.nim c # Unclassified / reExitcodesDiffer
+tests/async/t23615.nim c # Unclassified / reExitcodesDiffer
 tests/async/t8982.nim c # Unclassified / reExitcodesDiffer
 tests/async/tasyncRecvLine.nim c # Unclassified / reExitcodesDiffer
 tests/async/tasync_traceback.nim c # Unclassified / reExitcodesDiffer
@@ -45,12 +46,18 @@ tests/c/temit.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/c/timportedsize.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/casestmt/t7699.nim c # Unclassified / reMsgsDiffer | reExitcodesDiffer
 tests/casestmt/tcasestmt.nim c # Unclassified / reExitcodesDiffer
+tests/ccg/tclosure_err_panic_goto.nim c # Unclassified / reExitcodesDiffer
+tests/ccg/tclosure_err_panic_goto.nim c --panics:on # Unclassified / reExitcodesDiffer
 tests/ccgbugs/t16027.nim c # Unclassified / reCodeNotFound
 tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445 # Pragmas/{.header.} / reNimcCrash
 tests/ccgbugs/t19585.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/ccgbugs/t21972.nim c # Compiler/error / reOutputsDiffer
 tests/ccgbugs/t21995.nim c # Unclassified / reExitcodesDiffer
 tests/ccgbugs/t23796.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/t26112.nim c --mm:orc # Unclassified / reCodeNotFound
+tests/ccgbugs/t26112.nim c --mm:refc # Unclassified / reCodeNotFound
+tests/ccgbugs/t26119.nim c --mm:orc # Unclassified / reCodeNotFound
+tests/ccgbugs/t26119.nim c --mm:refc # Unclassified / reCodeNotFound
 tests/ccgbugs/t5296.nim c # Unclassified / reExitcodesDiffer
 tests/ccgbugs/t9286.nim c --legacy:noPanicOnExcept # Unclassified / reExitcodesDiffer
 tests/ccgbugs/taddrconvs.nim c --mm:orc # Pragmas/{.emit.} / reNimcCrash
@@ -69,13 +76,14 @@ tests/ccgbugs/tmissingvolatile.nim c # Unclassified / reExitcodesDiffer
 tests/ccgbugs/tnoalias.nim c # Unclassified / reCodeNotFound
 tests/ccgbugs/tprogmem.nim c # Unclassified / reCodeNotFound
 tests/ccgbugs/tunsafeaddr.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs2/t25294.nim c --mm:orc # Runtime Crash / reNimcCrash
+tests/ccgbugs2/t25294.nim c --mm:refc # Runtime Crash / reNimcCrash
 tests/ccgbugs2/t25459b.nim c -d:checkAbi # Linker / reNimcCrash
 tests/ccgbugs2/tcodegen.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/ccgbugs2/tinefficient_const_table.nim c # Unclassified / reCodeNotFound
 tests/closure/ttimeinfo.nim c # Compiler/internal / reNimcCrash
 tests/codegen/titaniummangle.nim c --debugger:native # Unclassified / reCodeNotFound
 tests/codegen/titaniummangle.nim c --debugger:native --mangle:cpp # Unclassified / reCodeNotFound
-tests/collections/tseq.nim c --mm:refc # Runtime Crash / reExitcodesDiffer
 tests/collections/ttables.nim c # Unclassified / reExitcodesDiffer
 tests/collections/ttablesthreads.nim c # Unclassified / reExitcodesDiffer
 tests/compiler/tasm.nim c # Compiler/internal / reNimcCrash
@@ -85,7 +93,6 @@ tests/compiler/tunittest_light.nim c # Unclassified / reExitcodesDiffer
 tests/compilerapi/tcompilerapi.nim c # Unclassified / reExitcodesDiffer
 tests/consts/taddressable_consts.nim c # Linker / reNimcCrash
 tests/consts/taddressable_consts2.nim c # Linker / reNimcCrash
-tests/coroutines/tgc.nim c --gc:refc # Runtime Crash / reExitcodesDiffer
 tests/cpp/t10148.nim c # Compiler/error / reNimcCrash
 tests/cpp/t22679.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/cpp/t22680.nim c # Pragmas/{.emit.} / reNimcCrash
@@ -106,8 +113,6 @@ tests/destructor/tgotoexceptions8.nim c # Unclassified / reExitcodesDiffer
 tests/destructor/tsetjmp_raise.nim c # Unclassified / reOutputsDiffer
 tests/destructor/tv2_raise.nim c # Unclassified / reExitcodesDiffer
 tests/discard/tdiscardable.nim c # Unclassified / reExitcodesDiffer
-tests/dll/client.nim c  -d:nimDebugDlOpen --mm:refc --threads:on # Unclassified / reExitcodesDiffer
-tests/dll/client.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:on # Unclassified / reExitcodesDiffer
 tests/dll/visibility.nim c  -d:nimDebugDlOpen --mm:refc --threads:off # Unclassified / reOutputsDiffer
 tests/dll/visibility.nim c  -d:nimDebugDlOpen --threads:off # Unclassified / reOutputsDiffer
 tests/dll/visibility.nim c  -d:nimDebugDlOpen -d:release --mm:refc --threads:off # Unclassified / reOutputsDiffer
@@ -153,79 +158,9 @@ tests/float/tfloat2.nim c # Compiler/error / reOutputsDiffer
 tests/float/tfloat3.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/float/tfloat7.nim c # Unclassified / reExitcodesDiffer
 tests/float/tfloats.nim c # Unclassified / reExitcodesDiffer
-tests/gc/closureleak c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/closureleak c  -d:release --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/closureleak c  -d:release -d:useRealtimeGC --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/closureleak c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/cyclecollector c  --gc:markAndSweep # Unclassified / reExitcodesDiffer
-tests/gc/cyclecollector c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/cyclecollector c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/cycleleak c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/cycleleak c  -d:release --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/cycleleak c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/cycleleak c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcbench c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/gcbench c  -d:release --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/gcbench c  -d:release -d:useRealtimeGC --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/gcbench c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcemscripten c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/gcemscripten c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcemscripten c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak c  --gc:markAndSweep # Unclassified / reExitcodesDiffer
-tests/gc/gcleak c  -d:release --gc:markAndSweep # Unclassified / reExitcodesDiffer
-tests/gc/gcleak c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak2 c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak2 c  -d:release --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak2 c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak2 c --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/gcleak3 c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak3 c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak4 c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak4 c  -d:release --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak4 c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gcleak4 c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/gctest c  --gc:markAndSweep # Unclassified / reExitcodesDiffer
-tests/gc/gctest c  -d:release --gc:markAndSweep # Unclassified / reExitcodesDiffer
-tests/gc/gctest c  -d:release -d:useRealtimeGC --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/gctest c --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/growobjcrash c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/growobjcrash c  -d:release --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/growobjcrash c  -d:release -d:useRealtimeGC --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/growobjcrash c --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/refarrayleak c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/refarrayleak c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/stackrefleak c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/stackrefleak c  -d:release --gc:markAndSweep # Unclassified / reExitcodesDiffer
-tests/gc/stackrefleak c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/stackrefleak c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/tfinalizers c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/tfinalizers c --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/thavlak c  --gc:markAndSweep # Unclassified / reExitcodesDiffer
-tests/gc/thavlak c  -d:release --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/thavlak c  -d:release -d:useRealtimeGC --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/thavlak c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/tlists c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/tlists c  -d:release --gc:markAndSweep # Assertion / reExitcodesDiffer
-tests/gc/tlists c  -d:release -d:useRealtimeGC --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/tlists c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/trace_globals c  --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/trace_globals c  -d:release -d:useRealtimeGC --mm:refc # Unclassified / reExitcodesDiffer
-tests/gc/trace_globals c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/weakrefs c  --gc:markAndSweep # Unclassified / reExitcodesDiffer
-tests/gc/weakrefs c  -d:release --gc:markAndSweep # Runtime Crash / reExitcodesDiffer
-tests/gc/weakrefs c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/gc/weakrefs c --mm:refc # Runtime Crash / reExitcodesDiffer
+tests/gc/thavlak c  -d:release -d:useRealtimeGC --mm:refc # Runtime Crash / reExitcodesDiffer
+tests/gc/tlists c  -d:release -d:useRealtimeGC --mm:refc # Assertion / reExitcodesDiffer
 tests/generics/tforwardgeneric.nim c # Unclassified / reCodeNotFound
-tests/generics/tparser_generator.nim c # Unclassified / reExitcodesDiffer
-tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/tconverter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/tgenericinst_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Pragmas/{.emit.} / reNimcCrash
-tests/ic/tgenerics_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/thallo_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/timports_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
 tests/init/tcompiles.nim c --warningAsError:ProveInit --warningAsError:Uninit # Unclassified / reExitcodesDiffer
 tests/int/tunsignedconv.nim c # Unclassified / reExitcodesDiffer
 tests/iter/titer_issues.nim c # Unclassified / reExitcodesDiffer
@@ -241,6 +176,7 @@ tests/manyloc/standalone/barebone.nim c # Compiler/error / reNimcCrash
 tests/manyloc/standalone2/tavr.nim c # Compiler/internal / reNimcCrash
 tests/method/tmethod_issues.nim c --mm:arc # Runtime Crash / reNimcCrash
 tests/method/tmethod_issues.nim c --mm:refc # Runtime Crash / reNimcCrash
+tests/method/tmethod_virtual_raise.nim c # Unclassified / reExitcodesDiffer
 tests/misc/t15955.nim c # Unclassified / reExitcodesDiffer
 tests/misc/t17286.nim c # Assertion / reNimcCrash
 tests/misc/t18077.nim c # Compiler/error / reNimcCrash
@@ -249,6 +185,7 @@ tests/misc/t9710.nim c --debugger:native # Compiler/internal / reNimcCrash
 tests/misc/tcast.nim c # Linker / reNimcCrash
 tests/misc/tjoinable.nim c # Assertion / reExitcodesDiffer
 tests/misc/tnoforward.nim c # Compiler/error / reNimcCrash
+tests/misc/tparsecombnum.nim c # Struct ABI/size / reNimcCrash
 tests/misc/trunner.nim c # Compiler/error / reExitcodesDiffer
 tests/misc/trunner_special.nim c # Runtime Crash / reExitcodesDiffer
 tests/misc/tsemfold.nim c # Unclassified / reExitcodesDiffer
@@ -265,6 +202,7 @@ tests/nimdoc/t17615.nim c # Unclassified / reMsgsDiffer
 tests/nimdoc/trunnableexamples.nim c # Compiler/error / reNimcCrash
 tests/niminaction/Chapter2/various2.nim c # Unclassified / reExitcodesDiffer
 tests/niminaction/Chapter3/various3.nim c --mm:refc # Unclassified / reExitcodesDiffer
+tests/objects/t3734.nim c # Struct ABI/size / reNimcCrash
 tests/objects/t4318.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/osproc/tnoexe.nim c # Unclassified / reExitcodesDiffer
 tests/osproc/treadlines.nim c # Compiler/error / reOutputsDiffer
@@ -272,6 +210,7 @@ tests/overflow/toverflow.nim c --overflowChecks:off # Unclassified / reExitcodes
 tests/overflow/toverflow_reorder.nim c # Unclassified / reExitcodesDiffer
 tests/overflow/trangechecks.nim c # Unclassified / reExitcodesDiffer
 tests/overload/tstatic_with_converter.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/parallel/tconvexhull.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/parallel/tmissing_deepcopy.nim c --mm:refc # Unclassified / reCodeNotFound
 tests/pragmas/tbitsize.nim c # Assertion / reExitcodesDiffer
 tests/pragmas/tnoreturn.nim c --mm:refc # Unclassified / reCodeNotFound
@@ -290,7 +229,6 @@ tests/stdlib/tcgi.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tcgi.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tdeques.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tdeques.nim c --mm:refc # Unclassified / reExitcodesDiffer
-tests/stdlib/tdochelpers.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tencodings.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tencodings.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tenvvars.nim c --mm:orc # Unclassified / reExitcodesDiffer
@@ -309,7 +247,6 @@ tests/stdlib/tjsonmacro.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tjsonmacro.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tjsonutils.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tjsonutils.nim c --mm:refc # Unclassified / reExitcodesDiffer
-tests/stdlib/tmarshal.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tmath.nim c # Unclassified / reExitcodesDiffer
 tests/stdlib/tmath.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tmath.nim c -d:danger # Unclassified / reExitcodesDiffer
@@ -347,17 +284,12 @@ tests/stdlib/trandom.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/trat_init.nim c # Unclassified / reExitcodesDiffer
 tests/stdlib/trationals.nim c --mm:orc # Compiler/error / reNimcCrash
 tests/stdlib/trationals.nim c --mm:refc # Compiler/error / reNimcCrash
-tests/stdlib/tre.nim c --mm:orc # Unclassified / reExitcodesDiffer
-tests/stdlib/tre.nim c --mm:refc # Unclassified / reExitcodesDiffer
-tests/stdlib/tregex.nim c --mm:orc # Unclassified / reExitcodesDiffer
-tests/stdlib/tregex.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/trst.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/trst.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/trstgen.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/trstgen.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tsequtils.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tsequtils.nim c --mm:refc # Unclassified / reExitcodesDiffer
-tests/stdlib/tsqlparser.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tssl.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tssl.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tstackframes.nim c # Unclassified / reExitcodesDiffer
@@ -368,31 +300,29 @@ tests/stdlib/tstrbasics.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tstrbasics.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tstreams.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tstreams.nim c --mm:refc # Unclassified / reExitcodesDiffer
-tests/stdlib/tstrformat.nim c --mm:refc # Runtime Crash / reExitcodesDiffer
 tests/stdlib/tstring.nim c --backend:c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tstring.nim c --backend:c --mm:refc # Unclassified / reExitcodesDiffer
-tests/stdlib/tstrtabs.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tstrutils.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tstrutils.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tsugar.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tsugar.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tsystem.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tsystem.nim c --mm:refc # Unclassified / reExitcodesDiffer
-tests/stdlib/ttempfiles.nim c --mm:orc # Linker / reNimcCrash
-tests/stdlib/ttempfiles.nim c --mm:refc # Linker / reNimcCrash
+tests/stdlib/ttempfiles.nim c --mm:orc # Unclassified / reExitcodesDiffer
+tests/stdlib/ttempfiles.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/ttestutils.nim c # Unclassified / reExitcodesDiffer
 tests/stdlib/ttimes.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/ttimes.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tunittest.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/tunittest.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tunittestexceptiontype.nim c # Unclassified / reOutputsDiffer
-tests/stdlib/turi.nim c --mm:refc # Runtime Crash / reExitcodesDiffer
 tests/stdlib/tvolatile.nim c # Pragmas/{.emit.} / reNimcCrash
-tests/stdlib/twchartoutf8.nim c --mm:refc # Runtime Crash / reExitcodesDiffer
 tests/stdlib/twrapnils.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/stdlib/twrapnils.nim c --mm:refc # Unclassified / reExitcodesDiffer
-tests/system/tdeepcopy.nim c --mm:refc # Runtime Crash / reExitcodesDiffer
-tests/system/tnew.nim c --mm:refc # Runtime Crash / reExitcodesDiffer
+tests/system/tdeepcopy_nocopy.nim c --mm:orc --deepcopy:on # Unclassified / reMsgsDiffer | reExitcodesDiffer
+tests/system/tdeepcopy_nocopy.nim c --mm:refc # Unclassified / reMsgsDiffer | reExitcodesDiffer
+tests/system/tdeepcopy_nocopy_field.nim c --mm:orc --deepcopy:on # Unclassified / reMsgsDiffer | reExitcodesDiffer
+tests/system/tdeepcopy_nocopy_field.nim c --mm:refc # Unclassified / reMsgsDiffer | reExitcodesDiffer
 tests/system/tnim_stacktrace_override.nim c # Compiler/error / reOutputsDiffer
 tests/system/tsystem_misc.nim c # Unclassified / reExitcodesDiffer
 tests/template/tcallsitelineinfo.nim c # Compiler/error / reOutputsDiffer
@@ -402,7 +332,12 @@ tests/template/tidentconcatenations.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/testament/tjoinable.nim c # Assertion / reExitcodesDiffer
 tests/testament/tshould_not_work.nim c # Unclassified / reExitcodesDiffer
 tests/testament/tspecialpaths.nim c # Unclassified / reExitcodesDiffer
+tests/threads/tsharedfreelistbigchunks.nim c  --threads:on -d:release --mm:arc # Unclassified / reExitcodesDiffer
+tests/threads/tsharedfreelistbigchunks.nim c  --threads:on -d:release --mm:orc # Unclassified / reExitcodesDiffer
+tests/threads/tthreadallocatorpool.nim c  --threads:on -d:release --mm:arc --threads:on # Unclassified / reExitcodesDiffer
+tests/threads/tthreadallocatorpool.nim c  --threads:on -d:release --mm:orc --threads:on # Unclassified / reExitcodesDiffer
 tests/tools/tctags.nim c # Compiler/error / reNimcCrash
 tests/tools/tctags2.nim c # Compiler/error / reNimcCrash
 tests/tools/tnimgrep.nim c # Unclassified / reExitcodesDiffer
 tests/vm/tvmops.nim c # Assertion / reNimcCrash
+tests/whenstmt/twhen_nimvm_push.nim c # Unclassified / reExitcodesDiffer
