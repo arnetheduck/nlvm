@@ -39,6 +39,7 @@ proc toLLVMArch*(cpu: TSystemCPU): string =
   of cpuJS: "js"
   of cpuNimVM: "nimvm"
   of cpuMSP430: "msp430"
+  of cpuWasm64: "wasm64"
   of cpuBpf: "bpf"
   of cpuBpfel: "bpfel"
   of cpuBpfeb: "bpfeb"
@@ -183,6 +184,10 @@ proc parseTarget*(target: string): tuple[cpu: TSystemCPU, os: TSystemOS] =
   of "wasm", "wasm32":
     cpu = cpuWasm32
     # By default, use a bare-bones wasm32-unknown-unknown env
+    os = osStandalone
+  of "wasm64":
+    cpu = cpuWasm64
+    # By default, use a bare-bones wasm64-unknown-unknown env
     os = osStandalone
   of "loongarch64":
     cpu = cpuLoongArch64

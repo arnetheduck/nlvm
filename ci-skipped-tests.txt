@@ -2,3 +2,7 @@
 tests/stdlib/trandom.nim c
 tests/stdlib/ttempfiles.nim c
 tests/stdlib/tsysrand.nim c --experimental:vmopsDanger
+
+# we don't support boehm
+tests/gc/gctest c  --gc:boehm
+tests/gc/gctest c  -d:release --gc:boehm

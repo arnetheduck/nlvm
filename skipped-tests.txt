@@ -8,6 +8,8 @@ tests/async/tasync_traceback2.nim c # Assertion / reExitcodesDiffer
 tests/async/tasync_traceback.nim c # Unclassified / reExitcodesDiffer
 tests/avr/thello.nim c # Compiler/internal / reNimcCrash
 tests/casestmt/t7699.nim c # Unclassified / reMsgsDiffer | reExitcodesDiffer
+tests/ccgbugs2/t25294.nim c --mm:orc # LLVM IR / reNimcCrash
+tests/ccgbugs2/t25294.nim c --mm:refc # LLVM IR / reNimcCrash
 tests/ccgbugs2/t25459b.nim c -d:checkAbi # Linker / reNimcCrash
 tests/ccgbugs2/tcodegen.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/ccgbugs2/tinefficient_const_table.nim c # Unclassified / reCodeNotFound
@@ -15,6 +17,10 @@ tests/ccgbugs/t16027.nim c # Unclassified / reCodeNotFound
 tests/ccgbugs/t19445.nim c --nimcache:tests/ccgbugs/nimcache19445 --cincludes:nimcache19445 --header:m19445 # Pragmas/{.header.} / reNimcCrash
 tests/ccgbugs/t19585.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/ccgbugs/t23796.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/ccgbugs/t26112.nim c --mm:orc # Unclassified / reCodeNotFound
+tests/ccgbugs/t26112.nim c --mm:refc # Unclassified / reCodeNotFound
+tests/ccgbugs/t26119.nim c --mm:orc # Unclassified / reCodeNotFound
+tests/ccgbugs/t26119.nim c --mm:refc # Unclassified / reCodeNotFound
 tests/ccgbugs/taddrconvs.nim c --mm:orc # Pragmas/{.emit.} / reNimcCrash
 tests/ccgbugs/taddrconvs.nim c --mm:refc # Pragmas/{.emit.} / reNimcCrash
 tests/ccgbugs/tassign_nil_strings.nim c --mm:refc # Unclassified / reCodeNotFound
@@ -78,21 +84,13 @@ tests/exception/t22469.nim c # Compiler/error / reOutputsDiffer
 tests/exception/tunhandledexc.nim c # Compiler/error / reOutputsDiffer
 tests/float/tfloat3.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/float/tfloats.nim c # Assertion / reExitcodesDiffer
-tests/gc/thavlak c  -d:release --gc:markAndSweep # Compiler/error / reExitcodesDiffer
 tests/generics/tforwardgeneric.nim c # Unclassified / reCodeNotFound
-tests/ic/tcompiletime_counter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/tconverter_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/tgenericinst_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Pragmas/{.emit.} / reNimcCrash
-tests/ic/tgenerics_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/thallo_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/timports_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/tmethods_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
-tests/ic/tstdlib_import_changed_temp.nim c  --incremental:on -d:nimIcIntegrityChecks # Assertion / reNimcCrash
 tests/iter/tnestedclosures.nim c # LLVM IR / reNimcCrash
 tests/iter/tshallowcopy_closures.nim c --mm:refc # Unclassified / reCodeNotFound
 tests/iter/tyieldintry.nim c --experimental:strictdefs # Runtime Crash / reExitcodesDiffer
 tests/iter/tyieldintry.nim c # Runtime Crash / reExitcodesDiffer
 tests/let/timportc.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/macros/t18203.nim c --hint:SuccessX:off --hint:Link:off --hint:Conf:off --hint:CC:off --hint:XDeclaredButNotUsed:on # Unclassified / reMsgsDiffer
 tests/macros/tmemit.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/manyloc/keineschweine/keineschweine.nim c # Compiler/error / reNimcCrash
 tests/manyloc/nake/nakefile.nim c # Compiler/error / reNimcCrash
@@ -109,6 +107,7 @@ tests/misc/t9710.nim c --debugger:native # Compiler/internal / reNimcCrash
 tests/misc/tcast.nim c # Linker / reNimcCrash
 tests/misc/tjoinable.nim c # Assertion / reExitcodesDiffer
 tests/misc/tnoforward.nim c # Compiler/error / reNimcCrash
+tests/misc/tparsecombnum.nim c # Struct ABI/size / reNimcCrash
 tests/misc/trunner.nim c # Assertion / reExitcodesDiffer
 tests/misc/trunner_special.nim c # Compiler/error / reExitcodesDiffer
 tests/misc/tsizeof3.nim c # Linker / reNimcCrash
@@ -122,6 +121,7 @@ tests/newconfig/tfoo.nim c # Unclassified / reExeNotFound
 tests/nimdoc/t15916.nim c # Compiler/error / reNimcCrash
 tests/nimdoc/t17615.nim c # Unclassified / reMsgsDiffer
 tests/nimdoc/trunnableexamples.nim c # Compiler/error / reNimcCrash
+tests/objects/t3734.nim c # Struct ABI/size / reNimcCrash
 tests/osproc/treadlines.nim c # LLVM IR / reOutputsDiffer
 tests/overflow/toverflow.nim c --overflowChecks:off # Assertion / reExitcodesDiffer
 tests/overflow/toverflow_reorder.nim c # Assertion / reExitcodesDiffer
@@ -144,6 +144,10 @@ tests/stdlib/tssl.nim c --mm:refc # Compiler/error / reExitcodesDiffer
 tests/stdlib/tstackframes.nim c # Pragmas/{.emit.} / reExitcodesDiffer
 tests/stdlib/tstdlib_various.nim c --mm:refc # Unclassified / reExitcodesDiffer
 tests/stdlib/tvolatile.nim c # Pragmas/{.emit.} / reNimcCrash
+tests/system/tdeepcopy_nocopy_field.nim c --mm:orc --deepcopy:on # Unclassified / reMsgsDiffer | reExitcodesDiffer
+tests/system/tdeepcopy_nocopy_field.nim c --mm:refc # Unclassified / reMsgsDiffer | reExitcodesDiffer
+tests/system/tdeepcopy_nocopy.nim c --mm:orc --deepcopy:on # Unclassified / reMsgsDiffer | reExitcodesDiffer
+tests/system/tdeepcopy_nocopy.nim c --mm:refc # Unclassified / reMsgsDiffer | reExitcodesDiffer
 tests/system/tgogc.nim c # LLVM IR / reNimcCrash
 tests/system/tnim_stacktrace_override.nim c # Compiler/error / reOutputsDiffer
 tests/template/tcallsitelineinfo2.nim c # Compiler/error / reOutputsDiffer
@@ -151,6 +155,12 @@ tests/template/tcallsitelineinfo.nim c # Compiler/error / reOutputsDiffer
 tests/template/tidentconcatenations.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/testament/tjoinable.nim c # Assertion / reExitcodesDiffer
 tests/testament/tshould_not_work.nim c # Assertion / reExitcodesDiffer
+tests/threads/tsharedfreelistbigchunks.nim c  --threads:on -d:release --mm:arc # Assertion / reExitcodesDiffer
+tests/threads/tsharedfreelistbigchunks.nim c  --threads:on -d:release --mm:orc # Assertion / reExitcodesDiffer
+tests/threads/tthreadallocatorforeignpool.nim c  --threads:on -d:release --mm:arc --threads:on --tlsEmulation:off # Assertion / reExitcodesDiffer
+tests/threads/tthreadallocatorforeignpool.nim c  --threads:on -d:release --mm:orc --threads:on --tlsEmulation:off # Assertion / reExitcodesDiffer
+tests/threads/tthreadallocatorpool.nim c  --threads:on -d:release --mm:arc --threads:on # Assertion / reExitcodesDiffer
+tests/threads/tthreadallocatorpool.nim c  --threads:on -d:release --mm:orc --threads:on # Assertion / reExitcodesDiffer
 tests/tools/tctags2.nim c # Compiler/error / reNimcCrash
 tests/tools/tctags.nim c # Compiler/error / reNimcCrash
 tests/tools/tnimgrep.nim c # Unclassified / reExitcodesDiffer
