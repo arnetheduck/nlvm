@@ -148,13 +148,13 @@ LLVMNimCreateTargetMachine(LLVMTargetRef T, const char *TT,
 extern "C" void LLVMNimSetFunctionAttributes(LLVMValueRef FV) {
   auto F = unwrap<llvm::Function>(FV);
 
-  codegen::setFunctionAttributes(codegen::getCPUStr(),
-                                 codegen::getFeaturesStr(), *F);
+  codegen::setFunctionAttributes(*F, codegen::getCPUStr(),
+                                 codegen::getFeaturesStr());
 }
 
 int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContext);
 
-extern "C" int LLVMNimClangMain(int argc, char** argv) {
+extern "C" int LLVMNimClangMain(int argc, char **argv) {
   // If argv[0] starts with '-cc1', we're a child process forked by clang.
   // In this case, skip Nim's command-line parsing and call clang_main directly
   // with the original arguments to avoid parseopt splitting short options.

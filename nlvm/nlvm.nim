@@ -425,6 +425,22 @@ proc handleCmdLine(cache: IdentCache, conf: ConfigRef) =
       elif entry == section:
         conf.internalError("The BPF entry name must differ from its ELF section name")
 
+    # The Nim system module is present while lowering, but must be dead
+    # stripped before BPF instruction selection. BPF defaults to size
+    # optimization unless the user supplies the normal --opt option.
+    if conf.existsConfigVar("nlvm.bpf.opt"):
+      case conf.getConfigVar("nlvm.bpf.opt").normalize
+      of "none":
+        discard
+      of "size":
+        incl conf.options, optOptimizeSize
+      of "speed":
+        incl conf.options, optOptimizeSpeed
+      else:
+        conf.internalError("invalid --opt value (expected none, size, or speed)")
+    else:
+      incl conf.options, optOptimizeSize
+
   if conf.selectedGC == gcUnselected:
     initOrcDefines(conf)
 

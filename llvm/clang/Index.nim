@@ -1939,6 +1939,9 @@ type CXIndexOptionsCXCursorKind* {.size: sizeof(cint).} = enum
     ##  OpenMP fuse directive
     ##
   CXCursorOMPFuseDirective = 311
+    ##  OpenMP split directive.
+    ##
+  CXCursorOMPSplitDirective = 312
     ##  OpenACC Compute Construct.
     ##
   CXCursorOpenACCComputeConstruct = 320
@@ -2171,7 +2174,7 @@ proc isDeclaration*(
 ##  A declaration is invalid if it could not be parsed successfully.
 ##
 ##  \returns non-zero if the cursor represents a declaration and it is
-##  invalid, otherwise NULL.
+##  invalid, otherwise zero.
 ##
 
 proc isInvalidDeclaration*(
@@ -2895,6 +2898,7 @@ type CXIndexOptionsCXTypeKind* {.size: sizeof(cint).} = enum
   CXTypeHLSLResource = 179
   CXTypeHLSLAttributedResource = 180
   CXTypeHLSLInlineSpirv = 181
+  CXTypePredefinedSugar = 182
 
 const
   CXTypeOCLIntelSubgroupAVCImeResultSingleRefStreamout =
@@ -4873,6 +4877,8 @@ proc getModuleForFile*(
 ##  \param Module a module object.
 ##
 ##  \returns the module file where the provided module object came from.
+##
+##  @deprecated: module files are longer guaranteed to be loaded from a CXFile
 ##
 
 proc moduleGetASTFile*(
@@ -7356,7 +7362,7 @@ type CXIndexOptionsCXUnaryOperatorKind* {.size: sizeof(cint).} = enum
   CXUnaryOperatorReal ##  "__imag expr" operator.
   CXUnaryOperatorImag ##  __extension__ marker operator.
   CXUnaryOperatorExtension ##  C++ co_await operator.
-  CXUnaryOperatorCoawait
+  CXUnaryOperatorCoawait # CXUnaryOperatorLast = cXUnaryOperatorCoawait
 
 ##
 ##  Retrieve the spelling of a given CXUnaryOperatorKind.

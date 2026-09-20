@@ -36,7 +36,7 @@ proc getFileName*(
 
 proc getFileTime*(
   sFile: CXFile
-): TimeT {.importc: "clang_getFileTime", dynlib: CLangLib.}
+): Time {.importc: "clang_getFileTime", dynlib: CLangLib.}
 
 ##
 ##  Uniquely identifies a CXFile, that refers to the same underlying file,

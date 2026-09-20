@@ -37,7 +37,7 @@
 ##
 ##  @{
 ##   External users depend on the following values being stable. It is not safe
-##  to reorder them. typedef enum {  Terminator Instructions LLVMRet = 1 , LLVMBr = 2 , LLVMSwitch = 3 , LLVMIndirectBr = 4 , LLVMInvoke = 5 ,  removed 6 due to API changes LLVMUnreachable = 7 , LLVMCallBr = 67 ,  Standard Unary Operators LLVMFNeg = 66 ,  Standard Binary Operators LLVMAdd = 8 , LLVMFAdd = 9 , LLVMSub = 10 , LLVMFSub = 11 , LLVMMul = 12 , LLVMFMul = 13 , LLVMUDiv = 14 , LLVMSDiv = 15 , LLVMFDiv = 16 , LLVMURem = 17 , LLVMSRem = 18 , LLVMFRem = 19 ,  Logical Operators LLVMShl = 20 , LLVMLShr = 21 , LLVMAShr = 22 , LLVMAnd = 23 , LLVMOr = 24 , LLVMXor = 25 ,  Memory Operators LLVMAlloca = 26 , LLVMLoad = 27 , LLVMStore = 28 , LLVMGetElementPtr = 29 ,  Cast Operators LLVMTrunc = 30 , LLVMZExt = 31 , LLVMSExt = 32 , LLVMFPToUI = 33 , LLVMFPToSI = 34 , LLVMUIToFP = 35 , LLVMSIToFP = 36 , LLVMFPTrunc = 37 , LLVMFPExt = 38 , LLVMPtrToInt = 39 , LLVMPtrToAddr = 69 , LLVMIntToPtr = 40 , LLVMBitCast = 41 , LLVMAddrSpaceCast = 60 ,  Other Operators LLVMICmp = 42 , LLVMFCmp = 43 , LLVMPHI = 44 , LLVMCall = 45 , LLVMSelect = 46 , LLVMUserOp1 = 47 , LLVMUserOp2 = 48 , LLVMVAArg = 49 , LLVMExtractElement = 50 , LLVMInsertElement = 51 , LLVMShuffleVector = 52 , LLVMExtractValue = 53 , LLVMInsertValue = 54 , LLVMFreeze = 68 ,  Atomic operators LLVMFence = 55 , LLVMAtomicCmpXchg = 56 , LLVMAtomicRMW = 57 ,  Exception Handling Operators LLVMResume = 58 , LLVMLandingPad = 59 , LLVMCleanupRet = 61 , LLVMCatchRet = 62 , LLVMCatchPad = 63 , LLVMCleanupPad = 64 , LLVMCatchSwitch = 65 } LLVMOpcode ;
+##  to reorder them. typedef enum {  Terminator Instructions LLVMRet = 1 ,  removed 2 due to API changes LLVMUncondBr = 70 , LLVMCondBr = 71 , LLVMSwitch = 3 , LLVMIndirectBr = 4 , LLVMInvoke = 5 ,  removed 6 due to API changes LLVMUnreachable = 7 , LLVMCallBr = 67 ,  Standard Unary Operators LLVMFNeg = 66 ,  Standard Binary Operators LLVMAdd = 8 , LLVMFAdd = 9 , LLVMSub = 10 , LLVMFSub = 11 , LLVMMul = 12 , LLVMFMul = 13 , LLVMUDiv = 14 , LLVMSDiv = 15 , LLVMFDiv = 16 , LLVMURem = 17 , LLVMSRem = 18 , LLVMFRem = 19 ,  Logical Operators LLVMShl = 20 , LLVMLShr = 21 , LLVMAShr = 22 , LLVMAnd = 23 , LLVMOr = 24 , LLVMXor = 25 ,  Memory Operators LLVMAlloca = 26 , LLVMLoad = 27 , LLVMStore = 28 , LLVMGetElementPtr = 29 ,  Cast Operators LLVMTrunc = 30 , LLVMZExt = 31 , LLVMSExt = 32 , LLVMFPToUI = 33 , LLVMFPToSI = 34 , LLVMUIToFP = 35 , LLVMSIToFP = 36 , LLVMFPTrunc = 37 , LLVMFPExt = 38 , LLVMPtrToInt = 39 , LLVMPtrToAddr = 69 , LLVMIntToPtr = 40 , LLVMBitCast = 41 , LLVMAddrSpaceCast = 60 ,  Other Operators LLVMICmp = 42 , LLVMFCmp = 43 , LLVMPHI = 44 , LLVMCall = 45 , LLVMSelect = 46 , LLVMUserOp1 = 47 , LLVMUserOp2 = 48 , LLVMVAArg = 49 , LLVMExtractElement = 50 , LLVMInsertElement = 51 , LLVMShuffleVector = 52 , LLVMExtractValue = 53 , LLVMInsertValue = 54 , LLVMFreeze = 68 ,  Atomic operators LLVMFence = 55 , LLVMAtomicCmpXchg = 56 , LLVMAtomicRMW = 57 ,  Exception Handling Operators LLVMResume = 58 , LLVMLandingPad = 59 , LLVMCleanupRet = 61 , LLVMCatchRet = 62 , LLVMCatchPad = 63 , LLVMCleanupPad = 64 , LLVMCatchSwitch = 65 } LLVMOpcode ;
 ## Error: token expected: ) but got: [identifier]!!!
 
 type
@@ -70,6 +70,7 @@ type
     BFloatTypeKind = 18 ## < 16 bit brain floating point type
     X86AMXTypeKind = 19 ## < X86 AMX
     TargetExtTypeKind = 20 ## < Target extension type
+    ByteTypeKind = 21 ## < Arbitrary bit width bytes
 
   Linkage* {.size: sizeof(cint).} = enum
     ExternalLinkage ## < Externally visible function
@@ -174,6 +175,7 @@ type
     ConstantDataArrayValueKind
     ConstantDataVectorValueKind
     ConstantIntValueKind
+    ConstantByteValueKind
     ConstantFPValueKind
     ConstantPointerNullValueKind
     ConstantTokenNoneValueKind
@@ -306,6 +308,14 @@ type
       ##                            original using an floating point comparison and
       ##                            return the old one
     AtomicRMWBinOpFMinimum
+      ## < Sets the value if it's smaller than the
+      ##                            original using an floating point comparison and
+      ##                            return the old one
+    AtomicRMWBinOpFMaximumNum
+      ## < Sets the value if it's greater than the
+      ##                            original using an floating point comparison and
+      ##                            return the old one
+    AtomicRMWBinOpFMinimumNum
       ## < Sets the value if it's smaller than the
       ##                            original using an floating point comparison and
       ##                            return the old one
@@ -671,6 +681,44 @@ proc createConstantRangeAttribute*(
   lowerWords: ptr uint64,
   upperWords: ptr uint64,
 ): AttributeRef {.importc: "LLVMCreateConstantRangeAttribute", dynlib: LLVMLib.}
+
+##
+##  Represent different denormal handling kinds for use with
+##  LLVMCreateDenormalFPEnvAttribute.
+##
+
+type DenormalModeKind* {.size: sizeof(cint).} = enum
+  DenormalModeKindIEEE = 0
+  DenormalModeKindPreserveSign = 1
+  DenormalModeKindPositiveZero = 2
+  DenormalModeKindDynamic = 3
+
+##
+##  Create a DenormalFPEnv attribute.
+##
+##  \p DefaultModeOutput is the assumed denormal handling for the outputs of most
+##     floating-point types.
+##
+##  \p DefaultModeInput is the assumed denormal handling for the inputs of most
+##     floating-point types.
+##
+##  \p FloatModeOutput is the assumed denormal handling for the outputs of
+##     float. This should always be the same as as DefaultModeOutput for most
+##     targets.
+##
+##  \p FloatModeInput is the assumed denormal handling for the inputs of
+##     float. This should always be the same as as DefaultModeInput for most
+##     targets.
+##
+##
+
+proc createDenormalFPEnvAttribute*(
+  c: ContextRef,
+  defaultModeOutput: DenormalModeKind,
+  defaultModeInput: DenormalModeKind,
+  floatModeOutput: DenormalModeKind,
+  floatModeInput: DenormalModeKind,
+): AttributeRef {.importc: "LLVMCreateDenormalFPEnvAttribute", dynlib: LLVMLib.}
 
 ##
 ##  Create a string attribute.
@@ -1409,6 +1457,7 @@ proc setModuleInlineAsm*(
 ##
 ##    types:
 ##      integer type
+##      byte type
 ##      real type
 ##      function type
 ##      sequence types:
@@ -1464,6 +1513,28 @@ proc dumpType*(val: TypeRef) {.importc: "LLVMDumpType", dynlib: LLVMLib.}
 proc printTypeToString*(
   val: TypeRef
 ): cstring {.importc: "LLVMPrintTypeToString", dynlib: LLVMLib.}
+
+##
+##  @}
+##
+##
+##  @defgroup LLVMCCoreTypeByte Byte Types
+##
+##  Functions in this section operate on byte types.
+##
+##  @{
+##
+##
+##  Obtain a byte type from a context with specified bit width.
+##
+
+proc byteTypeInContext*(
+  c: ContextRef, numBits: cuint
+): TypeRef {.importc: "LLVMByteTypeInContext", dynlib: LLVMLib.}
+
+proc getByteTypeWidth*(
+  byteTy: TypeRef
+): cuint {.importc: "LLVMGetByteTypeWidth", dynlib: LLVMLib.}
 
 ##
 ##  @defgroup LLVMCCoreTypeInt Integer Types
@@ -2195,7 +2266,7 @@ proc getTargetExtTypeIntParam*(
 template for_Each_Value_Subclass*(`macro`: untyped): untyped =
   `macro`(argument)
 
-## !!!Ignored construct:  macro ( BasicBlock ) macro ( InlineAsm ) macro ( User ) macro ( Constant ) macro ( BlockAddress ) macro ( ConstantAggregateZero ) macro ( ConstantArray ) macro ( ConstantDataSequential ) macro ( ConstantDataArray ) macro ( ConstantDataVector ) macro ( ConstantExpr ) macro ( ConstantFP ) macro ( ConstantInt ) macro ( ConstantPointerNull ) macro ( ConstantStruct ) macro ( ConstantTokenNone ) macro ( ConstantVector ) macro ( ConstantPtrAuth ) macro ( GlobalValue ) macro ( GlobalAlias ) macro ( GlobalObject ) macro ( Function ) macro ( GlobalVariable ) macro ( GlobalIFunc ) macro ( UndefValue ) macro ( PoisonValue ) macro ( Instruction ) macro ( UnaryOperator ) macro ( BinaryOperator ) macro ( CallInst ) macro ( IntrinsicInst ) macro ( DbgInfoIntrinsic ) macro ( DbgVariableIntrinsic ) macro ( DbgDeclareInst ) macro ( DbgLabelInst ) macro ( MemIntrinsic ) macro ( MemCpyInst ) macro ( MemMoveInst ) macro ( MemSetInst ) macro ( CmpInst ) macro ( FCmpInst ) macro ( ICmpInst ) macro ( ExtractElementInst ) macro ( GetElementPtrInst ) macro ( InsertElementInst ) macro ( InsertValueInst ) macro ( LandingPadInst ) macro ( PHINode ) macro ( SelectInst ) macro ( ShuffleVectorInst ) macro ( StoreInst ) macro ( BranchInst ) macro ( IndirectBrInst ) macro ( InvokeInst ) macro ( ReturnInst ) macro ( SwitchInst ) macro ( UnreachableInst ) macro ( ResumeInst ) macro ( CleanupReturnInst ) macro ( CatchReturnInst ) macro ( CatchSwitchInst ) macro ( CallBrInst ) macro ( FuncletPadInst ) macro ( CatchPadInst ) macro ( CleanupPadInst ) macro ( UnaryInstruction ) macro ( AllocaInst ) macro ( CastInst ) macro ( AddrSpaceCastInst ) macro ( BitCastInst ) macro ( FPExtInst ) macro ( FPToSIInst ) macro ( FPToUIInst ) macro ( FPTruncInst ) macro ( IntToPtrInst ) macro ( PtrToIntInst ) macro ( SExtInst ) macro ( SIToFPInst ) macro ( TruncInst ) macro ( UIToFPInst ) macro ( ZExtInst ) macro ( ExtractValueInst ) macro ( LoadInst ) macro ( VAArgInst ) macro ( FreezeInst ) macro ( AtomicCmpXchgInst ) macro ( AtomicRMWInst ) macro ( FenceInst ) [NewLine]  clang-format on
+## !!!Ignored construct:  macro ( BasicBlock ) macro ( InlineAsm ) macro ( User ) macro ( Constant ) macro ( BlockAddress ) macro ( ConstantAggregateZero ) macro ( ConstantArray ) macro ( ConstantDataSequential ) macro ( ConstantDataArray ) macro ( ConstantDataVector ) macro ( ConstantExpr ) macro ( ConstantFP ) macro ( ConstantInt ) macro ( ConstantByte ) macro ( ConstantPointerNull ) macro ( ConstantStruct ) macro ( ConstantTokenNone ) macro ( ConstantVector ) macro ( ConstantPtrAuth ) macro ( GlobalValue ) macro ( GlobalAlias ) macro ( GlobalObject ) macro ( Function ) macro ( GlobalVariable ) macro ( GlobalIFunc ) macro ( UndefValue ) macro ( PoisonValue ) macro ( Instruction ) macro ( UnaryOperator ) macro ( BinaryOperator ) macro ( CallInst ) macro ( IntrinsicInst ) macro ( DbgInfoIntrinsic ) macro ( DbgVariableIntrinsic ) macro ( DbgDeclareInst ) macro ( DbgLabelInst ) macro ( MemIntrinsic ) macro ( MemCpyInst ) macro ( MemMoveInst ) macro ( MemSetInst ) macro ( CmpInst ) macro ( FCmpInst ) macro ( ICmpInst ) macro ( ExtractElementInst ) macro ( GetElementPtrInst ) macro ( InsertElementInst ) macro ( InsertValueInst ) macro ( LandingPadInst ) macro ( PHINode ) macro ( SelectInst ) macro ( ShuffleVectorInst ) macro ( StoreInst ) macro ( UncondBrInst ) macro ( CondBrInst ) macro ( IndirectBrInst ) macro ( InvokeInst ) macro ( ReturnInst ) macro ( SwitchInst ) macro ( UnreachableInst ) macro ( ResumeInst ) macro ( CleanupReturnInst ) macro ( CatchReturnInst ) macro ( CatchSwitchInst ) macro ( CallBrInst ) macro ( FuncletPadInst ) macro ( CatchPadInst ) macro ( CleanupPadInst ) macro ( UnaryInstruction ) macro ( AllocaInst ) macro ( CastInst ) macro ( AddrSpaceCastInst ) macro ( BitCastInst ) macro ( FPExtInst ) macro ( FPToSIInst ) macro ( FPToUIInst ) macro ( FPTruncInst ) macro ( IntToPtrInst ) macro ( PtrToIntInst ) macro ( SExtInst ) macro ( SIToFPInst ) macro ( TruncInst ) macro ( UIToFPInst ) macro ( ZExtInst ) macro ( ExtractValueInst ) macro ( LoadInst ) macro ( VAArgInst ) macro ( FreezeInst ) macro ( AtomicCmpXchgInst ) macro ( AtomicRMWInst ) macro ( FenceInst ) [NewLine]  clang-format on
 ##  @defgroup LLVMCCoreValueGeneral General APIs
 ##
 ##  Functions in this section work on all LLVMValueRef instances,
@@ -2322,9 +2393,10 @@ template declare_Value_Cast*(name: untyped): untyped =
 ## !!!Ignored construct:  LLVMIsA ## name ( LLVMValueRef Val ) ;
 ## Error: expected ';'!!!
 
-## !!!Ignored construct:  [NewLine] LLVM_FOR_EACH_VALUE_SUBCLASS ( LLVM_DECLARE_VALUE_CAST ) LLVMValueRef LLVMIsAMDNode ( LLVMValueRef Val ) ;
+## !!!Ignored construct:  [NewLine] LLVM_FOR_EACH_VALUE_SUBCLASS ( LLVM_DECLARE_VALUE_CAST ) ( LLVMValueRef LLVMIsABranchInst ( LLVMValueRef Val ) , Use LLVMIsAUncondBrInst/LLVMIsACondBrInst instead ) ;
 ## Error: did not expect [NewLine]!!!
 
+proc isAMDNode*(val: ValueRef): ValueRef {.importc: "LLVMIsAMDNode", dynlib: LLVMLib.}
 proc isAValueAsMetadata*(
   val: ValueRef
 ): ValueRef {.importc: "LLVMIsAValueAsMetadata", dynlib: LLVMLib.}
@@ -2580,6 +2652,41 @@ proc constIntOfStringAndSize*(
 ): ValueRef {.importc: "LLVMConstIntOfStringAndSize", dynlib: LLVMLib.}
 
 ##
+##  Obtain a constant value for a byte type.
+##
+##  The returned value corresponds to a llvm::ConstantByte.
+##
+##  @see llvm::ConstantByte::get()
+##
+##  @param ByteTy Byte type to obtain value of.
+##  @param N The value the returned instance should refer to.
+##
+
+proc constByte*(
+  byteTy: TypeRef, n: culonglong
+): ValueRef {.importc: "LLVMConstByte", dynlib: LLVMLib.}
+
+##
+##  Obtain a constant value for a byte of arbitrary precision.
+##
+##  @see llvm::ConstantByte::get()
+##
+
+proc constByteOfArbitraryPrecision*(
+  byteTy: TypeRef, numWords: cuint, words: ptr uint64
+): ValueRef {.importc: "LLVMConstByteOfArbitraryPrecision", dynlib: LLVMLib.}
+
+##
+##  Obtain a constant value for a byte parsed from a string with specified
+##  length.
+##  @see llvm::ConstantByte::get()
+##
+
+proc constByteOfStringAndSize*(
+  byteTy: TypeRef, text: cstring, sLen: csize_t, radix: uint8
+): ValueRef {.importc: "LLVMConstByteOfStringAndSize", dynlib: LLVMLib.}
+
+##
 ##  Obtain a constant value referring to a double floating point value.
 ##
 
@@ -2635,6 +2742,26 @@ proc constIntGetZExtValue*(
 proc constIntGetSExtValue*(
   constantVal: ValueRef
 ): clonglong {.importc: "LLVMConstIntGetSExtValue", dynlib: LLVMLib.}
+
+##
+##  Obtain the zero extended value for a byte constant value.
+##
+##  @see llvm::ConstantByte::getZExtValue()
+##
+
+proc constByteGetZExtValue*(
+  constantVal: ValueRef
+): culonglong {.importc: "LLVMConstByteGetZExtValue", dynlib: LLVMLib.}
+
+##
+##  Obtain the sign extended value for a byte constant value.
+##
+##  @see llvm::ConstantByte::getSExtValue()
+##
+
+proc constByteGetSExtValue*(
+  constantVal: ValueRef
+): clonglong {.importc: "LLVMConstByteGetSExtValue", dynlib: LLVMLib.}
 
 ##
 ##  Obtain the double value for an floating point constant value.
@@ -3444,25 +3571,25 @@ proc getIntrinsicID*(
 ): cuint {.importc: "LLVMGetIntrinsicID", dynlib: LLVMLib.}
 
 ##
-##  Get or insert the declaration of an intrinsic.  For overloaded intrinsics,
-##  parameter types must be provided to uniquely identify an overload.
+##  Get or insert the declaration of an intrinsic. For overloaded intrinsics,
+##  overload types must be provided to uniquely identify an overload.
 ##
 ##  @see llvm::Intrinsic::getOrInsertDeclaration()
 ##
 
 proc getIntrinsicDeclaration*(
-  `mod`: ModuleRef, id: cuint, paramTypes: ptr TypeRef, paramCount: csize_t
+  `mod`: ModuleRef, id: cuint, overloadTypes: ptr TypeRef, overloadCount: csize_t
 ): ValueRef {.importc: "LLVMGetIntrinsicDeclaration", dynlib: LLVMLib.}
 
 ##
-##  Retrieves the type of an intrinsic.  For overloaded intrinsics, parameter
+##  Retrieves the type of an intrinsic. For overloaded intrinsics, overload
 ##  types must be provided to uniquely identify an overload.
 ##
 ##  @see llvm::Intrinsic::getType()
 ##
 
 proc intrinsicGetType*(
-  ctx: ContextRef, id: cuint, paramTypes: ptr TypeRef, paramCount: csize_t
+  ctx: ContextRef, id: cuint, overloadTypes: ptr TypeRef, overloadCount: csize_t
 ): TypeRef {.importc: "LLVMIntrinsicGetType", dynlib: LLVMLib.}
 
 ##
@@ -3478,12 +3605,12 @@ proc intrinsicGetName*(
 ##  Deprecated: Use LLVMIntrinsicCopyOverloadedName2 instead.
 
 proc intrinsicCopyOverloadedName*(
-  id: cuint, paramTypes: ptr TypeRef, paramCount: csize_t, nameLength: ptr csize_t
+  id: cuint, overloadTypes: ptr TypeRef, overloadCount: csize_t, nameLength: ptr csize_t
 ): cstring {.importc: "LLVMIntrinsicCopyOverloadedName", dynlib: LLVMLib.}
 
 ##
 ##  Copies the name of an overloaded intrinsic identified by a given list of
-##  parameter types.
+##  overload types.
 ##
 ##  Unlike LLVMIntrinsicGetName, the caller is responsible for freeing the
 ##  returned string.
@@ -3496,8 +3623,8 @@ proc intrinsicCopyOverloadedName*(
 proc intrinsicCopyOverloadedName2*(
   `mod`: ModuleRef,
   id: cuint,
-  paramTypes: ptr TypeRef,
-  paramCount: csize_t,
+  overloadTypes: ptr TypeRef,
+  overloadCount: csize_t,
   nameLength: ptr csize_t,
 ): cstring {.importc: "LLVMIntrinsicCopyOverloadedName2", dynlib: LLVMLib.}
 
@@ -4984,11 +5111,9 @@ proc setSuccessor*(
 ) {.importc: "LLVMSetSuccessor", dynlib: LLVMLib.}
 
 ##
-##  Return if a branch is conditional.
+##  Return if an instruction is a conditional branch.
 ##
-##  This only works on llvm::BranchInst instructions.
-##
-##  @see llvm::BranchInst::isConditional
+##  Deprecated: Use LLVMIsACondBrInst instead.
 ##
 
 proc isConditional*(
@@ -4998,9 +5123,9 @@ proc isConditional*(
 ##
 ##  Return the condition of a branch instruction.
 ##
-##  This only works on llvm::BranchInst instructions.
+##  This only works on llvm::CondBrInst instructions.
 ##
-##  @see llvm::BranchInst::getCondition
+##  @see llvm::CondBrInst::getCondition
 ##
 
 proc getCondition*(
@@ -5010,9 +5135,9 @@ proc getCondition*(
 ##
 ##  Set the condition of a branch instruction.
 ##
-##  This only works on llvm::BranchInst instructions.
+##  This only works on llvm::CondBrInst instructions.
 ##
-##  @see llvm::BranchInst::setCondition
+##  @see llvm::CondBrInst::setCondition
 ##
 
 proc setCondition*(
@@ -5316,9 +5441,6 @@ proc setCurrentDebugLocation2*(
 ##  current debug location for the given builder.  If the builder has no current
 ##  debug location, this function is a no-op.
 ##
-##  @deprecated LLVMSetInstDebugLocation is deprecated in favor of the more general
-##              LLVMAddMetadataToInst.
-##
 ##  @see llvm::IRBuilder::SetInstDebugLocation()
 ##
 
@@ -5327,9 +5449,11 @@ proc setInstDebugLocation*(
 ) {.importc: "LLVMSetInstDebugLocation", dynlib: LLVMLib.}
 
 ##
-##  Adds the metadata registered with the given builder to the given instruction.
+##  Same as LLVMSetInstDebugLocation.
 ##
-##  @see llvm::IRBuilder::AddMetadataToInst()
+##  @deprecated Use the identical LLVMSetInstDebugLocation.
+##
+##  @see llvm::IRBuilder::SetInstDebugLocation()
 ##
 
 proc addMetadataToInst*(

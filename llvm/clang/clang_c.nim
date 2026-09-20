@@ -2,7 +2,6 @@
 ## Generated from clang/clang-c headers using c2nim
 
 import std/time_t
-type TimeT = Time
 
 type
   # Opaque handles to various things
