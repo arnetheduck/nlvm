@@ -64,6 +64,11 @@ when defined(staticLLVM):
   {.passL: "-lclangRewrite".}
   {.passL: "-lclangRewriteFrontend".}
   {.passL: "-lclangSema".}
+  {.passL: "-lclangScalableStaticAnalysisAnalyses".}
+  {.passL: "-lclangScalableStaticAnalysisCore".}
+  {.passL: "-lclangScalableStaticAnalysisFrontend".}
+  {.passL: "-lclangScalableStaticAnalysisSourceTransformation".}
+  {.passL: "-lclangScalableStaticAnalysisTool".}
   {.passL: "-lclangSerialization".}
   {.passL: "-lclangStaticAnalyzerCheckers".}
   {.passL: "-lclangStaticAnalyzerCore".}
@@ -77,6 +82,7 @@ when defined(staticLLVM):
   {.passL: "-lclangToolingRefactoring".}
   {.passL: "-lclangToolingSyntax".}
   {.passL: "-lclangTransformer".}
+  {.passL: "-lclangUnifiedSymbolResolution".}
   {.passL: "-l:libclang.a".}
 
   {.passL: "-Wl,--end-group".}
@@ -732,6 +738,7 @@ let
   attrAlign* = getEnumAttrKind("align")
   attrNonnull* = getEnumAttrKind("nonnull")
   attrNoalias* = getEnumAttrKind("noalias")
+  attrOptsize* = getEnumAttrKind("optsize")
 
 proc addFuncAttribute*(f: ValueRef, v: AttributeRef) =
   addAttributeAtIndex(f, cast[AttributeIndex](AttributeFunctionIndex), v)

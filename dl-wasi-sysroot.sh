@@ -2,7 +2,7 @@
 
 set -e
 
-MAJ="33"
+MAJ="34"
 MIN="0"
 SYSROOT=wasi-sysroot-$MAJ.$MIN+m
 SDK=wasi-sdk-$MAJ.$MIN-x86_64-windows # tar without symlinks!

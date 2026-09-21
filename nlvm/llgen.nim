@@ -98,10 +98,11 @@ type
     attrNoInline: AttributeRef
     attrNoReturn: AttributeRef
     attrNoUnwind: AttributeRef
-    attrNoOmitFP: AttributeRef
+    attrFPAll: AttributeRef
     attrCold: AttributeRef
     attrNonnull: AttributeRef
     attrNoalias: AttributeRef
+    attrOptsize: AttributeRef
 
     symbols: Table[int, LLValue]
     gmarkers: Table[int, llvm.ValueRef]
@@ -757,26 +758,26 @@ proc constInt1(g: LLGen, v: bool): llvm.ValueRef =
   llvm.constInt(g.int1Ty, v.culonglong, llvm.False)
 
 proc constInt8(g: LLGen, v: int8): ValueRef =
-  llvm.constInt(g.primitives[tyInt8], v.culonglong, llvm.False)
+  llvm.constInt(g.primitives[tyInt8], cast[uint8](v).culonglong, llvm.False)
 
 proc constUInt8(g: LLGen, v: uint8): ValueRef =
   llvm.constInt(g.primitives[tyUInt8], v.culonglong, llvm.False)
 
 proc constInt16(g: LLGen, v: int16): ValueRef =
-  llvm.constInt(g.primitives[tyInt16], v.culonglong, llvm.False)
+  llvm.constInt(g.primitives[tyInt16], cast[uint16](v).culonglong, llvm.False)
 
 proc constInt32(g: LLGen, v: int32): ValueRef =
-  llvm.constInt(g.primitives[tyInt32], v.culonglong, llvm.False)
+  llvm.constInt(g.primitives[tyInt32], cast[uint32](v).culonglong, llvm.False)
 
 proc constInt64(g: LLGen, v: int64): ValueRef =
-  llvm.constInt(g.primitives[tyInt64], v.culonglong, llvm.False)
+  llvm.constInt(g.primitives[tyInt64], cast[uint32](v).culonglong, llvm.False)
 
-proc constCInt(g: LLGen, val: int): llvm.ValueRef =
-  llvm.constInt(g.cintTy, val.culonglong, llvm.True)
+proc constCInt(g: LLGen, val: cint): llvm.ValueRef =
+  llvm.constInt(g.cintTy, cast[cuint](val).culonglong, llvm.False)
 
 proc constNimInt(g: LLGen, val: int64): llvm.ValueRef =
   # int64 because we could compile 64-bit programs on 32-bit
-  llvm.constInt(g.primitives[tyInt], val.culonglong, llvm.True)
+  llvm.constInt(g.primitives[tyInt], cast[uint64](val).culonglong, llvm.False)
 
 proc constNimInt(g: LLGen, val: Int128): llvm.ValueRef =
   g.constNimInt(val.toInt64())
@@ -1028,9 +1029,21 @@ proc buildNot(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
   g.b.buildZExt(cmp, v.typeOfX(), g.nn("zext", cmp))
 
 proc buildBitnot(g: LLGen, v: llvm.ValueRef): llvm.ValueRef =
-  g.b.buildXor(
-    v, llvm.constInt(v.typeOfX(), not culonglong(0), llvm.False), g.nn("bitnot", v)
-  )
+  let
+    ty = v.typeOfX()
+    rhs =
+      case ty.getIntTypeWidth()
+      of 8:
+        llvm.constInt(ty, not uint8(0), llvm.False)
+      of 16:
+        llvm.constInt(ty, not uint16(0), llvm.False)
+      of 32:
+        llvm.constInt(ty, not uint32(0), llvm.False)
+      of 64:
+        llvm.constInt(ty, not uint64(0), llvm.False)
+      else:
+        raiseAssert "unknown bit count"
+  g.b.buildXor(v, rhs, g.nn("bitnot", v))
 
 proc isLargeType(g: LLGen, t: llvm.TypeRef): bool =
   # Large types in loads and stores lead to inefficient codegen - "large" is a
@@ -4802,7 +4815,12 @@ proc addNimFunction(g: LLGen, sym: PSym): llvm.ValueRef =
 
   # This attribute hopefully works around
   # https://github.com/nim-lang/Nim/issues/10625
-  f.addFuncAttribute(g.attrNoOmitFP)
+  # It's also good for profiling - https://fedoraproject.org/wiki/Changes/fno-omit-frame-pointer
+  # has lots of links on this topic.
+  f.addFuncAttribute(g.attrFPAll)
+
+  if optOptimizeSize in sym.options:
+    f.addFuncAttribute(g.attrOptsize)
 
   if sym.name.s in [
     "sysFatal", "raiseOverflow", "raiseDivByZero", "raiseFloatInvalidOp",
@@ -8636,7 +8654,17 @@ proc genNodeIntLit(g: LLGen, n: PNode, load: bool): LLValue =
         # where `Q7` gets initialized..
         llvm.constReal(ty, n.intVal.cdouble)
       else:
-        llvm.constInt(ty, n.intVal.culonglong, llvm.False)
+        case ty.getIntTypeWidth()
+        of 8:
+          llvm.constInt(ty, uint8(n.intVal).culonglong, llvm.False)
+        of 16:
+          llvm.constInt(ty, uint16(n.intVal).culonglong, llvm.False)
+        of 32:
+          llvm.constInt(ty, uint32(n.intVal).culonglong, llvm.False)
+        of 64:
+          llvm.constInt(ty, uint64(n.intVal).culonglong, llvm.False)
+        else:
+          raiseAssert "unknown bit count"
 
   g.maybeConstPtr(n, v, load)
 
@@ -10379,10 +10407,11 @@ proc newLLGen(
     attrNoInline: lc.createEnumAttribute(llvm.attrNoInline, 0),
     attrNoReturn: lc.createEnumAttribute(llvm.attrNoReturn, 0),
     attrNoUnwind: lc.createEnumAttribute(llvm.attrNoUnwind, 0),
-    attrNoOmitFP: lc.createStringAttribute("no-frame-pointer-elim", "true"),
+    attrFPAll: lc.createStringAttribute("frame-pointer", "all"),
     attrCold: lc.createEnumAttribute(llvm.attrCold, 0),
     attrNonnull: lc.createEnumAttribute(llvm.attrNonnull, 0),
     attrNoalias: lc.createEnumAttribute(llvm.attrNoalias, 0),
+    attrOptsize: lc.createEnumAttribute(llvm.attrOptsize, 0),
     symbols: initTable[int, LLValue](),
     gmarkers: initTable[int, llvm.ValueRef](),
     markers: initTable[SigHash, llvm.ValueRef](),
@@ -10731,27 +10760,8 @@ proc runOptimizers(g: LLGen) =
       of LtoKind.Full:
         "lto-pre-link"
     level =
-      if g.config.isBpfTarget():
-        # The Nim system module is present while lowering, but must be dead
-        # stripped before BPF instruction selection. BPF defaults to size
-        # optimization unless the user supplies the normal --opt option.
-        if g.config.existsConfigVar("nlvm.bpf.opt"):
-          case g.config.getConfigVar("nlvm.bpf.opt").normalize
-          of "none":
-            "<O0>"
-          of "size":
-            "<Os>"
-          of "speed":
-            "<O3>"
-          else:
-            g.config.internalError(
-              "invalid --opt value (expected none, size, or speed)"
-            )
-            "<Os>"
-        else:
-          "<Os>"
-      elif optOptimizeSize in g.config.options:
-        "<Os>"
+      if optOptimizeSize in g.config.options:
+        "<O2>"
       elif optOptimizeSpeed in g.config.options:
         "<O3>"
       else:

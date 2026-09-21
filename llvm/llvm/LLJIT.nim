@@ -40,6 +40,10 @@
 ##  LLJIT instance. The client is not responsible for managing their lifetimes
 ##  after the function returns.
 ##
+##  FIXME: This method needs to be updated to take a JITLinkMemoryManager
+##         argument.
+##
+##
 
 type OrcLLJITBuilderObjectLinkingLayerCreatorFunction* =
   proc(ctx: pointer, es: OrcExecutionSessionRef, triple: cstring): OrcObjectLayerRef
