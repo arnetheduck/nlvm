@@ -610,12 +610,13 @@ template asRaw(arr: untyped, body: untyped): untyped =
       nil
   body
 
+func toBool*(b: bool): llvm.Bool =
+  if b: llvm.True else: llvm.False
+
 proc functionType*(
     returnType: TypeRef, paramTypes: openArray[TypeRef], isVarArg = false
 ): TypeRef =
-  asRaw(
-    paramTypes, functionType(returnType, p, n, if isVarArg: llvm.True else: llvm.False)
-  )
+  asRaw(paramTypes, functionType(returnType, p, n, isVarArg.toBool()))
 
 proc getParamTypes*(functionTy: TypeRef): seq[TypeRef] =
   result = newSeq[TypeRef](functionTy.countParamTypes())
@@ -623,14 +624,14 @@ proc getParamTypes*(functionTy: TypeRef): seq[TypeRef] =
     functionTy.getParamTypes(addr(result[0]))
 
 proc structTypeInContext*(
-    c: ContextRef, elementTypes: openArray[TypeRef], packed = False
+    c: ContextRef, elementTypes: openArray[TypeRef], packed = false
 ): TypeRef =
-  asRaw(elementTypes, structTypeInContext(c, p, n, packed))
+  asRaw(elementTypes, structTypeInContext(c, p, n, packed.toBool()))
 
 proc structSetBody*(
-    structTy: TypeRef, elementTypes: openArray[TypeRef], packed = False
+    structTy: TypeRef, elementTypes: openArray[TypeRef], packed = false
 ) =
-  asRaw(elementTypes, structSetBody(structTy, p, n, packed))
+  asRaw(elementTypes, structSetBody(structTy, p, n, packed.toBool()))
 
 proc getStructElementTypes*(structTy: TypeRef): seq[TypeRef] =
   result = newSeq[TypeRef](structTy.countStructElementTypes())
@@ -641,14 +642,14 @@ proc pointerType*(elementType: TypeRef): TypeRef =
   pointerType(elementType, 0)
 
 proc constStringInContext*(
-    c: ContextRef, s: string, dontNullTerminate = False
+    c: ContextRef, s: string, dontNullTerminate = false
 ): ValueRef =
-  constStringInContext(c, s, s.len.cuint, dontNullTerminate)
+  constStringInContext(c, s, s.len.cuint, dontNullTerminate.toBool())
 
 proc constStructInContext*(
-    c: ContextRef, constantVals: openArray[ValueRef], packed = False
+    c: ContextRef, constantVals: openArray[ValueRef], packed = false
 ): ValueRef =
-  asRaw(constantVals, constStructInContext(c, p, n, packed))
+  asRaw(constantVals, constStructInContext(c, p, n, packed.toBool()))
 
 proc constArray*(t: TypeRef, constantVals: openArray[ValueRef]): ValueRef =
   asRaw(constantVals, constArray(t, p, n))

@@ -209,7 +209,6 @@ template ptrBits(g: LLGen): untyped =
 proc llPassAsPtr(g: LLGen, s: PSym, retType: PType): bool
 proc llType(g: LLGen, typ: PType, deep = true): llvm.TypeRef
 proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef
-proc llTupleType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef
 proc llGenericSeqType(g: LLGen): llvm.TypeRef
 proc llOpenArrayType(g: LLGen): llvm.TypeRef
 proc llClosureType(g: LLGen): llvm.TypeRef
@@ -1196,7 +1195,6 @@ proc debugGetFile(g: LLGen, idx: FileIndex): llvm.MetadataRef =
   g.dfiles[int(idx)] = result
 
 proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef
-proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef
 proc debugMagicType(g: LLGen, name: string): llvm.MetadataRef
 
 proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
@@ -1229,10 +1227,8 @@ proc debugType(g: LLGen, typ: PType): llvm.MetadataRef =
   of tyUncheckedArray:
     let et = g.debugType(typ.elemType)
     g.d.dIBuilderCreateArrayType(0, 0, et, [g.d.dIBuilderGetOrCreateSubrange(0, -1)])
-  of tyObject:
+  of tyObject, tyTuple:
     g.debugStructType(typ)
-  of tyTuple:
-    g.debugTupleType(typ)
   of tySet:
     let bits = g.debugSize(typ)
     if bits <= 8 * 8:
@@ -1608,7 +1604,7 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
 
   # Create struct before setting body in case it's recursive
   result = g.d.dIBuilderCreateStructType(
-    df, name, df, line, g.debugSize(typ), 0, 0, nil, [], 0, nil, name
+    df, name, df, line, g.debugSize(ty), 0, 0, nil, [], 0, nil, name
   )
 
   g.dstructs[sig] = result
@@ -1630,72 +1626,47 @@ proc debugStructType(g: LLGen, typ: PType): llvm.MetadataRef =
   else:
     var mapper = FieldMapper(packed: tfPacked in typ.flags)
 
-    if typ[0] != nil:
-      let supTyp = typ[0].skipTypes(skipPtrs)
-      discard g.addField(mapper, g.llType(supTyp), supTyp)
+    if typ.kind == tyObject:
+      if typ[0] != nil:
+        let supTyp = typ[0].skipTypes(skipPtrs)
+        discard g.addField(mapper, g.llType(supTyp), supTyp)
 
-      let member = g.d.dIBuilderCreateMemberType(
-        result, "Sup", df, line, g.debugSize(supTyp), 0, 0, 0, g.debugType(supTyp)
-      )
-
-      members.add(member)
-    elif typ.hasMTypeField():
-      discard g.addField(mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
-      let
-        tnt = g.debugMagicType("TNimType")
-        tntp = g.d.dIBuilderCreatePointerType(tnt, g.ptrBits, g.ptrBits, "")
-        member = g.d.dIBuilderCreateMemberType(
-          result, "m_type", df, line, g.ptrBits, g.ptrBits, 0, 0, tntp
+        let member = g.d.dIBuilderCreateMemberType(
+          result, "Sup", df, line, g.debugSize(supTyp), 0, 0, 0, g.debugType(supTyp)
         )
 
-      members.add(member)
+        members.add(member)
+      elif typ.hasMTypeField():
+        discard g.addField(mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
+        let
+          tnt = g.debugMagicType("TNimType")
+          tntp = g.d.dIBuilderCreatePointerType(tnt, g.ptrBits, g.ptrBits, "")
+          member = g.d.dIBuilderCreateMemberType(
+            result, "m_type", df, line, g.ptrBits, g.ptrBits, 0, 0, tntp
+          )
 
-    g.debugStructFields(mapper, typ.n, result, members, typ, ty)
+        members.add(member)
 
-  g.d.nimDICompositeTypeSetTypeArray(result, g.d.dIBuilderGetOrCreateArray(members))
-
-proc debugTupleType(g: LLGen, typ: PType): llvm.MetadataRef =
-  if typ == nil:
-    return
-
-  let sig = hashType(typ, g.config)
-  if sig in g.dstructs:
-    return g.dstructs[sig]
-
-  let
-    name = g.llName(typ, sig)
-    (df, line) = g.debugGetLine(typ.sym)
-    ty = g.llType(typ)
-
-  # Create struct before setting body in case it's recursive
-  result = g.d.dIBuilderCreateStructType(
-    df, name, df, line, g.debugSize(ty), 0, 0, nil, [], 0, nil, name
-  )
-
-  g.dstructs[sig] = result
-
-  var members = newSeq[MetadataRef]()
-  for field in typ.kids:
-    if isEmptyType(field):
-      continue
-    let
-      mline =
-        if field.sym != nil:
-          cuint field.sym.info.line
-        else:
-          line
-      member = g.d.dIBuilderCreateMemberType(
-        result,
-        "tup" & $members.len(),
-        df,
-        mline,
-        g.debugSize(field),
-        0,
-        g.debugOffset(ty, members.len()),
-        0,
-        g.debugType(field),
-      )
-    members.add(member)
+      g.debugStructFields(mapper, typ.n, result, members, typ, ty)
+    else:
+      for tf in typ.kids:
+        if tf.isEmptyType():
+          continue
+        let
+          mline =
+            if tf.sym != nil:
+              cuint tf.sym.info.line
+            else:
+              line
+          element = g.addField(mapper, g.llType(tf), tf)
+          mname = "tup" & $members.len()
+          msize = g.debugSize(tf)
+          moffset = g.debugOffset(ty, element)
+          mdty = g.debugType(tf)
+          member = g.d.dIBuilderCreateMemberType(
+            result, mname, df, mline, msize, 0, moffset, 0, mdty
+          )
+        members.add(member)
 
   g.d.nimDICompositeTypeSetTypeArray(result, g.d.dIBuilderGetOrCreateArray(members))
 
@@ -1919,10 +1890,8 @@ proc llType(g: LLGen, typ: PType, deep = true): llvm.TypeRef =
     let et = g.llType(typ.elemType)
     let n = cuint(0)
     llvm.arrayType(et, n)
-  of tyObject:
+  of tyObject, tyTuple:
     g.llStructType(typ, deep)
-  of tyTuple:
-    g.llTupleType(typ, deep)
   of tySet:
     let size = g.config.getSize(typ).cuint
     if size <= 8:
@@ -2193,7 +2162,7 @@ proc addStructFields(
       if tailPad > maxABIAlignment:
         elements.add(llvm.arrayType(g.primitives[tyUInt8], cuint tailPad))
 
-      branch.structSetBody(recElements, llvm.False)
+      branch.structSetBody(recElements, false)
       branches.add(branch)
 
       maxAlign = max(maxAlign, recMapper.maxAlign)
@@ -2203,7 +2172,7 @@ proc addStructFields(
       storeTy = g.lc.structCreateNamed(storeName)
       storeFields = g.unionStore(branches)
       dl = g.m.getModuleDataLayout()
-    storeTy.structSetBody(storeFields, llvm.False)
+    storeTy.structSetBody(storeFields, false)
 
     discard g.addField(mapper, storeTy, dl.aBISizeOfType(storeTy).int, maxAlign) do(
       pad: int
@@ -2243,7 +2212,7 @@ proc headerType(g: LLGen, name: string): llvm.TypeRef =
         g.primitives[tyInt16],
         g.primitives[tyInt],
       ],
-      llvm.False,
+      false,
     )
 
     res
@@ -2253,12 +2222,43 @@ proc headerType(g: LLGen, name: string): llvm.TypeRef =
   else:
     nil
 
+proc checkIncomplete(g: LLGen, typ: PType, ty: llvm.TypeRef) =
+  if tfIncompleteStruct notin typ.flags:
+    let
+      nimSize = g.config.getSize(typ)
+      dl = g.m.getModuleDataLayout()
+      llvmSize = dl.aBISizeOfType(ty)
+      tname =
+        if typ.sym != nil:
+          if typ.sym.owner != nil:
+            typ.sym.owner.name.s & "." & typ.sym.name.s
+          else:
+            typ.sym.name.s
+        else:
+          $typ
+      info =
+        if typ.sym != nil:
+          typ.sym.info
+        else:
+          TLineInfo()
+    if nimSize != szUnknownSize:
+      doAssert nimSize.culonglong == llvmSize,
+        "Nim and LLVM disagree about type size for " & tname & ": " & $nimSize & " vs " &
+          $llvmSize
+    else:
+      g.config.message(
+        info,
+        hintUser,
+        "Using LLVM size on incomplete object - check ABI and mark with {.completeStruct.}: " &
+          tname & " = " & $llvmSize,
+      )
+
 proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
   if typ == nil:
     return
 
   let typ = typ.skipTypes(abstractPtrs)
-  assert typ.kind == tyObject
+  assert typ.kind in {tyObject, tyTuple}
 
   let sig = hashType(typ, g.config)
   if sig in g.types:
@@ -2293,21 +2293,31 @@ proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
 
   var
     elements = newSeq[TypeRef]()
-    mapper = FieldMapper(packed: tfPacked in typ.flags)
+    packed = tfPacked in typ.flags
+    mapper = FieldMapper(packed: packed)
 
-  if typ[0] != nil:
-    let
-      supTyp = typ[0].skipTypes(skipPtrs)
-      supTy = g.llType(supTyp)
-    discard g.addField(mapper, supTy, supTyp)
-    elements.add(g.llStructType(supTyp, deep)) # Sup
-  elif typ.hasMTypeField():
-    discard g.addField(mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
-    elements.add(g.ptrTy) # ptr TNimType
+  if typ.kind == tyObject:
+    if typ[0] != nil:
+      let
+        supTyp = typ[0].skipTypes(skipPtrs)
+        supTy = g.llType(supTyp)
+      discard g.addField(mapper, supTy, supTyp)
+      elements.add(g.llStructType(supTyp, deep)) # Sup
+    elif typ.hasMTypeField():
+      discard g.addField(mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
+      elements.add(g.ptrTy) # ptr TNimType
 
-  let packed = if tfPacked in typ.flags: llvm.True else: llvm.False
+    g.addStructFields(elements, mapper, typ.n, result)
+  else:
+    for tf in typ.kids:
+      if tf.isEmptyType():
+        continue
 
-  g.addStructFields(elements, mapper, typ.n, result)
+      let fieldTy = g.llType(tf)
+      let ep = addr elements
+      discard g.addField(mapper, fieldTy, tf) do(pad: int):
+        ep[].add(llvm.arrayType(g.primitives[tyUInt8], cuint pad))
+      elements.add(fieldTy)
 
   let
     size = g.config.getSize(typ)
@@ -2327,69 +2337,7 @@ proc llStructType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
     # allocator to work correctly it seems - investigate
     result.structSetBody([g.primitives[tyUInt8]], packed)
 
-  if tfIncompleteStruct notin typ.flags:
-    let
-      nimSize = g.config.getSize(typ)
-      llvmSize = dl.aBISizeOfType(result)
-      tname =
-        if typ.sym != nil:
-          if typ.sym.owner != nil:
-            typ.sym.owner.name.s & "." & typ.sym.name.s
-          else:
-            typ.sym.name.s
-        else:
-          $typ
-      info =
-        if typ.sym != nil:
-          typ.sym.info
-        else:
-          TLineInfo()
-    if nimSize != szUnknownSize:
-      doAssert nimSize.culonglong == llvmSize,
-        "Nim and LLVM disagree about type size for " & tname & ": " & $nimSize & " vs " &
-          $llvmSize
-    else:
-      g.config.message(
-        info,
-        hintUser,
-        "Using LLVM size on incomplete object - check ABI and mark with {.completeStruct.}: " &
-          tname & " = " & $llvmSize,
-      )
-
-proc llTupleType(g: LLGen, typ: PType, deep: bool): llvm.TypeRef =
-  if typ == nil:
-    return
-
-  let sig = hashType(typ, g.config)
-  if sig in g.types:
-    return g.types[sig]
-
-  let name = g.llName(typ, sig)
-
-  if sig in g.opaques:
-    result = g.opaques[sig]
-    if not deep:
-      return
-    g.opaques.del(sig)
-  else:
-    # Create struct before setting body in case it's recursive
-    result = structCreateNamed(g.lc, name)
-
-    if not deep:
-      g.opaques[sig] = result
-      return
-
-  g.types[sig] = result
-
-  var elements = newSeq[TypeRef]()
-  for tf in typ.kids:
-    if isEmptyType(tf):
-      continue
-    elements.add(g.llType(tf))
-
-  p("llTupleType " & $name & " " & $elements, typ, g.depth)
-
-  result.structSetBody(elements)
+  g.checkIncomplete(typ, result)
 
 proc genObjectInit(g: LLGen, typ: PType, v: llvm.ValueRef, setType: bool = true)
 proc localAlloca(
@@ -2619,10 +2567,13 @@ proc genMarker(g: LLGen, typ: PType, v, op: llvm.ValueRef) =
     if typ.n != nil and tfUnion notin typ.flags:
       g.genMarkerFields(mapper, typ.n, ty, v, op)
   of tyTuple:
+    var mapper = FieldMapper(packed: tfPacked in typ.flags)
     for i, tf in typ.ikids:
-      if isEmptyType(tf):
+      if tf.isEmptyType():
         continue
-      let gep = g.b.buildStructGEP2(ty, v, cuint i, g.nn("mk.tuple.field" & $i, v))
+      let
+        element = g.addField(mapper, g.llType(tf), tf)
+        gep = g.b.buildStructGEP2(ty, v, cuint element, g.nn("mk.tuple.field" & $i, v))
       g.genMarker(tf, gep, op)
   of tyRef, tySequence:
     let vl = g.b.buildLoad2(ty, v)
@@ -3014,7 +2965,7 @@ proc genTupleNodeInfoInit(g: LLGen, t: PType): llvm.ValueRef =
   let prefix = ".nodeinfo." & typName & "."
 
   for i, tf in t.ikids:
-    if isEmptyType(tf):
+    if tf.isEmptyType():
       continue
 
     let
@@ -3582,7 +3533,6 @@ proc fieldIndex(g: LLGen, typ: PType, sym: PSym): seq[FieldPath] =
         return @[FieldPath((typ.n, ty, 0, nil))] & s
     elif typ.hasMTypeField: # Skip m_type in inheritable root object
       discard g.addField(mapper, g.ptrTy, int(g.ptrBits div 8), int(g.ptrBits div 8))
-
   g.fieldIndexFields(mapper, typ.n, ty, sym, tfUnion in typ.flags)
 
 proc rootIndex(g: LLGen, typ: PType): seq[llvm.ValueRef] =
@@ -4081,9 +4031,11 @@ proc genObjectInit(g: LLGen, typ: PType, v: llvm.ValueRef, setType: bool) =
 
       discard g.b.buildStore(pname, tgt)
   of tyTuple:
+    var mapper = FieldMapper(packed: tfPacked in typ.flags)
     for i, tf in xtyp.ikids:
+      let element = g.addField(mapper, g.llType(tf), tf)
       if analyseObjectWithTypeField(tf) != frNone:
-        let gep = g.b.buildStructGEP2(ty, v, cuint i, g.nn("oi.field" & $i, v))
+        let gep = g.b.buildStructGEP2(ty, v, cuint element, g.nn("oi.field" & $i, v))
         g.genObjectInit(tf, gep)
   else:
     discard
@@ -4182,7 +4134,7 @@ proc genGlobal(g: LLGen, n: PNode, isConst: bool): LLValue =
   if isConst:
     # Map definitions are loader metadata. Keep a BPF map section writable even
     # when the source uses a global `let`; LLVM otherwise emits it read-only.
-    v.setGlobalConstant(if isBpfMap: llvm.False else: llvm.True)
+    v.setGlobalConstant(isBpfMap.toBool())
 
   if sym.kind in {skLet, skVar, skField, skForVar} and sym.alignment > 0:
     # Honor explicit alignment on the symbol
@@ -4377,10 +4329,13 @@ proc genReset(g: LLGen, typ: PType, v: LLValue) =
 
       g.genResetFields(mapper, typ.n, ty, v)
     of tyTuple:
+      var mapper = FieldMapper(packed: tfPacked in typ.flags)
       for i, tf in typ.ikids:
-        if isEmptyType(tf):
+        if tf.isEmptyType():
           continue
-        let gep = g.b.buildStructGEP2(ty, v, cuint i, g.nn("reset.field" & $i, v))
+        let
+          element = g.addField(mapper, g.llType(tf), tf)
+          gep = g.b.buildStructGEP2(ty, v, cuint element, g.nn("reset.field" & $i, v))
         g.callReset(tf, gep)
     of tyString, tyRef, tySequence:
       g.genRefAssign(v, constNull(ty))
@@ -4587,12 +4542,16 @@ proc genAssign(g: LLGen, typ: PType, dest, src, shallow: llvm.ValueRef) =
 
       g.genAssignFields(mapper, typ.n, ty, dest, src, shallow)
     of tyTuple:
+      var mapper = FieldMapper(packed: tfPacked in typ.flags)
       for i, tf in typ.ikids:
-        if isEmptyType(tf):
+        if tf.isEmptyType():
           continue
         let
-          gepd = g.b.buildStructGEP2(ty, dest, cuint i, g.nn("asgn.field" & $i, dest))
-          geps = g.b.buildStructGEP2(ty, src, cuint i, g.nn("asgn.field" & $i, src))
+          element = g.addField(mapper, g.llType(tf), tf)
+          gepd =
+            g.b.buildStructGEP2(ty, dest, cuint element, g.nn("asgn.field" & $i, dest))
+          geps =
+            g.b.buildStructGEP2(ty, src, cuint element, g.nn("asgn.field" & $i, src))
         g.callAssign(tf, gepd, geps, shallow)
     of tyString:
       let srcl = g.b.buildLoad2(ty, src)
@@ -6220,19 +6179,29 @@ proc genConstObjConstr(g: LLGen, n: PNode, orig, typ: PType): llvm.ValueRef =
 proc genConstTupleConstr(g: LLGen, n: PNode, typ: PType): llvm.ValueRef =
   let ty = g.llType(typ)
 
-  var vals = newSeq[llvm.ValueRef](ty.countStructElementTypes())
-  var j = 0
-  for i in 0 ..< n.len:
-    if isEmptyType(typ[i]):
+  var
+    mapper = FieldMapper(packed: tfPacked in typ.flags)
+    vals = newSeq[llvm.ValueRef](ty.countStructElementTypes())
+  for i, tf in typ.ikids:
+    if tf.isEmptyType():
       continue
-    vals[j] = g.genConstInitializer(
-      if n[i].kind == nkExprColonExpr:
-        n[i][1]
+
+    let
+      idx = g.addField(mapper, g.llType(tf), tf)
+      nf = n[i]
+    vals[idx] = g.genConstInitializer(
+      if nf.kind == nkExprColonExpr:
+        nf[1]
       else:
-        n[i],
-      typ[i],
+        nf,
+      tf,
     )
-    inc j
+
+  # Top up object with defaults - in particular, this fills in alignment and
+  # size padding
+  for i in 0 ..< vals.len:
+    if isNil(vals[i]):
+      vals[i] = llvm.constNull(ty.structGetTypeAtIndex(i.cuint))
 
   constNamedStruct(ty, vals)
 
@@ -9452,19 +9421,19 @@ proc genNodeChckRange(g: LLGen, n: PNode, load: bool): LLValue =
     ax = g.genNode(n[0], load) # Always generate the value to perform range check
     n0t = n[0].typ.skipTypes(abstractVarRange)
     dest = skipTypes(n.typ, abstractVar)
+    axl =
+      if not load:
+        g.buildLoadValue(g.llType(n0t), ax).v
+      else:
+        ax.v
 
   if optRangeCheck in g.f.options and dest.kind notin {tyUInt .. tyUInt64}:
     let
-      axl =
-        if not load:
-          g.buildLoadValue(g.llType(n0t), ax).v
-        else:
-          ax.v
       bx = g.genNode(n[1], true).v
       cx = g.genNode(n[2], true).v
     if n0t.kind in {tyUInt, tyUInt64}:
       let
-        a = g.buildTruncOrExt(ax.v, g.primitives[tyUInt64], n[0].typ)
+        a = g.buildTruncOrExt(axl, g.primitives[tyUInt64], n[0].typ)
         c = g.buildTruncOrExt(cx, ax.v.typeOfX, n[2].typ)
         cmp = g.b.buildICmp(llvm.IntUGT, a, c, g.nn("rng.ugt"))
       g.callRaise(cmp, "raiseRangeErrorNoArgs")
@@ -9497,18 +9466,20 @@ proc genNodeChckRange(g: LLGen, n: PNode, load: bool): LLValue =
           gt = g.b.buildICmp(llvm.IntSGT, a, c, g.nn("rng.c"))
           both = g.b.buildOr(lt, gt, g.nn("rng.or"))
         g.callRaise(both, "raiseRangeErrorI", [a, b, c])
+  let destTy = g.llType(dest)
 
-  let
-    destTy = g.llType(dest)
-    conv = g.buildTruncOrExt(ax.v, destTy, g.isUnsigned(n0t))
-  if load:
-    LLValue(v: conv, lode: ax.lode, storage: OnStack)
+  if destTy == ax.v.typeOfX():
+    ax
   else:
-    let res = LLValue(
-      v: g.localAlloca(dest, g.nn("chck.res", n)), lode: ax.lode, storage: OnStack
-    )
-    discard g.b.buildStore(conv, res.v)
-    res
+    let conv = g.buildTruncOrExt(axl, destTy, g.isUnsigned(n0t))
+    if load:
+      LLValue(v: conv, lode: ax.lode, storage: OnStack)
+    else:
+      let res = LLValue(
+        v: g.localAlloca(dest, g.nn("chck.res", n)), lode: ax.lode, storage: OnStack
+      )
+      discard g.b.buildStore(conv, res.v)
+      res
 
 proc genNodeStringToCString(g: LLGen, n: PNode): LLValue =
   let
@@ -9762,7 +9733,7 @@ proc getPersonalityFn(g: LLGen): ValueRef =
 proc getLandingPadTy(g: LLGen): TypeRef =
   if g.landingPadTy.isNil:
     g.landingPadTy = g.lc.structCreateNamed(g.nn("landingPadTy"))
-    g.landingPadTy.structSetBody([g.ptrTy, g.lc.int32TypeInContext()], False)
+    g.landingPadTy.structSetBody([g.ptrTy, g.lc.int32TypeInContext()], false)
 
   g.landingPadTy
 
@@ -10124,7 +10095,7 @@ proc genNodeBlockStmt(g: LLGen, n: PNode) =
 
 proc genNodeDiscardStmt(g: LLGen, n: PNode) =
   if n[0].kind != nkEmpty:
-    discard g.genNode(n[0], true)
+    discard g.genNode(n[0], false)
 
 proc genNodeStmtListExpr(g: LLGen, n: PNode, load: bool, dest: LLValue): LLValue =
   for s in n.sons[0 ..^ 2]:

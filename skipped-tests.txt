@@ -8,8 +8,6 @@ tests/async/tasync_traceback2.nim c # Assertion / reExitcodesDiffer
 tests/async/tasync_traceback.nim c # Unclassified / reExitcodesDiffer
 tests/avr/thello.nim c # Compiler/internal / reNimcCrash
 tests/casestmt/t7699.nim c # Unclassified / reMsgsDiffer | reExitcodesDiffer
-tests/ccgbugs2/t25294.nim c --mm:orc # LLVM IR / reNimcCrash
-tests/ccgbugs2/t25294.nim c --mm:refc # LLVM IR / reNimcCrash
 tests/ccgbugs2/t25459b.nim c -d:checkAbi # Linker / reNimcCrash
 tests/ccgbugs2/tcodegen.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/ccgbugs2/tinefficient_const_table.nim c # Unclassified / reCodeNotFound
@@ -39,6 +37,7 @@ tests/ccgbugs/tunsafeaddr.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/closure/ttimeinfo.nim c # Compiler/internal / reNimcCrash
 tests/codegen/titaniummangle.nim c --debugger:native --mangle:cpp # Unclassified / reCodeNotFound
 tests/codegen/titaniummangle.nim c --debugger:native # Unclassified / reCodeNotFound
+tests/compiler/t26218.nim c # Compiler/error / reNimcCrash
 tests/compiler/tasm2.nim c # Compiler/internal / reNimcCrash
 tests/compiler/tasm.nim c # Compiler/internal / reNimcCrash
 tests/compiler/tcmdlineclib.nim c # Compiler/error / reNimcCrash
@@ -107,7 +106,6 @@ tests/misc/t9710.nim c --debugger:native # Compiler/internal / reNimcCrash
 tests/misc/tcast.nim c # Linker / reNimcCrash
 tests/misc/tjoinable.nim c # Assertion / reExitcodesDiffer
 tests/misc/tnoforward.nim c # Compiler/error / reNimcCrash
-tests/misc/tparsecombnum.nim c # Struct ABI/size / reNimcCrash
 tests/misc/trunner.nim c # Assertion / reExitcodesDiffer
 tests/misc/trunner_special.nim c # Compiler/error / reExitcodesDiffer
 tests/misc/tsizeof3.nim c # Linker / reNimcCrash

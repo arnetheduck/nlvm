@@ -76,8 +76,7 @@ tests/ccgbugs/tmissingvolatile.nim c # Unclassified / reExitcodesDiffer
 tests/ccgbugs/tnoalias.nim c # Unclassified / reCodeNotFound
 tests/ccgbugs/tprogmem.nim c # Unclassified / reCodeNotFound
 tests/ccgbugs/tunsafeaddr.nim c # Pragmas/{.emit.} / reNimcCrash
-tests/ccgbugs2/t25294.nim c --mm:orc # Runtime Crash / reNimcCrash
-tests/ccgbugs2/t25294.nim c --mm:refc # Runtime Crash / reNimcCrash
+tests/ccgbugs2/t25294.nim c --mm:orc # Unclassified / reExitcodesDiffer
 tests/ccgbugs2/t25459b.nim c -d:checkAbi # Linker / reNimcCrash
 tests/ccgbugs2/tcodegen.nim c # Pragmas/{.emit.} / reNimcCrash
 tests/ccgbugs2/tinefficient_const_table.nim c # Unclassified / reCodeNotFound
@@ -185,7 +184,6 @@ tests/misc/t9710.nim c --debugger:native # Compiler/internal / reNimcCrash
 tests/misc/tcast.nim c # Linker / reNimcCrash
 tests/misc/tjoinable.nim c # Assertion / reExitcodesDiffer
 tests/misc/tnoforward.nim c # Compiler/error / reNimcCrash
-tests/misc/tparsecombnum.nim c # Struct ABI/size / reNimcCrash
 tests/misc/trunner.nim c # Compiler/error / reExitcodesDiffer
 tests/misc/trunner_special.nim c # Runtime Crash / reExitcodesDiffer
 tests/misc/tsemfold.nim c # Unclassified / reExitcodesDiffer
