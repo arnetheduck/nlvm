@@ -16,7 +16,7 @@ proc semanticPasses(g: ModuleGraph) =
   registerPass g, semPass
 
 const
-  NlvmVersion = "0.0.2"
+  NlvmVersion = "0.1.0"
   NlvmHash = gorge("git rev-parse HEAD").strip
   NimHash = gorge("git -C ../lib/nim rev-parse HEAD").strip
 
