@@ -6518,6 +6518,13 @@ proc genSingleVar(g: LLGen, v: PSym, vn, value: PNode) =
     let bx = g.genCallOrNode(vn, value, x)
     g.genAssignment(x, bx, v.typ, v.assignCopy)
 
+  if sfGlobal notin v.flags and x.v != nil:
+    # Local declarations need a debug intrinsic tied to their storage. The
+    # parameter path emits these in genFunctionWithBody; locals are allocated
+    # here, but without this record debuggers only see line tables and params.
+    g.debugUpdateLoc(vn)
+    g.debugVariable(v, x.v)
+
 proc genSingleVar(g: LLGen, a: PNode) =
   let v = a[0].sym
   if sfCompileTime in v.flags:
